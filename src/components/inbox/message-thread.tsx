@@ -296,14 +296,31 @@ export function MessageThread({
   // separate from the unread-reset effect so that incoming messages
   // arriving while the thread is open don't trigger a full refetch —
   // they only flip hasUnread, which only the reset effect listens to.
+  //
+  // LOCAL-FIRST: reads from IndexedDB immediately, then syncs from
+  // Supabase in the background for authoritative data.
   useEffect(() => {
     if (!conversationId) return;
 
-    const supabase = createClient();
     let cancelled = false;
 
     (async () => {
       setLoading(true);
+
+      // 1. Load from IndexedDB first (instant, works offline)
+      try {
+        const { getMessagesByConversation } = await import("@/lib/db");
+        const localMsgs = await getMessagesByConversation(conversationId);
+        if (!cancelled && localMsgs.length > 0) {
+          onMessagesLoadedRef.current(localMsgs);
+          setLoading(false);
+        }
+      } catch {
+        // IndexedDB might not be available
+      }
+
+      // 2. Fetch from Supabase in background (authoritative data)
+      const supabase = createClient();
 
       const { data, error } = await supabase
         .from("messages")
@@ -317,6 +334,31 @@ export function MessageThread({
         console.error("Failed to fetch messages:", error);
       } else {
         onMessagesLoadedRef.current(data ?? []);
+
+        // 3. Persist to IndexedDB for future offline access
+        try {
+          const { putMessages } = await import("@/lib/db");
+          const localMsgs = (data ?? []).map((m: Record<string, unknown>) => ({
+            id: m.id as string,
+            conversation_id: m.conversation_id as string,
+            sender_type: m.sender_type as "customer" | "agent" | "bot",
+            sender_id: (m.sender_id as string) || undefined,
+            content_type: m.content_type as "text" | "image" | "document" | "audio" | "video" | "location" | "template" | "interactive",
+            content_text: (m.content_text as string) || undefined,
+            media_url: (m.media_url as string) || undefined,
+            template_name: (m.template_name as string) || undefined,
+            message_id: (m.message_id as string) || undefined,
+            status: m.status as "sending" | "sent" | "delivered" | "read" | "failed",
+            created_at: m.created_at as string,
+            reply_to_message_id: (m.reply_to_message_id as string) || undefined,
+            interactive_reply_id: (m.interactive_reply_id as string) || undefined,
+            interactive_payload: m.interactive_payload as any || undefined,
+            ai_generated: (m.ai_generated as boolean) || undefined,
+          }));
+          await putMessages(localMsgs);
+        } catch {
+          // Best-effort persistence
+        }
       }
 
       if (!cancelled) setLoading(false);
@@ -489,6 +531,25 @@ export function MessageThread({
       onNewMessage(optimisticMsg);
       setReplyTo(null);
 
+      // Check if online — if offline, queue for later
+      const online = typeof navigator !== "undefined" && navigator.onLine;
+      if (!online) {
+        try {
+          const { queueTextMessage } = await import("@/lib/outbox/outbox");
+          await queueTextMessage({
+            tenantId: conversation.account_id || "",
+            conversationId: conversation.id,
+            contentText: text,
+            replyToMessageId: replyToId,
+          });
+          toast.info("Message queued — will send when online");
+        } catch (err) {
+          console.error("Failed to queue message:", err);
+          onUpdateMessage(tempId, { status: "failed" });
+        }
+        return;
+      }
+
       try {
         const res = await fetch("/api/whatsapp/send", {
           method: "POST",
@@ -519,8 +580,20 @@ export function MessageThread({
       } catch (err) {
         console.error("Failed to send message:", err);
         const reason = err instanceof Error ? err.message : "network error";
-        toast.error(`Failed to send: ${reason}`);
-        onUpdateMessage(tempId, { status: "failed" });
+        // Queue for retry on network failure
+        try {
+          const { queueTextMessage } = await import("@/lib/outbox/outbox");
+          await queueTextMessage({
+            tenantId: conversation.account_id || "",
+            conversationId: conversation.id,
+            contentText: text,
+            replyToMessageId: replyToId,
+          });
+          toast.info("Message queued — will retry when online");
+        } catch {
+          toast.error(`Failed to send: ${reason}`);
+          onUpdateMessage(tempId, { status: "failed" });
+        }
       }
     },
     [conversation, onNewMessage, onUpdateMessage]
@@ -553,6 +626,28 @@ export function MessageThread({
       onNewMessage(optimisticMsg);
       setReplyTo(null);
 
+      // Check if online — if offline, queue for later
+      const online = typeof navigator !== "undefined" && navigator.onLine;
+      if (!online) {
+        try {
+          const { queueMediaMessage } = await import("@/lib/outbox/outbox");
+          await queueMediaMessage({
+            tenantId: conversation.account_id || "",
+            conversationId: conversation.id,
+            messageType: payload.kind,
+            mediaUrl: payload.mediaUrl,
+            contentText: contentText,
+            filename: payload.filename,
+            replyToMessageId: payload.replyToId,
+          });
+          toast.info("Media message queued — will send when online");
+        } catch (err) {
+          console.error("Failed to queue media message:", err);
+          onUpdateMessage(tempId, { status: "failed" });
+        }
+        return;
+      }
+
       try {
         const res = await fetch("/api/whatsapp/send", {
           method: "POST",
@@ -584,9 +679,23 @@ export function MessageThread({
       } catch (err) {
         console.error("Failed to send media:", err);
         const reason = err instanceof Error ? err.message : "network error";
-        toast.error(`Failed to send: ${reason}`);
-        onUpdateMessage(tempId, { status: "failed" });
-        void deleteAccountMedia(CHAT_MEDIA_BUCKET, payload.path).catch(() => {});
+        // Queue for retry on network failure
+        try {
+          const { queueMediaMessage } = await import("@/lib/outbox/outbox");
+          await queueMediaMessage({
+            tenantId: conversation.account_id || "",
+            conversationId: conversation.id,
+            messageType: payload.kind,
+            mediaUrl: payload.mediaUrl,
+            contentText: contentText,
+            filename: payload.filename,
+            replyToMessageId: payload.replyToId,
+          });
+          toast.info("Media message queued — will retry when online");
+        } catch {
+          toast.error(`Failed to send: ${reason}`);
+          onUpdateMessage(tempId, { status: "failed" });
+        }
       }
     },
     [conversation, onNewMessage, onUpdateMessage],
@@ -611,6 +720,25 @@ export function MessageThread({
         reply_to_message_id: replyToId,
       };
       onNewMessage(optimisticMsg);
+
+      // Check if online — if offline, queue for later
+      const online = typeof navigator !== "undefined" && navigator.onLine;
+      if (!online) {
+        try {
+          const { queueInteractiveMessage } = await import("@/lib/outbox/outbox");
+          await queueInteractiveMessage({
+            tenantId: conversation.account_id || "",
+            conversationId: conversation.id,
+            payload,
+            replyToMessageId: replyToId,
+          });
+          toast.info("Interactive message queued — will send when online");
+        } catch (err) {
+          console.error("Failed to queue interactive message:", err);
+          onUpdateMessage(tempId, { status: "failed" });
+        }
+        return;
+      }
 
       try {
         const res = await fetch("/api/whatsapp/send", {
@@ -638,8 +766,20 @@ export function MessageThread({
       } catch (err) {
         console.error("Failed to send interactive message:", err);
         const reason = err instanceof Error ? err.message : "network error";
-        toast.error(`Failed to send: ${reason}`);
-        onUpdateMessage(tempId, { status: "failed" });
+        // Queue for retry on network failure
+        try {
+          const { queueInteractiveMessage } = await import("@/lib/outbox/outbox");
+          await queueInteractiveMessage({
+            tenantId: conversation.account_id || "",
+            conversationId: conversation.id,
+            payload,
+            replyToMessageId: replyToId,
+          });
+          toast.info("Interactive message queued — will retry when online");
+        } catch {
+          toast.error(`Failed to send: ${reason}`);
+          onUpdateMessage(tempId, { status: "failed" });
+        }
       }
     },
     [conversation, onNewMessage, onUpdateMessage],
@@ -690,6 +830,32 @@ export function MessageThread({
       };
       onNewMessage(optimisticMsg);
 
+      // Check if online — if offline, queue for later
+      const online = typeof navigator !== "undefined" && navigator.onLine;
+      if (!online) {
+        try {
+          const { queueTemplateMessage } = await import("@/lib/outbox/outbox");
+          await queueTemplateMessage({
+            tenantId: conversation.account_id || "",
+            conversationId: conversation.id,
+            renderedBody,
+            templateName: template.name,
+            templateLanguage: template.language || "en_US",
+            templateParams: values.body,
+            templateMessageParams: {
+              body: values.body,
+              headerText: values.headerText,
+              buttonParams: values.buttonParams,
+            },
+          });
+          toast.info("Template message queued — will send when online");
+        } catch (err) {
+          console.error("Failed to queue template message:", err);
+          onUpdateMessage(tempId, { status: "failed" });
+        }
+        return;
+      }
+
       try {
         const res = await fetch("/api/whatsapp/send", {
           method: "POST",
@@ -727,8 +893,27 @@ export function MessageThread({
       } catch (err) {
         console.error("Failed to send template:", err);
         const reason = err instanceof Error ? err.message : "network error";
-        toast.error(`Failed to send template: ${reason}`);
-        onUpdateMessage(tempId, { status: "failed" });
+        // Queue for retry on network failure
+        try {
+          const { queueTemplateMessage } = await import("@/lib/outbox/outbox");
+          await queueTemplateMessage({
+            tenantId: conversation.account_id || "",
+            conversationId: conversation.id,
+            renderedBody,
+            templateName: template.name,
+            templateLanguage: template.language || "en_US",
+            templateParams: values.body,
+            templateMessageParams: {
+              body: values.body,
+              headerText: values.headerText,
+              buttonParams: values.buttonParams,
+            },
+          });
+          toast.info("Template message queued — will retry when online");
+        } catch {
+          toast.error(`Failed to send template: ${reason}`);
+          onUpdateMessage(tempId, { status: "failed" });
+        }
       }
     },
     [conversation, onNewMessage, onUpdateMessage],

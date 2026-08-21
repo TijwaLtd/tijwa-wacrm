@@ -68,10 +68,17 @@ function LoginPageInner() {
     // back to /login — which looks like the page "just refreshing"
     // instead of signing in (issue #365). Mirrors the deliberate full
     // reload the invite-accept flow already uses in join/[token].
-    const destination = inviteToken
-      ? `/join/${encodeURIComponent(inviteToken)}`
-      : "/dashboard";
-    window.location.href = destination;
+
+    // For invite flow, go directly to join page
+    if (inviteToken) {
+      window.location.href = `/join/${encodeURIComponent(inviteToken)}`;
+      return;
+    }
+
+    // For normal login, go to dashboard - middleware will redirect to
+    // /onboarding if user has no workspaces, or /select-workspace if
+    // they have workspaces but no active cookie set
+    window.location.href = "/dashboard";
   };
 
   return (

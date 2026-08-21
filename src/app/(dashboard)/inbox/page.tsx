@@ -1,25 +1,42 @@
-"use client";
+'use client';
 
-import { Suspense, useState, useCallback, useEffect, useRef } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { useTranslations } from "next-intl";
-import { createClient } from "@/lib/supabase/client";
+import { Suspense, useState, useCallback, useEffect, useRef } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useTranslations } from 'next-intl';
+import { createClient } from '@/lib/supabase/client';
 import {
   CONVERSATION_SELECT,
   normalizeConversation,
-} from "@/lib/inbox/conversations";
-import type { Conversation, Message, Contact, ConversationStatus } from "@/types";
-import { useRealtime } from "@/hooks/use-realtime";
-import { ConversationList } from "@/components/inbox/conversation-list";
-import { MessageThread } from "@/components/inbox/message-thread";
-import { ContactSidebar } from "@/components/inbox/contact-sidebar";
-import { toast } from "sonner";
-import { WifiOff } from "lucide-react";
-import { cn } from "@/lib/utils";
+} from '@/lib/inbox/conversations';
+import type {
+  Conversation,
+  Message,
+  Contact,
+  ConversationStatus,
+} from '@/types';
+import type { LocalMessage, LocalConversation } from '@/lib/db';
+import { useRealtime } from '@/hooks/use-realtime';
+import { ConversationList } from '@/components/inbox/conversation-list';
+import { MessageThread } from '@/components/inbox/message-thread';
+import { ContactSidebar } from '@/components/inbox/contact-sidebar';
+import { SyncStatusIndicator } from '@/components/inbox/sync-status-indicator';
+import { toast } from 'sonner';
+import { WifiOff } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { useAuth } from '@/hooks/use-auth';
+import { useLocalSync } from '@/hooks/use-local-sync';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Button } from '@/components/ui/button';
+import { Building2, ChevronDown, Loader2 } from 'lucide-react';
 
 // Remembers the agent's show/hide choice for the desktop contact panel
 // across reloads and sessions (device-scoped, like the theme prefs).
-const CONTACT_PANEL_STORAGE_KEY = "wacrm:inbox:contact-panel-open";
+const CONTACT_PANEL_STORAGE_KEY = 'wacrm:inbox:contact-panel-open';
 
 // `useSearchParams` (the `?c=<id>` deep link below) requires a Suspense
 // boundary or the production build bails to CSR and errors out. Thin
@@ -33,15 +50,17 @@ export default function InboxPage() {
 }
 
 function InboxPageInner() {
-  const t = useTranslations("Inbox.page");
+  const t = useTranslations('Inbox.page');
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { workspaces, activeAccountId } = useAuth();
+  const { syncProgress, isSynced, outboxCount, triggerSync } = useLocalSync();
   /**
    * `?c=<id>` deep-link support. Used when landing here from the
    * dashboard's recent-conversations list so the right thread opens
    * automatically instead of showing the empty center panel.
    */
-  const deepLinkConvId = searchParams.get("c");
+  const deepLinkConvId = searchParams.get('c');
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversation, setActiveConversation] =
@@ -60,6 +79,13 @@ function InboxPageInner() {
    */
   const [resyncToken, setResyncToken] = useState(0);
 
+  // Multi-workspace: selected account filter (null = all workspaces)
+  const [workspaceFilter, setWorkspaceFilter] = useState<string | null>(null);
+  const [loadingConversations, setLoadingConversations] = useState(false);
+
+  // Determine if we should show workspace selector (user has multiple workspaces)
+  const showWorkspaceSelector = workspaces.length > 1;
+
   /**
    * Whether the desktop contact sidebar (tags / deals / notes) is shown.
    * Defaults to `true` (the historical behaviour) and is restored from
@@ -72,7 +98,7 @@ function InboxPageInner() {
   useEffect(() => {
     try {
       const stored = localStorage.getItem(CONTACT_PANEL_STORAGE_KEY);
-      if (stored !== null) setContactPanelOpen(stored === "true");
+      if (stored !== null) setContactPanelOpen(stored === 'true');
     } catch {
       // localStorage can throw in private-browsing / sandboxed contexts.
     }
@@ -134,14 +160,14 @@ function InboxPageInner() {
     try {
       const supabase = createClient();
       const { data, error } = await supabase
-        .from("conversations")
+        .from('conversations')
         .select(CONVERSATION_SELECT)
-        .eq("id", convId)
+        .eq('id', convId)
         .maybeSingle();
       if (error) {
         // Supabase errors have non-enumerable properties — log fields
         // explicitly so the console message isn't just `{}`.
-        console.error("Failed to hydrate conversation:", {
+        console.error('Failed to hydrate conversation:', {
           message: error.message,
           details: error.details,
           hint: error.hint,
@@ -162,7 +188,7 @@ function InboxPageInner() {
           return prev.map((c) =>
             c.id === fetched.id
               ? { ...c, contact: c.contact ?? fetched.contact }
-              : c,
+              : c
           );
         }
         return [fetched, ...prev];
@@ -190,9 +216,9 @@ function InboxPageInner() {
       // shared inbox even though the admin had it configured.
       // Resolve account_id via the profile and query by that.
       const { data: profile } = await supabase
-        .from("profiles")
-        .select("account_id")
-        .eq("user_id", user.id)
+        .from('profiles')
+        .select('account_id')
+        .eq('user_id', user.id)
         .maybeSingle();
       const accountId = profile?.account_id as string | undefined;
       if (!accountId) {
@@ -201,12 +227,12 @@ function InboxPageInner() {
       }
 
       const { data } = await supabase
-        .from("whatsapp_config")
-        .select("status")
-        .eq("account_id", accountId)
+        .from('whatsapp_config')
+        .select('status')
+        .eq('account_id', accountId)
         .maybeSingle();
 
-      setWhatsappConnected(data?.status === "connected");
+      setWhatsappConnected(data?.status === 'connected');
     };
 
     checkConnection();
@@ -217,7 +243,7 @@ function InboxPageInner() {
     (event: { eventType: string; new: Message; old: Partial<Message> }) => {
       const newMsg = event.new;
 
-      if (event.eventType === "INSERT") {
+      if (event.eventType === 'INSERT') {
         // Add to messages if it belongs to active conversation
         if (
           activeConversation &&
@@ -228,11 +254,21 @@ function InboxPageInner() {
             if (prev.some((m) => m.id === newMsg.id)) return prev;
             // Replace optimistic message if it exists
             const withoutOptimistic = prev.filter(
-              (m) => !m.id.startsWith("temp-")
+              (m) => !m.id.startsWith('temp-')
             );
             return [...withoutOptimistic, newMsg];
           });
         }
+
+        // Persist to IndexedDB for offline access
+        (async () => {
+          try {
+            const { putMessage } = await import('@/lib/db');
+            await putMessage({ ...newMsg } as LocalMessage);
+          } catch {
+            // Best-effort
+          }
+        })();
 
         // Update conversation list preview. We need to know *synchronously*
         // whether the conv is already in state to decide between patching
@@ -245,15 +281,15 @@ function InboxPageInner() {
               c.id === newMsg.conversation_id
                 ? {
                     ...c,
-                    last_message_text: newMsg.content_text ?? "",
+                    last_message_text: newMsg.content_text ?? '',
                     last_message_at: newMsg.created_at,
                     unread_count:
                       activeConversation?.id === newMsg.conversation_id
                         ? 0
                         : c.unread_count + 1,
                   }
-                : c,
-            ),
+                : c
+            )
           );
         } else {
           // First time we're seeing this conv: the conv-INSERT event
@@ -265,11 +301,39 @@ function InboxPageInner() {
         }
       }
 
-      if (event.eventType === "UPDATE") {
+      if (event.eventType === 'UPDATE') {
         // Update message status
         setMessages((prev) =>
           prev.map((m) => (m.id === newMsg.id ? { ...m, ...newMsg } : m))
         );
+
+        // Persist status update to IndexedDB
+        (async () => {
+          try {
+            const { updateMessage } = await import('@/lib/db');
+            await updateMessage(newMsg.id, { status: newMsg.status });
+          } catch {
+            // Best-effort
+          }
+        })();
+      }
+
+      if (event.eventType === 'DELETE') {
+        const oldId = event.old?.id;
+        if (oldId) {
+          // Remove from active messages if it's the current conversation
+          setMessages((prev) => prev.filter((m) => m.id !== oldId));
+
+          // Remove from IndexedDB
+          (async () => {
+            try {
+              const { deleteMessage } = await import('@/lib/db');
+              await deleteMessage(oldId);
+            } catch {
+              // Best-effort
+            }
+          })();
+        }
       }
     },
     [activeConversation, hydrateConversation]
@@ -284,7 +348,7 @@ function InboxPageInner() {
     }) => {
       const conv = event.new;
 
-      if (event.eventType === "INSERT") {
+      if (event.eventType === 'INSERT') {
         // Prepend immediately for snappy UX so the new conv shows in the
         // list right away, then hydrate to fill in the `contact` join
         // (realtime payloads never include joins). Skip both if we
@@ -296,10 +360,25 @@ function InboxPageInner() {
             return [conv, ...prev];
           });
           hydrateConversation(conv.id);
+
+          // Persist to IndexedDB
+          (async () => {
+            try {
+              const { putConversation } = await import('@/lib/db');
+              await putConversation({
+                ...conv,
+                contact_name: conv.contact?.name,
+                contact_phone: conv.contact?.phone,
+                contact_company: conv.contact?.company,
+              } as LocalConversation);
+            } catch {
+              // Best-effort
+            }
+          })();
         }
       }
 
-      if (event.eventType === "UPDATE") {
+      if (event.eventType === 'UPDATE') {
         if (knownConvIdsRef.current.has(conv.id)) {
           // If this UPDATE is for the conv the user is currently viewing,
           // suppress the incoming unread_count — the user is reading it
@@ -315,9 +394,24 @@ function InboxPageInner() {
                     ...conv,
                     unread_count: isActive ? 0 : conv.unread_count,
                   }
-                : c,
-            ),
+                : c
+            )
           );
+
+          // Persist to IndexedDB
+          (async () => {
+            try {
+              const { putConversation } = await import('@/lib/db');
+              await putConversation({
+                ...conv,
+                contact_name: conv.contact?.name,
+                contact_phone: conv.contact?.phone,
+                contact_company: conv.contact?.company,
+              } as LocalConversation);
+            } catch {
+              // Best-effort
+            }
+          })();
         } else {
           // UPDATE arrived before the INSERT (or after a missed INSERT)
           // — fetch the row so it surfaces with its contact joined. The
@@ -328,13 +422,37 @@ function InboxPageInner() {
 
         // Update active conversation if it changed
         if (activeConversation && conv.id === activeConversation.id) {
-          setActiveConversation((prev) =>
-            prev ? { ...prev, ...conv } : prev
-          );
+          setActiveConversation((prev) => (prev ? { ...prev, ...conv } : prev));
+        }
+      }
+
+      if (event.eventType === 'DELETE') {
+        const oldId = event.old?.id;
+        if (oldId) {
+          // Remove from conversations list
+          setConversations((prev) => prev.filter((c) => c.id !== oldId));
+
+          // If the deleted conversation was active, deselect it
+          if (activeConversation?.id === oldId) {
+            setActiveConversation(null);
+            setActiveContact(null);
+            setMessages([]);
+            router.replace('/inbox', { scroll: false });
+          }
+
+          // Remove from IndexedDB
+          (async () => {
+            try {
+              const { deleteConversation } = await import('@/lib/db');
+              await deleteConversation(oldId);
+            } catch {
+              // Best-effort
+            }
+          })();
         }
       }
     },
-    [activeConversation, hydrateConversation]
+    [activeConversation, hydrateConversation, router]
   );
 
   // Subscribe to realtime. The `isConnected` flag below feeds the
@@ -342,7 +460,7 @@ function InboxPageInner() {
   // WS was disconnected (laptop sleep, network blip, background-tab
   // throttle) are simply lost. We need a way to catch up.
   const { isConnected } = useRealtime({
-    channelName: "inbox-realtime",
+    channelName: 'inbox-realtime',
     onMessageEvent: handleMessageEvent,
     onConversationEvent: handleConversationEvent,
     enabled: true,
@@ -380,13 +498,13 @@ function InboxPageInner() {
    */
   useEffect(() => {
     const onVisibility = () => {
-      if (document.visibilityState === "visible") {
+      if (document.visibilityState === 'visible') {
         setResyncToken((n) => n + 1);
       }
     };
-    document.addEventListener("visibilitychange", onVisibility);
+    document.addEventListener('visibilitychange', onVisibility);
     return () => {
-      document.removeEventListener("visibilitychange", onVisibility);
+      document.removeEventListener('visibilitychange', onVisibility);
     };
   }, []);
 
@@ -436,8 +554,8 @@ function InboxPageInner() {
           if (match.unread_count > 0) {
             setConversations((prev) =>
               prev.map((c) =>
-                c.id === match.id ? { ...c, unread_count: 0 } : c,
-              ),
+                c.id === match.id ? { ...c, unread_count: 0 } : c
+              )
             );
           }
         }
@@ -467,10 +585,8 @@ function InboxPageInner() {
       // even if the realtime UPDATE is dropped.
       setConversations((prev) =>
         prev.map((c) =>
-          c.id === conv.id && c.unread_count > 0
-            ? { ...c, unread_count: 0 }
-            : c,
-        ),
+          c.id === conv.id && c.unread_count > 0 ? { ...c, unread_count: 0 } : c
+        )
       );
       // Record the selection on the deep-link ref BEFORE we change the
       // URL. The router.replace below flips `deepLinkConvId`, which can
@@ -498,9 +614,8 @@ function InboxPageInner() {
     // Clearing the ref lets the deep-link auto-selector fire again if
     // the user later visits /inbox?c=<same-id> — desirable UX.
     autoSelectedForDeepLinkRef.current = null;
-    router.replace("/inbox", { scroll: false });
+    router.replace('/inbox', { scroll: false });
   }, [router]);
-
 
   const handleMessagesLoaded = useCallback((loaded: Message[]) => {
     setMessages(loaded);
@@ -568,11 +683,18 @@ function InboxPageInner() {
       {whatsappConnected === false && (
         <div className="flex shrink-0 items-center justify-center gap-2 border-b border-amber-500/20 bg-amber-500/10 px-4 py-2">
           <WifiOff className="h-4 w-4 text-amber-400" />
-          <p className="text-xs text-amber-400">
-            {t("whatsappNotConnected")}
-          </p>
+          <p className="text-xs text-amber-400">{t('whatsappNotConnected')}</p>
         </div>
       )}
+
+      {/* Sync status bar — shows sync progress and outbox queue count */}
+      <div className="flex shrink-0 items-center justify-end border-b border-border bg-card px-4 py-1.5">
+        <SyncStatusIndicator
+          progress={syncProgress}
+          outboxCount={outboxCount}
+          onRetrySync={triggerSync}
+        />
+      </div>
 
       <div className="flex flex-1 overflow-hidden">
         {/* Left panel: Conversation list.
@@ -580,16 +702,62 @@ function InboxPageInner() {
             thread can occupy the full width. Always visible on lg+. */}
         <div
           className={cn(
-            "flex h-full flex-1 lg:flex-none",
-            hasActiveConv ? "hidden lg:flex" : "flex",
+            'flex h-full flex-1 lg:flex-none',
+            hasActiveConv ? 'hidden lg:flex' : 'flex'
           )}
         >
+          {/* Workspace filter header */}
+          {/* {showWorkspaceSelector && (
+            <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+              <DropdownMenu>
+                <DropdownMenuTrigger>
+                  <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs">
+                    <Building2 className="h-3.5 w-3.5" />
+                    {workspaceFilter === null ? (
+                      <span>All Workspaces</span>
+                    ) : (
+                      <span>{workspaces.find(w => w.account_id === workspaceFilter)?.account_name ?? "Workspace"}</span>
+                    )}
+                    <ChevronDown className="h-3 w-3" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-48">
+                  <DropdownMenuItem
+                    onClick={() => setWorkspaceFilter(null)}
+                    className={cn(
+                      "text-sm",
+                      workspaceFilter === null && "bg-muted text-primary"
+                    )}
+                  >
+                    All Workspaces
+                  </DropdownMenuItem>
+                  {workspaces.map((ws) => (
+                    <DropdownMenuItem
+                      key={ws.account_id}
+                      onClick={() => setWorkspaceFilter(ws.account_id)}
+                      className={cn(
+                        "text-sm",
+                        workspaceFilter === ws.account_id && "bg-muted text-primary"
+                      )}
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <span className="truncate">{ws.account_name}</span>
+                        <span className="text-xs text-muted-foreground capitalize">{ws.role}</span>
+                      </div>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+              {loadingConversations && <Loader2 className="h-3 w-3 animate-spin" />}
+            </div>
+          )} */}
           <ConversationList
             activeConversationId={activeConversation?.id ?? null}
             onSelect={handleSelectConversation}
             conversations={conversations}
             onConversationsLoaded={handleConversationsLoaded}
             resyncToken={resyncToken}
+            workspaceFilter={workspaceFilter}
           />
         </div>
 
@@ -605,8 +773,8 @@ function InboxPageInner() {
             on the right. Issue #165. */}
         <div
           className={cn(
-            "flex h-full min-w-0 flex-1 lg:flex",
-            hasActiveConv ? "flex" : "hidden lg:flex",
+            'flex h-full min-w-0 flex-1 lg:flex',
+            hasActiveConv ? 'flex' : 'hidden lg:flex'
           )}
         >
           <MessageThread

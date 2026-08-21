@@ -7,7 +7,7 @@
 //   - updates accounts.owner_user_id
 //
 // The atomic part lives in the `transfer_account_ownership`
-// SECURITY DEFINER RPC (migration 018). This route just validates
+// SECURITY DEFINER RPC (migration 047). This route just validates
 // shape and forwards.
 //
 // Why a separate endpoint instead of PATCH /members/[userId]?
@@ -83,6 +83,7 @@ export async function POST(request: Request) {
 
     const { error } = await ctx.supabase.rpc("transfer_account_ownership", {
       p_new_owner_user_id: newOwnerUserId,
+      p_account_id: ctx.accountId,
     });
 
     if (error) return rpcErrorToResponse(error);

@@ -18,20 +18,28 @@ import type {
 } from './types'
 
 // ------------------------------------------------------------
-// All client-side aggregation. RLS scopes every query to the
-// signed-in user automatically, so we never pass user_id explicitly
-// here. Perf is acceptable for the current scale (low thousands of
-// messages) — if a tenant's dataset outgrows this, we'd migrate the
-// heavy aggregations to SQL RPCs. Noted in the PR.
+// All client-side aggregation. Each query is scoped to the
+// active account via accountId parameter. RLS provides an
+// additional safety layer but we always filter explicitly.
+// Perf is acceptable for the current scale (low thousands of
+// messages) — if a tenant's dataset outgrows this, we'd migrate
+// the heavy aggregations to SQL RPCs. Noted in the PR.
 // ------------------------------------------------------------
 
 type DB = SupabaseClient
 
 // --- 1. Metric cards ---------------------------------------------------
 
-export async function loadMetrics(db: DB): Promise<MetricsBundle> {
+export async function loadMetrics(db: DB, accountId: string): Promise<MetricsBundle> {
   const todayStart = startOfLocalDay().toISOString()
   const yesterdayStart = daysAgoStart(1).toISOString()
+
+  // Get conversation IDs for this account first (messages don't have account_id)
+  const { data: convIds } = await db
+    .from('conversations')
+    .select('id')
+    .eq('account_id', accountId)
+  const conversationIds = (convIds ?? []).map((c: { id: string }) => c.id)
 
   const [
     openConvCur,
@@ -43,36 +51,46 @@ export async function loadMetrics(db: DB): Promise<MetricsBundle> {
     messagesToday,
     messagesYesterday,
   ] = await Promise.all([
-    db.from('conversations').select('id', { count: 'exact', head: true }).eq('status', 'open'),
+    db.from('conversations').select('id', { count: 'exact', head: true }).eq('account_id', accountId).eq('status', 'open'),
     db
       .from('conversations')
       .select('id', { count: 'exact', head: true })
+      .eq('account_id', accountId)
       .eq('status', 'open')
       .gte('created_at', todayStart),
     db
       .from('conversations')
       .select('id', { count: 'exact', head: true })
+      .eq('account_id', accountId)
       .eq('status', 'open')
       .gte('created_at', yesterdayStart)
       .lt('created_at', todayStart),
-    db.from('contacts').select('id', { count: 'exact', head: true }).gte('created_at', todayStart),
+    db.from('contacts').select('id', { count: 'exact', head: true }).eq('account_id', accountId).gte('created_at', todayStart),
     db
       .from('contacts')
       .select('id', { count: 'exact', head: true })
+      .eq('account_id', accountId)
       .gte('created_at', yesterdayStart)
       .lt('created_at', todayStart),
-    db.from('deals').select('value, status').eq('status', 'open'),
-    db
-      .from('messages')
-      .select('id', { count: 'exact', head: true })
-      .eq('sender_type', 'agent')
-      .gte('created_at', todayStart),
-    db
-      .from('messages')
-      .select('id', { count: 'exact', head: true })
-      .eq('sender_type', 'agent')
-      .gte('created_at', yesterdayStart)
-      .lt('created_at', todayStart),
+    db.from('deals').select('value, status').eq('account_id', accountId).eq('status', 'open'),
+    // Messages don't have account_id — scope through conversations
+    conversationIds.length > 0
+      ? db
+          .from('messages')
+          .select('id', { count: 'exact', head: true })
+          .eq('sender_type', 'agent')
+          .gte('created_at', todayStart)
+          .in('conversation_id', conversationIds)
+      : Promise.resolve({ count: 0, data: [], error: null }),
+    conversationIds.length > 0
+      ? db
+          .from('messages')
+          .select('id', { count: 'exact', head: true })
+          .eq('sender_type', 'agent')
+          .gte('created_at', yesterdayStart)
+          .lt('created_at', todayStart)
+          .in('conversation_id', conversationIds)
+      : Promise.resolve({ count: 0, data: [], error: null }),
   ])
 
   const openDealsRows = (openDeals.data ?? []) as { value: number | null }[]
@@ -103,12 +121,27 @@ export async function loadMetrics(db: DB): Promise<MetricsBundle> {
 
 export async function loadConversationsSeries(
   db: DB,
+  accountId: string,
   rangeDays: number,
 ): Promise<ConversationsSeriesPoint[]> {
   const start = daysAgoStart(rangeDays - 1).toISOString()
+
+  // First get conversation IDs for this account
+  const { data: convIds, error: convErr } = await db
+    .from('conversations')
+    .select('id')
+    .eq('account_id', accountId)
+  if (convErr) throw convErr
+
+  const conversationIds = (convIds ?? []).map((c: { id: string }) => c.id)
+  if (conversationIds.length === 0) {
+    return lastNDayKeys(rangeDays).map((day) => ({ day, incoming: 0, outgoing: 0 }))
+  }
+
   const { data, error } = await db
     .from('messages')
     .select('created_at, sender_type')
+    .in('conversation_id', conversationIds)
     .gte('created_at', start)
     .order('created_at', { ascending: true })
   if (error) throw error
@@ -130,10 +163,10 @@ export async function loadConversationsSeries(
 
 // --- 3. Pipeline donut -------------------------------------------------
 
-export async function loadPipelineDonut(db: DB): Promise<PipelineDonutData> {
+export async function loadPipelineDonut(db: DB, accountId: string): Promise<PipelineDonutData> {
   const [stagesRes, dealsRes] = await Promise.all([
-    db.from('pipeline_stages').select('id, name, color, pipeline_id, position').order('position'),
-    db.from('deals').select('stage_id, value, status').eq('status', 'open'),
+    db.from('pipeline_stages').select('id, name, color, pipeline_id, position').eq('account_id', accountId).order('position'),
+    db.from('deals').select('stage_id, value, status').eq('account_id', accountId).eq('status', 'open'),
   ])
 
   const stages =
@@ -169,16 +202,30 @@ export async function loadPipelineDonut(db: DB): Promise<PipelineDonutData> {
 
 // --- 4. Response time by day of week ----------------------------------
 
-export async function loadResponseTime(db: DB): Promise<ResponseTimeSummary> {
+export async function loadResponseTime(db: DB, accountId: string): Promise<ResponseTimeSummary> {
   // Pull the last 14 days of messages in one shot, then walk per
   // conversation to find each "first inbound" → "first subsequent
   // outbound" pair. 14 days gives us both "this week" + "last week"
   // with enough overlap if the user opens the dashboard late on a
   // Monday.
   const fourteenDaysAgo = daysAgoStart(13).toISOString()
+
+  // First get conversation IDs for this account
+  const { data: convIds, error: convErr } = await db
+    .from('conversations')
+    .select('id')
+    .eq('account_id', accountId)
+  if (convErr) throw convErr
+
+  const conversationIds = (convIds ?? []).map((c: { id: string }) => c.id)
+  if (conversationIds.length === 0) {
+    return { buckets: Array.from({ length: 7 }, (_, dow) => ({ dow, avgMinutes: null, samples: 0 })), thisWeekAvg: null, lastWeekAvg: null }
+  }
+
   const { data, error } = await db
     .from('messages')
     .select('conversation_id, sender_type, created_at')
+    .in('conversation_id', conversationIds)
     .gte('created_at', fourteenDaysAgo)
     .order('conversation_id', { ascending: true })
     .order('created_at', { ascending: true })
@@ -265,35 +312,51 @@ export async function loadResponseTime(db: DB): Promise<ResponseTimeSummary> {
 
 // --- 5. Activity feed --------------------------------------------------
 
-export async function loadActivity(db: DB, limit = 20): Promise<ActivityItem[]> {
+export async function loadActivity(db: DB, accountId: string, limit = 20): Promise<ActivityItem[]> {
   // Pull ~10 from each source (plenty of headroom after merge-sort),
   // then interleave by timestamp. The individual per-table limits
   // keep the payload small; the final limit is enforced after sort.
+
+  // First get conversation IDs for this account (for messages query)
+  const { data: convIds } = await db
+    .from('conversations')
+    .select('id')
+    .eq('account_id', accountId)
+  const conversationIds = (convIds ?? []).map((c: { id: string }) => c.id)
+
   const [msgs, contacts, deals, broadcasts, autoLogs] = await Promise.all([
-    db
-      .from('messages')
-      .select('id, content_text, sender_type, created_at, conversation_id, conversations(contact_id, contacts(name, phone))')
-      .eq('sender_type', 'customer')
-      .order('created_at', { ascending: false })
-      .limit(10),
+    // Messages scoped through conversations
+    conversationIds.length > 0
+      ? db
+          .from('messages')
+          .select('id, content_text, sender_type, created_at, conversation_id, conversations(contact_id, contacts(name, phone))')
+          .in('conversation_id', conversationIds)
+          .eq('sender_type', 'customer')
+          .order('created_at', { ascending: false })
+          .limit(10)
+      : Promise.resolve({ data: [], error: null }),
     db
       .from('contacts')
       .select('id, name, phone, created_at')
+      .eq('account_id', accountId)
       .order('created_at', { ascending: false })
       .limit(10),
     db
       .from('deals')
       .select('id, title, updated_at, stage:pipeline_stages(name)')
+      .eq('account_id', accountId)
       .order('updated_at', { ascending: false })
       .limit(10),
     db
       .from('broadcasts')
       .select('id, name, status, total_recipients, created_at')
+      .eq('account_id', accountId)
       .order('created_at', { ascending: false })
       .limit(5),
     db
       .from('automation_logs')
       .select('id, trigger_event, status, created_at, automation:automations(name), contact:contacts(name, phone)')
+      .eq('account_id', accountId)
       .order('created_at', { ascending: false })
       .limit(10),
   ])

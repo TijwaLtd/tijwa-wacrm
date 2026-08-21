@@ -4,9 +4,9 @@
 //   PATCH  — change a member's role.   Admin+.
 //   DELETE — remove a member.          Admin+.
 //
-// Both delegate to SECURITY DEFINER RPCs from migration 018:
-//   - set_member_role(p_user_id, p_new_role)
-//   - remove_account_member(p_user_id)
+// Both delegate to SECURITY DEFINER RPCs from migration 047:
+//   - set_member_role(p_user_id, p_account_id, p_new_role)
+//   - remove_account_member(p_user_id, p_account_id)
 //
 // The RPCs do the *real* authorisation work — caller must be
 // admin+, target must be in caller's account, target can't be the
@@ -25,7 +25,7 @@ import {
   RATE_LIMITS,
 } from "@/lib/rate-limit";
 
-// Map known SQLSTATEs from the RPCs (see migration 018) onto HTTP
+// Map known SQLSTATEs from the RPCs (see migration 047) onto HTTP
 // statuses. The `error.code` field is the SQLSTATE; the `message`
 // is the human-readable RAISE message we put in the migration.
 function rpcErrorToResponse(err: PostgrestError): NextResponse {
@@ -83,6 +83,7 @@ export async function PATCH(
 
     const { error } = await ctx.supabase.rpc("set_member_role", {
       p_user_id: userId,
+      p_account_id: ctx.accountId,
       p_new_role: role,
     });
 
@@ -109,13 +110,14 @@ export async function DELETE(
 
     const { userId } = await params;
 
-    const { data, error } = await ctx.supabase.rpc("remove_account_member", {
+    const { error } = await ctx.supabase.rpc("remove_account_member", {
       p_user_id: userId,
+      p_account_id: ctx.accountId,
     });
 
     if (error) return rpcErrorToResponse(error);
 
-    return NextResponse.json({ ok: true, newPersonalAccountId: data });
+    return NextResponse.json({ ok: true });
   } catch (err) {
     return toErrorResponse(err);
   }

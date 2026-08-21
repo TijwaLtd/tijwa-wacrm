@@ -24,6 +24,7 @@ export async function middleware(request: NextRequest) {
   )
 
   const { data: { user } } = await supabase.auth.getUser()
+  console.log('[middleware] getUser result:', { userId: user?.id, hasUser: !!user });
 
   // getUser() transparently refreshes an expired access token, which
   // ROTATES the refresh token and writes the new cookies onto
@@ -70,11 +71,65 @@ export async function middleware(request: NextRequest) {
   }
 
   // Protected pages - redirect to login if not authenticated
-  const protectedPaths = ['/dashboard', '/inbox', '/contacts', '/pipelines', '/broadcasts', '/automations', '/settings']
+  // Note: /login, /signup, /forgot-password are handled above (auth pages)
+  const protectedPaths = ['/dashboard', '/inbox', '/contacts', '/pipelines', '/broadcasts', '/automations', '/settings', '/onboarding', '/plans', '/select-workspace']
   if (!user && protectedPaths.some(path => request.nextUrl.pathname.startsWith(path))) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return withRefreshedCookies(NextResponse.redirect(url))
+  }
+
+  // Check for workspace membership when accessing protected pages
+  // Note: /onboarding is excluded from membership check - users without workspaces need to access it
+  const membershipProtectedPaths = protectedPaths.filter(path => path !== '/onboarding');
+  if (user && membershipProtectedPaths.some(path => request.nextUrl.pathname.startsWith(path))) {
+    // Use get_user_accounts RPC (SECURITY DEFINER) to bypass RLS recursion issue
+    const { data: userAccounts, error: rpcError } = await supabase.rpc('get_user_accounts', {
+      p_user_id: user.id,
+    });
+
+    if (rpcError) {
+      console.error('[middleware] get_user_accounts RPC error:', rpcError);
+    }
+
+    const memberships = userAccounts && userAccounts.length > 0 ? userAccounts : null;
+
+    if (!memberships || memberships.length === 0) {
+      // Only redirect to onboarding if not already there
+      if (request.nextUrl.pathname !== '/onboarding') {
+        const url = request.nextUrl.clone()
+        url.pathname = '/onboarding'
+        url.search = ''
+        return withRefreshedCookies(NextResponse.redirect(url))
+      }
+    } else {
+      // Has memberships - check for active account cookie
+      const activeAccount = request.cookies.get('wacrm_active_account')?.value
+      if (!activeAccount) {
+        // Only redirect to select-workspace if not already there
+        if (request.nextUrl.pathname !== '/select-workspace') {
+          const url = request.nextUrl.clone()
+          url.pathname = '/select-workspace'
+          url.search = ''
+          return withRefreshedCookies(NextResponse.redirect(url))
+        }
+      }
+    }
+  }
+
+  // If user has memberships and tries to access /onboarding directly, redirect to dashboard
+  if (user && request.nextUrl.pathname === '/onboarding') {
+    // Use get_user_accounts RPC to bypass RLS
+    const { data: userAccounts } = await supabase.rpc('get_user_accounts', {
+      p_user_id: user.id,
+    });
+
+    if (userAccounts && userAccounts.length > 0) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/dashboard'
+      url.search = ''
+      return withRefreshedCookies(NextResponse.redirect(url))
+    }
   }
 
   // API routes that need auth (not webhooks)

@@ -21,6 +21,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { WorkspaceBadge } from "@/components/shared/workspace-badge";
+import { getAllConversations, getConversationsByTenant, type LocalConversation } from "@/lib/db";
 
 interface ConversationListProps {
   activeConversationId: string | null;
@@ -34,6 +36,11 @@ interface ConversationListProps {
    * or the tab was throttled. Optional so existing callers keep working.
    */
   resyncToken?: number;
+  /**
+   * When set, fetch only conversations for this account_id.
+   * When null, fetch conversations from ALL workspaces via RPC.
+   */
+  workspaceFilter?: string | null;
 }
 
 const STATUS_COLORS: Record<ConversationStatus, string> = {
@@ -52,6 +59,7 @@ export function ConversationList({
   conversations,
   onConversationsLoaded,
   resyncToken = 0,
+  workspaceFilter = null,
 }: ConversationListProps) {
   const t = useTranslations("Inbox.conversationList");
   
@@ -91,31 +99,132 @@ export function ConversationList({
   });
 
   useEffect(() => {
-    const supabase = createClient();
     let cancelled = false;
 
     (async () => {
-      const { data, error } = await supabase
-        .from("conversations")
-        .select(CONVERSATION_SELECT)
-        .order("last_message_at", { ascending: false });
+      setLoading(true);
 
-      if (cancelled) return;
+      // 1. Load from IndexedDB first (instant, works offline)
+      try {
+        const localConvs = workspaceFilter === null
+          ? await getAllConversations()
+          : await getConversationsByTenant(workspaceFilter);
 
-      if (error) {
-        // Supabase errors have non-enumerable properties — log fields explicitly
-        console.error("Failed to fetch conversations:", {
-          message: error.message,
-          details: error.details,
-          hint: error.hint,
-          code: error.code,
-        });
-        setLoading(false);
-        return;
+        if (!cancelled && localConvs.length > 0) {
+          // Convert LocalConversation to Conversation for the callback
+          const asConversations: Conversation[] = localConvs.map((lc) => ({
+            id: lc.id,
+            user_id: lc.user_id,
+            account_id: lc.account_id ?? "",
+            contact_id: lc.contact_id,
+            status: lc.status,
+            assigned_agent_id: lc.assigned_agent_id,
+            last_message_text: lc.last_message_text,
+            last_message_at: lc.last_message_at,
+            unread_count: lc.unread_count,
+            created_at: lc.created_at,
+            updated_at: lc.updated_at,
+            contact: lc.contact_name
+              ? {
+                  id: lc.contact_id,
+                  user_id: lc.user_id,
+                  account_id: lc.account_id ?? "",
+                  name: lc.contact_name,
+                  phone: lc.contact_phone || "",
+                  company: lc.contact_company,
+                  created_at: lc.created_at,
+                  updated_at: lc.updated_at,
+                }
+              : undefined,
+          }));
+          onConversationsLoadedRef.current(asConversations);
+          setLoading(false);
+        }
+      } catch {
+        // IndexedDB might not be available (private browsing, etc.)
       }
 
-      onConversationsLoadedRef.current(normalizeConversations(data ?? []));
-      setLoading(false);
+      // 2. Fetch from Supabase in background (authoritative data)
+      const supabase = createClient();
+
+      try {
+        let convs: any[] = [];
+
+        if (workspaceFilter === null) {
+          // All workspaces mode - use RPC
+          const { data, error } = await supabase.rpc("get_user_conversations", {
+            p_user_id: (await supabase.auth.getUser()).data.user?.id,
+          });
+          if (error) {
+            console.error("Failed to fetch all conversations:", error);
+            if (cancelled) return;
+            setLoading(false);
+            return;
+          }
+          // RPC returns flat rows, normalize to conversation shape
+          convs = (data ?? []).map((c: any) => ({
+            id: c.id,
+            user_id: null,
+            account_id: c.account_id,
+            contact_id: c.contact_id,
+            status: c.status,
+            assigned_agent_id: c.assigned_agent_id,
+            last_message_text: c.last_message_text,
+            last_message_at: c.last_message_at,
+            unread_count: c.unread_count,
+            created_at: c.created_at,
+            updated_at: c.updated_at,
+            contact: c.contact_name ? {
+              id: c.contact_id,
+              name: c.contact_name,
+              phone: c.contact_phone,
+              company: c.contact_company,
+            } : undefined,
+          }));
+        } else {
+          // Single workspace mode - use RLS
+          const { data, error } = await supabase
+            .from("conversations")
+            .select(CONVERSATION_SELECT)
+            .eq("account_id", workspaceFilter)
+            .order("last_message_at", { ascending: false });
+
+          if (error) {
+            console.error("Failed to fetch conversations:", {
+              message: error.message,
+              details: error.details,
+              hint: error.hint,
+              code: error.code,
+            });
+            if (cancelled) return;
+            setLoading(false);
+            return;
+          }
+          convs = data ?? [];
+        }
+
+        if (cancelled) return;
+
+        // Update with authoritative server data
+        onConversationsLoadedRef.current(normalizeConversations(convs));
+        setLoading(false);
+
+        // 3. Persist to IndexedDB for future offline access
+        try {
+          const { putConversations } = await import("@/lib/db");
+          const localConvs: LocalConversation[] = normalizeConversations(convs).map((c) => ({
+            ...c,
+            contact_name: c.contact?.name,
+            contact_phone: c.contact?.phone,
+            contact_company: c.contact?.company,
+          }));
+          await putConversations(localConvs);
+        } catch {
+          // Best-effort persistence
+        }
+      } catch {
+        // Network error — the UI already has local data
+      }
     })();
 
     return () => {
@@ -124,7 +233,7 @@ export function ConversationList({
     // `resyncToken` is included so the parent can force a refetch when
     // the realtime channel reconnects or the tab regains focus — catches
     // up on any events sent while the WS was disconnected or throttled.
-  }, [resyncToken]);
+  }, [resyncToken, workspaceFilter]);
 
   // Tag definitions for the filter picker — loaded once so labels/colours
   // stay stable regardless of which conversations happen to be loaded.
@@ -474,9 +583,14 @@ function ConversationItem({
       {/* Content */}
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-2">
-          <span className="truncate text-sm font-medium text-foreground">
-            {displayName}
-          </span>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="truncate text-sm font-medium text-foreground">
+              {displayName}
+            </span>
+            {conversation.account_id && (
+              <WorkspaceBadge accountId={conversation.account_id} size="sm" />
+            )}
+          </div>
           <span className="shrink-0 text-[10px] text-muted-foreground">{timeAgo}</span>
         </div>
         <div className="mt-0.5 flex items-center justify-between gap-2">

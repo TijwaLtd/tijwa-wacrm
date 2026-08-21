@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { requireRole, toErrorResponse } from '@/lib/auth/account'
 
 /**
  * GET /api/flows/[id]/runs
@@ -8,10 +8,6 @@ import { createClient } from '@/lib/supabase/server'
  * event timeline embedded for each. Used by the run-history viewer
  * page (`/flows/[id]/runs`) to give the owner end-to-end visibility
  * into what the bot did with each customer.
- *
- * RLS does the ownership check (flow_runs has a `user_id` policy);
- * we also gate on the per-account beta flag so the route 404s for
- * non-beta accounts matching the rest of /api/flows.
  *
  * Limited to the 50 most recent runs. Pagination can come later;
  * the dashboard surface here is for debugging, not heavy querying.
@@ -22,20 +18,20 @@ export async function GET(
 ) {
   const { id } = await context.params
 
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  let ctx
+  try {
+    ctx = await requireRole('viewer')
+  } catch (err) {
+    return toErrorResponse(err)
   }
+  const { supabase, accountId } = ctx
 
-  // Confirm flow exists + caller owns it (RLS does this) before doing
-  // the run query — gives us a clean 404 instead of empty array.
+  // Confirm flow exists + belongs to active account.
   const { data: flow } = await supabase
     .from('flows')
     .select('id, name')
     .eq('id', id)
+    .eq('account_id', accountId)
     .maybeSingle()
   if (!flow) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })

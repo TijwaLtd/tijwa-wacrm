@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { supabaseAdmin } from '@/lib/flows/admin-client'
 
@@ -18,47 +17,22 @@ import { supabaseAdmin } from '@/lib/flows/admin-client'
  * gone; the "Beta" label in the UI is the only remaining signal.
  */
 
-async function requireOwnership(
-  flowId: string,
-): Promise<
-  | {
-      ok: true
-      userId: string
-      supabase: Awaited<ReturnType<typeof createClient>>
-    }
-  | { ok: false; status: number; body: { error: string } }
-> {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) {
-    return { ok: false, status: 401, body: { error: 'Unauthorized' } }
-  }
-  // RLS scopes this to the caller — a flow owned by another user
-  // returns null (404 below).
-  const { data: flow } = await supabase
-    .from('flows')
-    .select('id')
-    .eq('id', flowId)
-    .maybeSingle()
-  if (!flow) {
-    return { ok: false, status: 404, body: { error: 'Not found' } }
-  }
-  return { ok: true, userId: user.id, supabase }
-}
-
 export async function GET(
   _request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
   const { id } = await context.params
-  const guard = await requireOwnership(id)
-  if (!guard.ok) return NextResponse.json(guard.body, { status: guard.status })
-  const { supabase } = guard
+
+  let ctx
+  try {
+    ctx = await requireRole('viewer')
+  } catch (err) {
+    return toErrorResponse(err)
+  }
+  const { supabase, accountId } = ctx
 
   const [{ data: flow }, { data: nodes }] = await Promise.all([
-    supabase.from('flows').select('*').eq('id', id).maybeSingle(),
+    supabase.from('flows').select('*').eq('id', id).eq('account_id', accountId).maybeSingle(),
     supabase
       .from('flow_nodes')
       .select('*')
@@ -93,17 +67,13 @@ export async function PUT(
 ) {
   const { id } = await context.params
 
-  // Writes require at least `agent` — the RLS flows_update policy demands
-  // it, but this route mutates via the service-role client which bypasses
-  // RLS, so the role must be enforced here (a viewer passes ownership).
+  let accountId: string
   try {
-    await requireRole('agent')
+    const ctx = await requireRole('agent')
+    accountId = ctx.accountId
   } catch (err) {
     return toErrorResponse(err)
   }
-
-  const guard = await requireOwnership(id)
-  if (!guard.ok) return NextResponse.json(guard.body, { status: guard.status })
 
   const body = (await request.json().catch(() => null)) as PutBody | null
   if (!body) {
@@ -135,10 +105,12 @@ export async function PUT(
   if (body.fallback_policy !== undefined)
     flowPatch.fallback_policy = body.fallback_policy
 
+  // Critical: filter by account_id to prevent cross-account modifications
   const { error: updErr } = await admin
     .from('flows')
     .update(flowPatch)
     .eq('id', id)
+    .eq('account_id', accountId)
   if (updErr) {
     return NextResponse.json({ error: updErr.message }, { status: 500 })
   }
@@ -154,8 +126,10 @@ export async function PUT(
       return NextResponse.json({ error: delErr.message }, { status: 500 })
     }
     if (body.nodes.length > 0) {
+      const { randomUUID } = await import('crypto')
       const { error: insErr } = await admin.from('flow_nodes').insert(
         body.nodes.map((n) => ({
+          id: randomUUID(),
           flow_id: id,
           node_key: n.node_key,
           node_type: n.node_type,
@@ -173,7 +147,7 @@ export async function PUT(
   // Re-fetch and return the new state — the editor uses the response
   // to reconcile its local form state.
   const [{ data: flow }, { data: nodes }] = await Promise.all([
-    admin.from('flows').select('*').eq('id', id).maybeSingle(),
+    admin.from('flows').select('*').eq('id', id).eq('account_id', accountId).maybeSingle(),
     admin
       .from('flow_nodes')
       .select('*')
@@ -189,23 +163,21 @@ export async function DELETE(
 ) {
   const { id } = await context.params
 
-  // Writes require at least `agent` — see the PUT handler note. The
-  // service-role client below bypasses the agent-gated flows_delete RLS.
+  let accountId: string
   try {
-    await requireRole('agent')
+    const ctx = await requireRole('agent')
+    accountId = ctx.accountId
   } catch (err) {
     return toErrorResponse(err)
   }
-
-  const guard = await requireOwnership(id)
-  if (!guard.ok) return NextResponse.json(guard.body, { status: guard.status })
 
   // CASCADE on flow_nodes / flow_runs / flow_run_events handles the
   // children. Active runs end abruptly — there's no graceful "drain"
   // mechanism in v1, but that's intentional: deleting a flow is a
   // deliberate destructive action and the partial unique index will
   // free up the contact for new triggers immediately.
-  const { error } = await supabaseAdmin().from('flows').delete().eq('id', id)
+  // Critical: filter by account_id to prevent cross-account deletions
+  const { error } = await supabaseAdmin().from('flows').delete().eq('id', id).eq('account_id', accountId)
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }

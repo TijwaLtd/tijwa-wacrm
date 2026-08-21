@@ -39,10 +39,31 @@ export function QuickReplyPicker({
     setLoading(true);
     void (async () => {
       try {
+        // 1. Load from IndexedDB first (instant, works offline)
+        try {
+          const { getAllQuickReplies } = await import("@/lib/db");
+          const localQrs = await getAllQuickReplies();
+          if (!cancelled && localQrs.length > 0) {
+            setItems(localQrs);
+          }
+        } catch {
+          // IndexedDB might not be available
+        }
+
+        // 2. Fetch from Supabase in background
         const res = await fetch("/api/quick-replies", { cache: "no-store" });
         const data = await res.json().catch(() => ({}));
         if (!cancelled && res.ok) {
-          setItems((data.quick_replies as QuickReply[]) ?? []);
+          const serverItems = (data.quick_replies as QuickReply[]) ?? [];
+          setItems(serverItems);
+
+          // 3. Persist to IndexedDB for future offline access
+          try {
+            const { putQuickReplies } = await import("@/lib/db");
+            await putQuickReplies(serverItems);
+          } catch {
+            // Best-effort persistence
+          }
         }
       } finally {
         if (!cancelled) setLoading(false);

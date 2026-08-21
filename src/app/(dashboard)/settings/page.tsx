@@ -18,6 +18,8 @@ import { FieldsAndTagsPanel } from '@/components/settings/fields-and-tags-panel'
 import { DealsSettings } from '@/components/settings/deals-settings';
 import { MembersTab } from '@/components/settings/members-tab';
 import { ApiKeysSettings } from '@/components/settings/api-keys-settings';
+import { PlansSettings } from '@/components/settings/plans-settings';
+import { WorkspaceSettings } from '@/components/settings/workspace-settings';
 import {
   resolveSection,
   type SettingsSection,
@@ -80,6 +82,8 @@ function SettingsPageInner() {
     fields: <FieldsAndTagsPanel />,
     deals: <DealsSettings />,
     members: <MembersTab />,
+    workspace: <WorkspaceSettings />,
+    plans: <PlansSettings />,
     api: <ApiKeysSettings />,
   };
 

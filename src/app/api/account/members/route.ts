@@ -5,6 +5,8 @@
 // it (the Members tab is shown to admins+, but agents/viewers see
 // a read-only roster too).
 //
+// Uses account_memberships for tenancy (M:N model, post-047).
+//
 // Field visibility
 //   Sensitive fields (email) are returned only when the caller is
 //   admin+. Agents and viewers see name + avatar + role + joined
@@ -18,26 +20,35 @@ import { getCurrentAccount, toErrorResponse } from "@/lib/auth/account";
 import { canManageMembers, isAccountRole } from "@/lib/auth/roles";
 import type { AccountMember } from "@/types";
 
-interface ProfileRow {
+interface MemberRow {
   user_id: string;
   full_name: string | null;
   email: string | null;
   avatar_url: string | null;
-  account_role: string;
-  created_at: string;
+  role: string;
+  joined_at: string;
 }
 
 export async function GET() {
   try {
     const ctx = await getCurrentAccount();
 
-    // RLS on profiles allows reading any row whose account matches
-    // the caller's, so this query is naturally account-scoped.
+    // Use SSR client for join queries (service client lacks schema cache)
+    // RLS on account_memberships naturally scopes to the user's account
     const { data, error } = await ctx.supabase
-      .from("profiles")
-      .select("user_id, full_name, email, avatar_url, account_role, created_at")
+      .from("account_memberships")
+      .select(`
+        role,
+        joined_at,
+        user:user_id (
+          id,
+          full_name,
+          email,
+          avatar_url
+        )
+      `)
       .eq("account_id", ctx.accountId)
-      .order("created_at", { ascending: true });
+      .order("joined_at", { ascending: true });
 
     if (error) {
       console.error("[GET /api/account/members] fetch error:", error);
@@ -49,19 +60,18 @@ export async function GET() {
 
     const canSeeEmails = canManageMembers(ctx.role);
 
-    const members: AccountMember[] = (data as ProfileRow[]).flatMap((row) => {
-      // Defensive: the DB enum should never let an unknown role
-      // through, but if a migration ever broadens the enum without
-      // updating TS, skip the row rather than crash the page.
-      if (!isAccountRole(row.account_role)) return [];
+    const members: AccountMember[] = (data ?? []).flatMap((row) => {
+      const profile = row.user as any;
+      if (!profile?.id) return [];
+      if (!isAccountRole(row.role)) return [];
       return [
         {
-          user_id: row.user_id,
-          full_name: row.full_name ?? "",
-          email: canSeeEmails ? row.email : null,
-          avatar_url: row.avatar_url,
-          role: row.account_role,
-          joined_at: row.created_at,
+          user_id: profile.id,
+          full_name: profile.full_name ?? "",
+          email: canSeeEmails ? profile.email : null,
+          avatar_url: profile.avatar_url,
+          role: row.role as AccountMember["role"],
+          joined_at: row.joined_at,
         },
       ];
     });

@@ -1,6 +1,6 @@
 // ============================================================
 // Server-side account context — for API routes and server
-// components. Reads the caller's profile + account in one round
+// components. Reads the caller's membership + account in one round
 // trip and verifies role on demand.
 //
 // IMPORTANT: this module is server-only. It imports the Supabase
@@ -9,6 +9,13 @@
 // build time with the standard Next.js "You're importing a
 // component that needs `next/headers`" error — that's the
 // boundary check; we don't need the `server-only` package.
+//
+// M:N TENANCY MODEL:
+//   - profiles table is NOT used for tenancy (post-047 migration)
+//   - account_memberships is the SOLE source of truth for:
+//     - which accounts a user belongs to
+//     - what role they have in each account
+//   - wacrm_active_account cookie determines active account
 //
 // Calling convention
 // ------------------
@@ -25,11 +32,15 @@
 //   }
 // ============================================================
 
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { createClient as createServiceClient } from "@supabase/supabase-js";
 
 import { createClient } from "@/lib/supabase/server";
 import { hasMinRole, isAccountRole, type AccountRole } from "./roles";
+
+const ACTIVE_ACCOUNT_COOKIE = "wacrm_active_account";
 
 // ------------------------------------------------------------
 // Errors
@@ -81,24 +92,31 @@ export function toErrorResponse(err: unknown): NextResponse {
 export interface AccountContext {
   /** Supabase SSR client, RLS scoped to the calling user. */
   supabase: SupabaseClient;
+  /** Service role client, bypasses RLS. Use for membership queries. */
+  serviceClient: SupabaseClient;
   /** `auth.uid()` for the caller. Always defined when this resolves. */
   userId: string;
-  /** Caller's account_id from their profile row. */
+  /** Caller's account_id from account_memberships + cookie. */
   accountId: string;
-  /** Caller's role within their account. */
+  /** Caller's role within their account (from account_memberships). */
   role: AccountRole;
   /** Lightweight account meta — id + name. */
   account: { id: string; name: string };
 }
 
 /**
- * Resolve the caller's user + account + role in one round trip.
+ * Resolve the caller's user + account + role from account_memberships.
+ *
+ * Flow:
+ *   1. Get authenticated user
+ *   2. Read wacrm_active_account cookie for active account
+ *   3. Query account_memberships for user's role in that account
+ *   4. Fall back to first membership if no cookie set
+ *   5. Load account details
  *
  * Throws `UnauthorizedError` if there's no Supabase session.
- * Throws `ForbiddenError` if the profile is missing account
- * fields (shouldn't happen post-017 migration; defensive guard
- * against profile rows that pre-date the backfill or were
- * inserted by hand).
+ * Throws `ForbiddenError` if the user has no memberships
+ * (shouldn't happen for users who completed onboarding).
  *
  * Use `requireRole(min)` instead when the route also needs a
  * minimum-role check — it's a thin wrapper over this.
@@ -114,60 +132,75 @@ export async function getCurrentAccount(): Promise<AccountContext> {
     throw new UnauthorizedError();
   }
 
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("account_id, account_role")
-    .eq("user_id", user.id)
-    .maybeSingle();
+  // Get active account from cookie
+  const cookieStore = await cookies();
+  const activeAccountCookie = cookieStore.get(ACTIVE_ACCOUNT_COOKIE)?.value;
 
-  if (error) {
-    console.error("[getCurrentAccount] profile fetch error:", error);
+  // Use service role client to bypass RLS on account_memberships
+  // (direct queries cause infinite recursion in PostgreSQL RLS policies)
+  const serviceClient = createServiceClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+
+  // Get user's memberships
+  const { data: memberships, error: membershipErr } = await serviceClient
+    .from("account_memberships")
+    .select("account_id, role")
+    .eq("user_id", user.id)
+    .order("joined_at", { ascending: true });
+
+  if (membershipErr) {
+    console.error("[getCurrentAccount] membership fetch error:", membershipErr);
     throw new ForbiddenError("Could not load account context");
   }
-  if (!data || !data.account_id || !data.account_role) {
-    // Pre-migration profile, or a manual insert that skipped the
-    // signup trigger. The user is authenticated but the app has
-    // no way to scope their queries — treat as forbidden.
-    throw new ForbiddenError("Profile is not linked to an account");
-  }
-  if (!isAccountRole(data.account_role)) {
-    // The DB enum should make this impossible, but a future
-    // migration that broadens the enum without updating TS would
-    // hit this — surface it rather than silently widening.
-    throw new ForbiddenError(`Unknown account role: ${data.account_role}`);
+
+  if (!memberships || memberships.length === 0) {
+    // User has no workspace memberships — they need to complete onboarding
+    throw new ForbiddenError("User has no workspace membership");
   }
 
-  // Load the account with a plain point lookup by id rather than an
-  // embedded FK join (`account:accounts!inner(...)`). The embed forces
-  // PostgREST to resolve the profiles.account_id → accounts.id
-  // relationship from its schema cache; when that cache is stale — a
-  // common Supabase state right after a migration adds the FK, or when
-  // migrations are applied out of band — the embed fails hard with
-  // PGRST200 ("could not find a relationship … in the schema cache")
-  // and takes down the entire account context (issue #294). A lookup by
-  // id needs no relationship inference and is gated by the same accounts
-  // RLS, so it stays robust against cache staleness and older schemas.
+  // Determine which account to use
+  let accountId: string;
+  let role: AccountRole;
+
+  if (activeAccountCookie && memberships.some(m => m.account_id === activeAccountCookie)) {
+    // Cookie points to a valid membership
+    accountId = activeAccountCookie;
+    const membership = memberships.find(m => m.account_id === accountId)!;
+    role = membership.role;
+  } else {
+    // Fall back to first membership (oldest = likely their primary)
+    accountId = memberships[0].account_id;
+    role = memberships[0].role;
+  }
+
+  if (!isAccountRole(role)) {
+    throw new ForbiddenError(`Unknown account role: ${role}`);
+  }
+
+  // Load account details
   const { data: account, error: accountErr } = await supabase
     .from("accounts")
     .select("id, name")
-    .eq("id", data.account_id)
+    .eq("id", accountId)
     .maybeSingle();
 
   if (accountErr) {
     console.error("[getCurrentAccount] account fetch error:", accountErr);
     throw new ForbiddenError("Could not load account context");
   }
+
   if (!account) {
-    // account_id points at no readable account row — orphaned profile
-    // or an RLS gap. Same "can't scope this user" outcome as above.
-    throw new ForbiddenError("Profile is not linked to an account");
+    throw new ForbiddenError("Account not found");
   }
 
   return {
     supabase,
+    serviceClient,
     userId: user.id,
-    accountId: data.account_id,
-    role: data.account_role,
+    accountId,
+    role,
     account: { id: account.id, name: account.name },
   };
 }

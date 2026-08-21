@@ -57,6 +57,10 @@ import { CustomFieldsManager } from '@/components/contacts/custom-fields-manager
 import { useCan } from '@/hooks/use-can';
 import { GatedButton } from '@/components/ui/gated-button';
 import { useTranslations } from 'next-intl';
+import { useAuth } from '@/hooks/use-auth';
+import { WorkspaceBadge } from '@/components/shared/workspace-badge';
+import { Building2, ChevronDown } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 const PAGE_SIZE = 25;
 
@@ -69,6 +73,7 @@ export default function ContactsPage() {
   const supabase = createClient();
   const canEdit = useCan('send-messages');
   const canEditSettings = useCan('edit-settings');
+  const { workspaces } = useAuth();
 
   const [contacts, setContacts] = useState<ContactWithTags[]>([]);
   const [loading, setLoading] = useState(true);
@@ -77,6 +82,10 @@ export default function ContactsPage() {
   const [totalCount, setTotalCount] = useState(0);
   // Tag filter — contacts shown must have ANY of these tags (OR).
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+
+  // Multi-workspace filter
+  const [workspaceFilter, setWorkspaceFilter] = useState<string | null>(null);
+  const showWorkspaceSelector = workspaces.length > 1;
 
   // Modals
   const [formOpen, setFormOpen] = useState(false);
@@ -130,10 +139,34 @@ export default function ContactsPage() {
     const to = from + PAGE_SIZE - 1;
     const term = search.trim();
 
-    let contactRows: Contact[];
-    let count: number;
+    let contactRows: any[] = [];
+    let count = 0;
 
-    if (selectedTagIds.length > 0) {
+    if (workspaceFilter === null) {
+      // All workspaces mode - use RPC
+      const { data, error } = await supabase.rpc('get_user_contacts', {
+        p_user_id: (await supabase.auth.getUser()).data.user?.id,
+      });
+      if (seq !== fetchSeq.current) return;
+      if (error) {
+        console.error('[contacts] get_user_contacts RPC failed:', JSON.stringify(error), error.message, error.code, error.details, error.hint);
+        toast.error(t('toastFailedLoad'));
+        setLoading(false);
+        return;
+      }
+      let allContacts = (data ?? []) as any[];
+      // Apply search filter client-side
+      if (term) {
+        const lower = term.toLowerCase();
+        allContacts = allContacts.filter(c =>
+          c.name?.toLowerCase().includes(lower) ||
+          c.phone?.toLowerCase().includes(lower) ||
+          c.email?.toLowerCase().includes(lower)
+        );
+      }
+      count = allContacts.length;
+      contactRows = allContacts.slice(from, to + 1);
+    } else if (selectedTagIds.length > 0) {
       // Tag filter active — resolve it server-side (join + distinct +
       // windowed total count + pagination) so a tag covering many
       // contacts can't silently truncate the result or overflow an IN
@@ -157,6 +190,7 @@ export default function ContactsPage() {
       let query = supabase
         .from('contacts')
         .select('*', { count: 'exact' })
+        .eq('account_id', workspaceFilter)
         .order('created_at', { ascending: false })
         .range(from, to);
 
@@ -168,6 +202,7 @@ export default function ContactsPage() {
       const { data, count: exactCount, error } = await query;
       if (seq !== fetchSeq.current) return; // superseded by a newer fetch
       if (error) {
+        console.error('[contacts] direct query failed:', error);
         toast.error(t('toastFailedLoad'));
         setLoading(false);
         return;
@@ -207,7 +242,7 @@ export default function ContactsPage() {
 
     setContacts(enriched);
     setLoading(false);
-  }, [supabase, page, search, selectedTagIds, tagsMap, t]);
+  }, [supabase, page, search, selectedTagIds, tagsMap, t, workspaceFilter]);
 
   // Load-once-on-mount-ish data fetches. Each setter inside runs
   // inside an async promise completion (Supabase await), not
@@ -350,6 +385,46 @@ export default function ContactsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Workspace filter */}
+          {showWorkspaceSelector && (
+            <DropdownMenu>
+              <DropdownMenuTrigger className="flex h-9 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-sm text-muted-foreground hover:bg-muted data-[state=open]:bg-muted">
+                <Building2 className="h-4 w-4" />
+                {workspaceFilter === null ? (
+                  <span>All Workspaces</span>
+                ) : (
+                  <span>{workspaces.find(w => w.account_id === workspaceFilter)?.account_name ?? "Workspace"}</span>
+                )}
+                <ChevronDown className="h-3 w-3" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem
+                  onClick={() => { setWorkspaceFilter(null); setPage(0); }}
+                  className={cn(
+                    "text-sm",
+                    workspaceFilter === null && "bg-muted text-primary"
+                  )}
+                >
+                  All Workspaces
+                </DropdownMenuItem>
+                {workspaces.map((ws) => (
+                  <DropdownMenuItem
+                    key={ws.account_id}
+                    onClick={() => { setWorkspaceFilter(ws.account_id); setPage(0); }}
+                    className={cn(
+                      "text-sm",
+                      workspaceFilter === ws.account_id && "bg-muted text-primary"
+                    )}
+                  >
+                    <div className="flex items-center justify-between w-full">
+                      <span className="truncate">{ws.account_name}</span>
+                      <span className="text-xs text-muted-foreground capitalize">{ws.role}</span>
+                    </div>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
           {canEditSettings && (
             <Button
               variant="outline"
@@ -601,7 +676,14 @@ export default function ContactsPage() {
                     />
                   </TableCell>
                   <TableCell className="text-foreground font-medium">
-                    {contact.name || <span className="text-muted-foreground italic">{t('unnamed')}</span>}
+                    <div className="flex items-center gap-1.5">
+                      <span className="truncate">
+                        {contact.name || <span className="text-muted-foreground italic">{t('unnamed')}</span>}
+                      </span>
+                      {(contact as any).account_id && (
+                        <WorkspaceBadge accountId={(contact as any).account_id} size="sm" />
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="text-muted-foreground font-mono text-xs">
                     {contact.phone}

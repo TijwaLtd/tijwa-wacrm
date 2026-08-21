@@ -7,6 +7,14 @@
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- Fallback: create uuid_generate_v4 if not available (for some Supabase instances)
+CREATE OR REPLACE FUNCTION public.uuid_generate_v4()
+RETURNS UUID
+LANGUAGE SQL
+IMMUTABLE AS $$
+  SELECT gen_random_uuid()
+$$;
+
 -- ============================================================
 -- PROFILES
 -- ============================================================

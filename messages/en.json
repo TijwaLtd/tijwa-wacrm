@@ -136,6 +136,13 @@
     "page": {
       "whatsappNotConnected": "WhatsApp® is not connected. Go to Settings to connect your account."
     },
+    "syncStatus": {
+      "offline": "Offline",
+      "syncing": "Syncing...",
+      "synced": "Synced",
+      "retrySync": "Retry sync",
+      "queued": "queued"
+    },
     "conversationList": {
       "searchPlaceholder": "Search conversations...",
       "filterAll": "All",
@@ -202,6 +209,14 @@
       "addCaption": "Add a caption…",
       "removeAttachment": "Remove attachment",
       "moreActions": "More",
+      "actions": "Actions",
+      "actionDocument": "Document",
+      "actionPhoto": "Photos & videos",
+      "actionAudio": "Audio",
+      "actionInteractive": "Interactive message",
+      "actionQuickReply": "Quick replies",
+      "actionTemplate": "Template",
+      "actionAiDraft": "AI draft",
       "interactiveMessage": "Interactive message",
       "quickReplies": "Quick replies",
       "quickRepliesEmpty": "No quick replies yet. Add some in Settings → Quick replies.",
@@ -1534,6 +1549,8 @@
       "fields": "Fields & tags",
       "deals": "Deals & currency",
       "members": "Team members",
+      "workspace": "Workspace",
+      "plans": "Plans & billing",
       "api": "API keys"
     },
     "groups": {
@@ -1721,7 +1738,175 @@
       "addDoc": "Add document",
       "reindex": "Reindex",
       "reindexTooltip": "Re-embed all documents (e.g. after adding an embeddings key)",
-      "loading": "Loading…"
+      "loading": "Loading…",
+      "modeText": "Paste text",
+      "modeFile": "Upload file",
+      "uploadFile": "Document",
+      "fileRequired": "Please select a file to upload.",
+      "dropOrClick": "Drop a file here or click to browse",
+      "acceptedFormats": "PDF, DOCX, TXT, CSV, MD, TSV (max {max} MB)",
+      "removeFile": "Remove file"
     }
+  },
+  "Onboarding": {
+    "page": {
+      "titleCreate": "Create your workspace",
+      "descCreate": "Set up a workspace to manage your WhatsApp CRM",
+      "titleJoin": "Join a workspace",
+      "descJoin": "Enter an invite code to join an existing workspace",
+      "loading": "Loading..."
+    },
+    "workspace": {
+      "nameLabel": "Workspace name",
+      "namePlaceholder": "My Business",
+      "nameRequired": "Workspace name is required",
+      "nameMinLength": "Workspace name must be at least 2 characters",
+      "nameMaxLength": "Workspace name must be less than 63 characters",
+      "inviteCodeLabel": "Invite code",
+      "inviteCodePlaceholder": "Paste your invite code",
+      "inviteCodeRequired": "Invite code is required",
+      "createButton": "Create workspace",
+      "joinButton": "Join workspace",
+      "switchToJoin": "Have an invite code? Join a workspace",
+      "switchToCreate": "Create a new workspace instead",
+      "creating": "Creating...",
+      "joining": "Joining...",
+      "created": "Workspace created!",
+      "joined": "Joined workspace!",
+      "createError": "Failed to create workspace",
+      "joinError": "Failed to join workspace",
+      "duplicateError": "A workspace with this name already exists. Try a different name.",
+      "subdomainInfo": "Your workspace will be available at {subdomain}",
+      "stepDetailsTitle": "Name & logo",
+      "stepDetailsDesc": "Give your workspace a name and add a logo",
+      "stepReviewTitle": "Review and create",
+      "stepReviewDesc": "Confirm your workspace details",
+      "logoLabel": "Workspace logo",
+      "logoHint": "PNG, JPG or WebP up to 2MB (optional)",
+      "reviewNote": "You can change these settings later in workspace settings.",
+      "back": "Back",
+      "next": "Continue"
+    },
+    "editDialog": {
+      "title": "Edit workspace",
+      "nameLabel": "Workspace name",
+      "namePlaceholder": "My Business",
+      "save": "Save changes",
+      "saving": "Saving...",
+      "cancel": "Cancel",
+      "saved": "Workspace updated",
+      "saveError": "Failed to update workspace"
+    },
+    "plans": {
+      "title": "Choose your plan",
+      "desc": "Start free, upgrade when you're ready. No credit card required.",
+      "starter": {
+        "name": "Starter",
+        "price": "Free",
+        "description": "Perfect for small teams getting started",
+        "features": [
+          "{maxContacts} contacts",
+          "{maxTeam} team members",
+          "{maxBroadcasts} broadcasts/month",
+          "{maxAutomations} automations",
+          "Basic analytics"
+        ]
+      },
+      "pro": {
+        "name": "Pro",
+        "price": "{price}/month",
+        "description": "For growing teams with advanced needs",
+        "features": [
+          "{maxContacts} contacts",
+          "{maxTeam} team members",
+          "{maxBroadcasts} broadcasts/month",
+          "{maxAutomations} automations",
+          "Advanced analytics",
+          "Priority support"
+        ]
+      },
+      "enterprise": {
+        "name": "Enterprise",
+        "price": "Contact us",
+        "description": "For large organizations with custom needs",
+        "features": [
+          "Unlimited contacts",
+          "Unlimited team members",
+          "Unlimited broadcasts",
+          "Unlimited automations",
+          "Custom integrations",
+          "Dedicated support"
+        ]
+      },
+      "currentPlan": "Current plan",
+      "upgrade": "Upgrade",
+      "downgrade": "Downgrade",
+      "contactSales": "Contact sales",
+      "emailReminder": "We'll send you an email reminder before your trial ends",
+      "features": {
+        "maxContacts": "{count} contacts",
+        "maxTeam": "{count} team members",
+        "maxBroadcasts": "{count} broadcasts/month",
+        "maxAutomations": "{count} automations",
+        "unlimited": "Unlimited"
+      }
+    }
+  },
+  "WorkspaceSwitcher": {
+    "allWorkspaces": "All workspaces",
+    "createNew": "Create new workspace",
+    "active": "Active",
+    "unread": "{count} unread",
+    "switching": "Switching..."
+  },
+  "SelectWorkspace": {
+    "title": "Select a workspace",
+    "description": "Choose a workspace to continue, or create a new one.",
+    "noWorkspaces": "No workspaces yet",
+    "noWorkspacesDesc": "Create your first workspace to get started with WhatsApp CRM.",
+    "createWorkspace": "Create workspace",
+    "createNewWorkspace": "Create new workspace",
+    "active": "Active",
+    "loading": "Loading..."
+  },
+  "WorkspaceSettings": {
+    "title": "Workspace settings",
+    "description": "Manage your workspace name, branding, and membership.",
+    "editWorkspace": "Edit workspace",
+    "workspaceName": "Workspace name",
+    "workspaceNamePlaceholder": "My Business",
+    "subdomain": "Subdomain",
+    "subdomainInfo": "Your workspace is available at {subdomain}.wacrm.com",
+    "logoUrl": "Logo URL",
+    "logoUrlPlaceholder": "https://example.com/logo.png",
+    "accentColor": "Accent color",
+    "save": "Save changes",
+    "saving": "Saving...",
+    "saved": "Workspace settings saved",
+    "saveError": "Failed to save settings",
+    "dangerZone": "Danger zone",
+    "leaveWorkspace": "Leave workspace",
+    "leaveWorkspaceDesc": "You will lose access to this workspace and all its data.",
+    "leaveConfirm": "Are you sure you want to leave {name}?",
+    "leaving": "Leaving...",
+    "leave": "Leave workspace",
+    "leftSuccess": "You have left the workspace",
+    "deleteWorkspace": "Delete workspace",
+    "deleteWorkspaceDesc": "Permanently delete this workspace and all its data. This cannot be undone.",
+    "deleteConfirm": "Are you sure you want to delete {name}? All data will be permanently lost.",
+    "deleting": "Deleting...",
+    "delete": "Delete workspace",
+    "deleteError": "Failed to delete workspace",
+    "cannotDeleteWithMembers": "Cannot delete workspace with other members. Remove or transfer ownership first.",
+    "transferOwnership": "Transfer ownership",
+    "transferOwnershipDesc": "Transfer ownership to another member before deleting.",
+    "ownerOnly": "Owner only",
+    "memberCount": "{count} member",
+    "memberCount_plural": "{count} members",
+    "cancel": "Cancel",
+    "yourWorkspaces": "Your workspaces",
+    "yourWorkspacesDesc": "All workspaces you belong to and your role in each.",
+    "current": "Current",
+    "switchTo": "Switch"
   }
 }

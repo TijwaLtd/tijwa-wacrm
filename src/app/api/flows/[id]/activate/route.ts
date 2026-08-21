@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { supabaseAdmin } from '@/lib/flows/admin-client'
 import { validateFlowForActivation } from '@/lib/flows/validate'
@@ -24,23 +23,13 @@ export async function POST(
 ) {
   const { id } = await context.params
 
-  // Changing status (activate / draft / archive) is a write — the RLS
-  // flows_update policy requires `agent`, but the service-role client
-  // below bypasses RLS, so enforce the role here (a viewer passes the
-  // membership-only ownership check).
+  let ctx
   try {
-    await requireRole('agent')
+    ctx = await requireRole('agent')
   } catch (err) {
     return toErrorResponse(err)
   }
-
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const { supabase, accountId } = ctx
 
   const body = (await request.json().catch(() => null)) as
     | { status?: 'draft' | 'active' | 'archived' }
@@ -58,6 +47,7 @@ export async function POST(
     .from('flows')
     .select('id')
     .eq('id', id)
+    .eq('account_id', accountId)
     .maybeSingle()
   if (!existing) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -72,6 +62,7 @@ export async function POST(
         .from('flows')
         .select('name, trigger_type, trigger_config, entry_node_id')
         .eq('id', id)
+        .eq('account_id', accountId)
         .maybeSingle(),
       admin
         .from('flow_nodes')
@@ -106,10 +97,12 @@ export async function POST(
     }
   }
 
+  // Critical: filter by account_id to prevent cross-account status changes
   const { data: updated, error } = await admin
     .from('flows')
     .update({ status, updated_at: new Date().toISOString() })
     .eq('id', id)
+    .eq('account_id', accountId)
     .select()
     .maybeSingle()
   if (error) {

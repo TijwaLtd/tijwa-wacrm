@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { supabaseAdmin } from '@/lib/flows/admin-client'
 import { getFlowTemplate } from '@/lib/flows/templates'
@@ -14,26 +13,9 @@ import { getFlowTemplate } from '@/lib/flows/templates'
  * routes themselves are open.
  */
 
-async function requireUser(): Promise<
-  | { ok: true; userId: string; supabase: Awaited<ReturnType<typeof createClient>> }
-  | { ok: false; status: number; body: { error: string } }
-> {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) {
-    return { ok: false, status: 401, body: { error: 'Unauthorized' } }
-  }
-  return { ok: true, userId: user.id, supabase }
-}
-
 export async function GET() {
-  const guard = await requireUser()
-  if (!guard.ok) {
-    return NextResponse.json(guard.body, { status: guard.status })
-  }
-  const { supabase } = guard
+  const ctx = await requireRole('viewer')
+  const { supabase } = ctx
 
   const { data, error } = await supabase
     .from('flows')
@@ -49,32 +31,14 @@ export async function POST(request: Request) {
   // Creating a flow is a write — the RLS flows_insert policy requires
   // `agent`, but this route inserts via the service-role client which
   // bypasses RLS, so the role must be enforced here.
+  let accountId: string
+  let userId: string
   try {
-    await requireRole('agent')
+    const ctx = await requireRole('agent')
+    accountId = ctx.accountId
+    userId = ctx.userId
   } catch (err) {
     return toErrorResponse(err)
-  }
-
-  const guard = await requireUser()
-  if (!guard.ok) {
-    return NextResponse.json(guard.body, { status: guard.status })
-  }
-  const { userId, supabase } = guard
-
-  // Resolve the caller's account_id — `flows.account_id` is NOT NULL
-  // post-017, so an INSERT without it trips the not-null constraint
-  // even though the admin client below bypasses RLS.
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('account_id')
-    .eq('user_id', userId)
-    .single()
-  const accountId = profile?.account_id as string | undefined
-  if (!accountId) {
-    return NextResponse.json(
-      { error: 'Your profile is not linked to an account.' },
-      { status: 403 },
-    )
   }
 
   const body = (await request.json().catch(() => null)) as
@@ -128,8 +92,10 @@ export async function POST(request: Request) {
       )
     }
     if (template.nodes.length > 0) {
+      const { randomUUID } = await import('crypto')
       const { error: nodesErr } = await admin.from('flow_nodes').insert(
         template.nodes.map((n) => ({
+          id: randomUUID(),
           flow_id: flow.id,
           node_key: n.node_key,
           node_type: n.node_type,

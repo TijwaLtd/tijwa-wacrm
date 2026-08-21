@@ -88,10 +88,11 @@ export function WhatsAppConfig() {
   };
   const [registrationProbe, setRegistrationProbe] =
     useState<RegistrationProbe | null>(null);
+  const [subdomain, setSubdomain] = useState<string | null>(null);
 
   const webhookUrl =
-    typeof window !== 'undefined'
-      ? `${window.location.origin}/api/whatsapp/webhook`
+    typeof window !== 'undefined' && subdomain
+      ? `${window.location.origin}/api/webhook/${subdomain}`
       : '';
 
   const fetchConfig = useCallback(async (acctId: string) => {
@@ -181,6 +182,19 @@ export function WhatsAppConfig() {
     loadedAccountIdRef.current = accountId;
     fetchConfig(accountId);
   }, [authLoading, profileLoading, user?.id, accountId, fetchConfig]);
+
+  // Fetch subdomain for the slug-based webhook URL
+  useEffect(() => {
+    if (!accountId) return;
+    (async () => {
+      const { data } = await supabase
+        .from('accounts')
+        .select('subdomain')
+        .eq('id', accountId)
+        .single();
+      if (data?.subdomain) setSubdomain(data.subdomain);
+    })();
+  }, [accountId]);
 
   async function handleSave() {
     if (!phoneNumberId.trim()) {

@@ -21,120 +21,64 @@ import {
   type AccountRole,
 } from "@/lib/auth/roles";
 
+interface Workspace {
+  account_id: string;
+  account_name: string;
+  role: AccountRole;
+  joined_at: string;
+  plan?: string;
+  subscription_status?: string;
+  subdomain?: string | null;
+}
+
 interface Profile {
   id: string;
   full_name: string | null;
   email: string;
   avatar_url: string | null;
-  role: string | null;
-  /**
-   * Opted-in beta feature keys for this account. No current feature
-   * reads this — Flows was the last user and went to soft-GA in PR
-   * #134 — but the column survives for future beta gates.
-   */
   beta_features: string[];
-  account_id: string | null;
-  account_role: AccountRole | null;
 }
 
 interface AccountSummary {
   id: string;
   name: string;
-  /** Default deal currency (ISO-4217). NOT NULL DEFAULT 'USD' in the
-   *  DB (migration 021); narrowed to DEFAULT_CURRENCY when absent. */
   default_currency: string;
 }
 
-/**
- * Whether we managed to establish what this user may do.
- *
- * `unlinked` and `error` are the states worth surfacing: every RLS
- * policy checks `is_account_member(account_id, …)` and every `useCan`
- * gate returns false without a role, so in both the app silently
- * becomes read-only — the whole UI renders, and nothing saves. That is
- * indistinguishable from a bug unless we say so (issue #471).
- */
-export type AccountStatus =
-  /** Profile row still in flight. */
-  | "loading"
-  /** Account + role resolved; normal operation. */
-  | "ready"
-  /** Signed in, but no profile row / no account / no role on it. */
-  | "unlinked"
-  /** The profile lookup itself failed after retrying. */
-  | "error";
+export type AccountStatus = "loading" | "ready" | "unlinked" | "error";
 
 interface AuthContextValue {
   user: User | null;
   profile: Profile | null;
-  /**
-   * Session-level loading. Flips to false as soon as we know whether
-   * a user is signed in, *without* waiting for the profile row. Use
-   * this for chrome (sidebar / header) that can render with just the
-   * user object.
-   */
   loading: boolean;
-  /**
-   * Profile-row loading. Stays true until `fetchProfile` settles
-   * (success, missing row, or error). Code that branches on
-   * `profile.beta_features` MUST gate on this — otherwise it sees the
-   * `{ loading: false, profile: null }` window during initial load
-   * and may take the "not opted in" branch incorrectly.
-   */
   profileLoading: boolean;
   signOut: () => Promise<void>;
-  /** Re-fetch the current user's profile row — call after a save from
-   *  the settings form so header/sidebar reflect the change without a
-   *  full page reload. */
   refreshProfile: () => Promise<void>;
 
-  // ----------------------------------------------------------
-  // Account-scoped context (added by the account-sharing series)
-  //
-  // All of these are nullable until `profileLoading` is false.
-  // After the profile resolves they're guaranteed to be set,
-  // because migration 017 made `account_id` / `account_role`
-  // NOT NULL on `profiles`.
-  // ----------------------------------------------------------
+  // Multi-workspace
+  workspaces: Workspace[];
+  activeAccountId: string | null;
+  activeWorkspace: Workspace | null;
+  switchWorkspace: (accountId: string) => Promise<void>;
 
-  /**
-   * Outcome of resolving this user's account + role. Anything other
-   * than `ready` means writes will be rejected — render
-   * `<AccountAccessAlert />` (already mounted in the dashboard shell)
-   * rather than letting the user discover it one failed save at a time.
-   */
+  // Account-scoped (derived from active workspace)
   accountStatus: AccountStatus;
-  /** Underlying message when `accountStatus` is 'error' / 'unlinked'. */
   accountStatusDetail: string | null;
-  /** Account id the current user belongs to. Null while loading. */
   accountId: string | null;
-  /** Role within that account. Null while loading. */
   accountRole: AccountRole | null;
-  /** Lightweight account meta — id + name + default_currency. Null while loading. */
   account: AccountSummary | null;
-  /** Account default deal currency. Falls back to DEFAULT_CURRENCY
-   *  while loading or when no account is resolved, so callers can use
-   *  it unconditionally. */
   defaultCurrency: string;
-  /** True if `accountRole === 'owner'`. */
   isOwner: boolean;
-  /** True if `accountRole === 'admin'` (does NOT include owner — use canManageMembers for "admin or above"). */
   isAdmin: boolean;
-  /** True if `accountRole === 'agent'`. */
   isAgent: boolean;
-  /** True if `accountRole === 'viewer'`. */
   isViewer: boolean;
-  /** True if the caller can manage members (admin+). */
   canManageMembers: boolean;
-  /** True if the caller can edit account-wide settings (admin+). */
   canEditSettings: boolean;
-  /** True if the caller can send messages and edit operational data (agent+). */
   canSendMessages: boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-/** Attempts at the profile lookup, including the first. */
 const PROFILE_FETCH_ATTEMPTS = 2;
 const PROFILE_FETCH_RETRY_MS = 1500;
 
@@ -142,160 +86,132 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Shape of the `profiles` select below. */
-interface ProfileRow {
-  id: string;
-  full_name: string | null;
-  email: string;
-  avatar_url: string | null;
-  role: string | null;
-  beta_features: string[] | null;
-  account_id: string | null;
-  account_role: string | null;
-}
-
-/**
- * AuthProvider — wrap this around the dashboard layout.
- * Makes ONE getSession() call for the whole tree instead of one per
- * component, avoiding internal lock contention in the Supabase client.
- */
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [activeAccountId, setActiveAccountId] = useState<string | null>(null);
   const [account, setAccount] = useState<AccountSummary | null>(null);
   const [loading, setLoading] = useState(true);
-  // Why the account/role couldn't be established, when it couldn't.
-  // Null on the happy path.
   const [statusDetail, setStatusDetail] = useState<string | null>(null);
-  // Tracked separately from `loading`. The session settles fast (one
-  // local cookie read); the profile fetch crosses the network and
-  // settles later. Callers that gate on `profile.*` need to know which
-  // window they're in — see the type doc above.
   const [profileLoading, setProfileLoading] = useState(true);
 
-  // Tracks the user ID we've successfully initiated/completed fetching
-  // a profile for. This prevents redundant re-fetches and toggling
-  // profileLoading back to true on window focus events/token refresh.
   const lastFetchedUserIdRef = useRef<string | null>(null);
 
-  // Shared across init, auth-state-change listener, and the exposed
-  // refreshProfile() callback. Reads the current session's user id and
-  // pulls the matching profile row along with its account summary.
-  const fetchProfile = useCallback(async (userId: string) => {
+  const switchWorkspace = useCallback(async (accountId: string) => {
+    // Set cookie and update state
+    document.cookie = `wacrm_active_account=${accountId}; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax`;
+    setActiveAccountId(accountId);
+  }, []);
+
+  const fetchWorkspaces = useCallback(async (userId: string, currentActiveId: string | null): Promise<{ workspaces: Workspace[]; activeId: string | null }> => {
+    const supabase = createClient();
+
+    // Use RPC to bypass RLS infinite recursion issue on account_memberships
+    const { data: accounts, error } = await supabase.rpc("get_user_accounts", {
+      p_user_id: userId,
+    });
+
+    if (error) {
+      console.error("[AuthProvider] fetchWorkspaces error:", error);
+      return { workspaces: [], activeId: null };
+    }
+
+    const workspaces: Workspace[] = (accounts ?? []).map((a: any) => ({
+      account_id: a.account_id,
+      account_name: a.account_name ?? "Unknown",
+      role: isAccountRole(a.role) ? a.role : "viewer",
+      joined_at: a.joined_at,
+      plan: a.plan,
+      subscription_status: a.subscription_status,
+      subdomain: a.subdomain,
+    }));
+
+    // Determine active account
+    let activeId = currentActiveId;
+    if (!activeId || !workspaces.find(w => w.account_id === activeId)) {
+      activeId = workspaces[0]?.account_id ?? null;
+    }
+
+    return { workspaces, activeId };
+  }, []);
+
+  const fetchProfile = useCallback(async (userId: string, activeId: string | null) => {
     const supabase = createClient();
     setProfileLoading(true);
     setStatusDetail(null);
     lastFetchedUserIdRef.current = userId;
+
     try {
-      let data: ProfileRow | null = null;
+      // Fetch profile
+      let profileData: Profile | null = null;
       for (let attempt = 1; ; attempt++) {
         const result = await supabase
           .from("profiles")
-          .select(
-            "id, full_name, email, avatar_url, role, beta_features, account_id, account_role",
-          )
+          .select("id, full_name, email, avatar_url, beta_features")
           .eq("user_id", userId)
           .maybeSingle();
 
         if (!result.error) {
-          data = result.data;
+          profileData = result.data ? {
+            id: result.data.id,
+            full_name: result.data.full_name,
+            email: result.data.email,
+            avatar_url: result.data.avatar_url,
+            beta_features: result.data.beta_features ?? [],
+          } : null;
           break;
         }
 
-        const error = result.error;
-        console.error("[AuthProvider] fetchProfile error:", {
-          message: error.message,
-          details: error.details,
-          hint: error.hint,
-          code: error.code,
-        });
-        // One hiccup here used to lock the session read-only for good:
-        // the profile stayed null, so every `useCan` gate answered
-        // false and no page offered a way to recover (issue #471).
-        // Retry, then hand the reason to the UI.
         if (attempt < PROFILE_FETCH_ATTEMPTS) {
           await sleep(PROFILE_FETCH_RETRY_MS);
           continue;
         }
         lastFetchedUserIdRef.current = null;
-        setStatusDetail(error.message);
+        setStatusDetail(result.error.message);
         return;
       }
 
-      if (data) {
-        // Load the account with a plain lookup by id instead of an
-        // embedded FK join. The embed (`account:accounts!inner(...)`)
-        // forces PostgREST to resolve the profiles.account_id →
-        // accounts.id relationship from its schema cache; a stale cache
-        // (common right after a migration adds the FK) makes it fail
-        // hard with PGRST200 and blanks the whole profile — the user
-        // then loses account context everywhere (issue #294). A point
-        // lookup by id needs no relationship inference, so the profile
-        // (with account_id / account_role) still resolves even if the
-        // account name lookup itself can't.
-        let accountRow: AccountSummary | null = null;
-        if (data.account_id) {
-          const { data: account, error: accountErr } = await supabase
-            .from("accounts")
-            // default_currency added in migration 021; narrowed to the
-            // USD fallback below for older schemas where it reads null.
-            .select("id, name, default_currency")
-            .eq("id", data.account_id)
-            .maybeSingle();
-          if (accountErr) {
-            console.error("[AuthProvider] fetchAccount error:", {
-              message: accountErr.message,
-              details: accountErr.details,
-              hint: accountErr.hint,
-              code: accountErr.code,
-            });
-          } else if (account) {
-            accountRow = {
-              id: account.id,
-              name: account.name,
-              default_currency: account.default_currency ?? DEFAULT_CURRENCY,
-            };
-          }
-        }
-
-        // Narrow the DB enum into our AccountRole union. The DB
-        // constraint should make this unconditional, but a future
-        // migration that broadens the enum without updating TS would
-        // otherwise crash here — fall back to null and let UI gates
-        // treat the caller as least-privileged.
-        const accountRole = isAccountRole(data.account_role)
-          ? data.account_role
-          : null;
-
-        setProfile({
-          id: data.id,
-          full_name: data.full_name,
-          email: data.email,
-          avatar_url: data.avatar_url,
-          role: data.role,
-          // `beta_features` is `NOT NULL DEFAULT ARRAY[]` in the DB, but
-          // narrow defensively in case the column hasn't been migrated yet
-          // (older deployments running 011 lazily) — `null` reads as no
-          // opt-ins, which is the safe default for any future beta gate.
-          beta_features: data.beta_features ?? [],
-          account_id: data.account_id ?? null,
-          account_role: accountRole,
-        });
-        setAccount(accountRow);
-        if (!data.account_id || !accountRole) {
-          // The row exists but carries no tenancy. Migration 017 made
-          // both columns NOT NULL for new signups, so this is a user
-          // whose bootstrap didn't complete (handle_new_user swallows a
-          // failure as a WARNING) or one predating that migration.
-          // Every insert and update they attempt will be denied by RLS.
-          setStatusDetail(
-            `profile ${data.id} has no ${!data.account_id ? "account_id" : "account_role"}`,
-          );
-        }
-      } else {
+      if (!profileData) {
         lastFetchedUserIdRef.current = null;
         setStatusDetail("no profiles row for the signed-in user");
+        setProfile(null);
+        return;
       }
+
+      setProfile(profileData);
+
+      // Fetch workspaces and determine active account
+      const fetchedActiveId = activeId ?? null;
+      const { workspaces: ws, activeId: resolvedActiveId } = await fetchWorkspaces(userId, fetchedActiveId);
+      setWorkspaces(ws);
+
+      if (resolvedActiveId) {
+        setActiveAccountId(resolvedActiveId);
+        document.cookie = `wacrm_active_account=${resolvedActiveId}; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax`;
+
+        // Fetch active account details
+        const activeWs = ws.find(w => w.account_id === resolvedActiveId);
+        if (activeWs) {
+          const { data: accountData } = await supabase
+            .from("accounts")
+            .select("id, name, default_currency")
+            .eq("id", resolvedActiveId)
+            .maybeSingle();
+
+          if (accountData) {
+            setAccount({
+              id: accountData.id,
+              name: accountData.name,
+              default_currency: accountData.default_currency ?? DEFAULT_CURRENCY,
+            });
+          }
+        }
+      } else {
+        setActiveAccountId(null);
+        setAccount(null);
+      }
+
     } catch (err) {
       console.error("[AuthProvider] fetchProfile threw:", err);
       lastFetchedUserIdRef.current = null;
@@ -303,7 +219,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setProfileLoading(false);
     }
-  }, []);
+  }, [fetchWorkspaces]);
 
   useEffect(() => {
     const supabase = createClient();
@@ -331,15 +247,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(currentUser);
 
         if (currentUser) {
-          // Don't block session loading on profile fetch — chrome
-          // (header, sidebar) can render from the user object alone,
-          // profile enriches async. Callers that need to branch on
-          // profile data gate on `profileLoading` instead.
-          fetchProfile(currentUser.id);
+          // Get active account from cookie
+          const cookieMatch = document.cookie.match(/wacrm_active_account=([^;]+)/);
+          const activeId = cookieMatch ? cookieMatch[1] : null;
+          fetchProfile(currentUser.id, activeId);
         } else {
-          // No user → no profile to load. Flip profileLoading off so
-          // pages that gate on it don't wait forever on the logged-out
-          // path (the route guard or redirect should fire instead).
           setProfileLoading(false);
         }
       } catch (err) {
@@ -361,11 +273,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (currentUser) {
         if (currentUser.id !== lastFetchedUserIdRef.current) {
-          fetchProfile(currentUser.id);
+          const cookieMatch = document.cookie.match(/wacrm_active_account=([^;]+)/);
+          const activeId = cookieMatch ? cookieMatch[1] : null;
+          fetchProfile(currentUser.id, activeId);
         }
       } else {
         lastFetchedUserIdRef.current = null;
         setProfile(null);
+        setWorkspaces([]);
+        setActiveAccountId(null);
         setAccount(null);
         setProfileLoading(false);
       }
@@ -383,26 +299,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
+    // Clear workspace cookie
+    document.cookie = 'wacrm_active_account=; path=/; max-age=0; samesite=lax';
     setUser(null);
     setProfile(null);
+    setWorkspaces([]);
+    setActiveAccountId(null);
     setAccount(null);
     window.location.href = "/login";
   }, []);
 
   const refreshProfile = useCallback(async () => {
     if (!user?.id) return;
-    await fetchProfile(user.id);
+    const cookieMatch = document.cookie.match(/wacrm_active_account=([^;]+)/);
+    const activeId = cookieMatch ? cookieMatch[1] : null;
+    await fetchProfile(user.id, activeId);
   }, [user?.id, fetchProfile]);
 
-  // Derive the role booleans once per profile change rather than on
-  // every consumer render. Cheap regardless, but the memo also gives
-  // each derived value a stable identity for React.memo / useEffect
-  // dependencies downstream.
+  const activeWorkspace = useMemo(() => {
+    return workspaces.find(w => w.account_id === activeAccountId) ?? null;
+  }, [workspaces, activeAccountId]);
+
   const derived = useMemo(() => {
-    const role = profile?.account_role ?? null;
+    const role = activeWorkspace?.role ?? null;
     return {
       accountRole: role,
-      accountId: profile?.account_id ?? null,
+      accountId: activeAccountId,
       isOwner: role === "owner",
       isAdmin: role === "admin",
       isAgent: role === "agent",
@@ -411,19 +333,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       canEditSettings: role ? canEditSettingsFor(role) : false,
       canSendMessages: role ? canSendMessagesFor(role) : false,
     };
-  }, [profile?.account_role, profile?.account_id]);
+  }, [activeWorkspace?.role, activeAccountId]);
 
-  // Signed out is not a broken account — the shell redirects to /login
-  // before anything reads this.
   const accountStatus: AccountStatus = !user
     ? "loading"
     : profileLoading
       ? "loading"
       : !profile
         ? "error"
-        : derived.accountId && derived.accountRole
-          ? "ready"
-          : "unlinked";
+        : workspaces.length === 0
+          ? "unlinked"
+          : derived.accountId && derived.accountRole
+            ? "ready"
+            : "unlinked";
 
   return (
     <AuthContext.Provider
@@ -434,6 +356,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         profileLoading,
         signOut,
         refreshProfile,
+        workspaces,
+        activeAccountId,
+        activeWorkspace,
+        switchWorkspace,
         account,
         defaultCurrency: account?.default_currency ?? DEFAULT_CURRENCY,
         accountStatus,
@@ -446,30 +372,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 }
 
-/**
- * useAuth — read the shared auth state from context.
- * Must be used inside an <AuthProvider>.
- */
 export function useAuth(): AuthContextValue {
   const ctx = useContext(AuthContext);
   if (!ctx) {
-    // Fallback for components rendered outside the provider (shouldn't
-    // happen in normal flow, but don't crash the page). Account state
-    // collapses to least-privileged null — every `canX` boolean is
-    // false so UI gates fail closed.
     return {
       user: null,
       profile: null,
       loading: false,
       profileLoading: false,
-      signOut: async () => {
-        window.location.href = "/login";
-      },
+      signOut: async () => { window.location.href = "/login"; },
       refreshProfile: async () => {},
+      workspaces: [],
+      activeAccountId: null,
+      activeWorkspace: null,
+      switchWorkspace: async () => {},
       account: null,
       defaultCurrency: DEFAULT_CURRENCY,
-      // Outside the provider there is nothing to resolve yet — 'loading'
-      // keeps the access alert from firing on, say, the login page.
       accountStatus: "loading",
       accountStatusDetail: null,
       accountId: null,
