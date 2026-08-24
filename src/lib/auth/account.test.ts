@@ -1,27 +1,22 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-// getCurrentAccount resolves the caller's account context. The
-// regression this file guards (issue #294): account loading must NOT
-// depend on a PostgREST embedded FK join (`accounts!inner`), because a
-// stale schema cache makes that embed fail hard and blanks the whole
-// context. It must instead read the profile and then the account with
-// two plain point queries.
-
-// ------------------------------------------------------------
-// Chainable Supabase query-builder mock. Each `.from(table)` hands back
-// a thenable builder pre-loaded with the result queued for that table,
-// so we can assert which tables were queried and with what filters.
-// ------------------------------------------------------------
 interface BuilderCall {
   table: string;
   columns?: string;
   eqArgs: [string, unknown][];
 }
 
+interface MembershipRow {
+  account_id: string;
+  role: string;
+}
+
 function makeClient(opts: {
   user: { id: string } | null;
   userErr?: unknown;
   byTable: Record<string, { data: unknown; error: unknown }>;
+  memberships?: MembershipRow[];
+  membershipErr?: unknown;
 }) {
   const calls: BuilderCall[] = [];
 
@@ -46,6 +41,25 @@ function makeClient(opts: {
     return builder;
   };
 
+  const serviceFrom = (table: string) => {
+    const result =
+      table === "account_memberships"
+        ? { data: opts.memberships ?? [], error: opts.membershipErr ?? null }
+        : { data: null, error: null };
+    const builder = {
+      select() {
+        return builder;
+      },
+      eq() {
+        return builder;
+      },
+      order() {
+        return Promise.resolve(result);
+      },
+    };
+    return builder;
+  };
+
   return {
     calls,
     client: {
@@ -58,12 +72,25 @@ function makeClient(opts: {
       },
       from,
     },
+    serviceClient: { from: serviceFrom },
   };
 }
 
 const createClient = vi.fn();
+const createServiceClientMock = vi.fn();
+
 vi.mock("@/lib/supabase/server", () => ({
   createClient: () => createClient(),
+}));
+
+vi.mock("next/headers", () => ({
+  cookies: vi.fn().mockResolvedValue({
+    get: () => undefined,
+  }),
+}));
+
+vi.mock("@supabase/supabase-js", () => ({
+  createClient: (...args: unknown[]) => createServiceClientMock(...args),
 }));
 
 const { getCurrentAccount, UnauthorizedError, ForbiddenError } = await import(
@@ -75,18 +102,16 @@ afterEach(() => {
 });
 
 describe("getCurrentAccount", () => {
-  it("resolves context via a plain accounts lookup, not an embedded join", async () => {
-    const { client, calls } = makeClient({
+  it("resolves context via membership + accounts lookup", async () => {
+    const { client, calls, serviceClient } = makeClient({
       user: { id: "user-1" },
+      memberships: [{ account_id: "acct-1", role: "owner" }],
       byTable: {
-        profiles: {
-          data: { account_id: "acct-1", account_role: "owner" },
-          error: null,
-        },
         accounts: { data: { id: "acct-1", name: "Acme" }, error: null },
       },
     });
     createClient.mockReturnValue(client);
+    createServiceClientMock.mockReturnValue(serviceClient);
 
     const ctx = await getCurrentAccount();
 
@@ -97,13 +122,9 @@ describe("getCurrentAccount", () => {
       account: { id: "acct-1", name: "Acme" },
     });
 
-    // Two queries: profiles by user_id, then accounts by id. Neither
-    // selects an embedded relationship — the regression guard.
-    expect(calls.map((c) => c.table)).toEqual(["profiles", "accounts"]);
+    expect(calls.map((c) => c.table)).toEqual(["accounts"]);
     expect(calls[0].columns).not.toMatch(/accounts!/);
-    expect(calls[0].eqArgs).toEqual([["user_id", "user-1"]]);
-    expect(calls[1].columns).not.toMatch(/accounts!/);
-    expect(calls[1].eqArgs).toEqual([["id", "acct-1"]]);
+    expect(calls[0].eqArgs).toEqual([["id", "acct-1"]]);
   });
 
   it("throws UnauthorizedError when there is no session", async () => {
@@ -112,65 +133,57 @@ describe("getCurrentAccount", () => {
     await expect(getCurrentAccount()).rejects.toBeInstanceOf(UnauthorizedError);
   });
 
-  it("maps a profiles query error to 'Could not load account context'", async () => {
-    const { client } = makeClient({
+  it("maps a membership query error to 'Could not load account context'", async () => {
+    const { client, serviceClient } = makeClient({
       user: { id: "user-1" },
-      byTable: {
-        profiles: { data: null, error: { code: "PGRST200" } },
-      },
+      membershipErr: { code: "XX000" },
+      byTable: {},
     });
     createClient.mockReturnValue(client);
+    createServiceClientMock.mockReturnValue(serviceClient);
     await expect(getCurrentAccount()).rejects.toThrow(
       "Could not load account context",
     );
   });
 
   it("maps an accounts query error to 'Could not load account context'", async () => {
-    // The exact #294 shape if the embed were still in play, but now on
-    // the decoupled accounts lookup: profile resolves, account read errors.
-    const { client } = makeClient({
+    const { client, serviceClient } = makeClient({
       user: { id: "user-1" },
+      memberships: [{ account_id: "acct-1", role: "admin" }],
       byTable: {
-        profiles: {
-          data: { account_id: "acct-1", account_role: "admin" },
-          error: null,
-        },
         accounts: { data: null, error: { code: "PGRST200" } },
       },
     });
     createClient.mockReturnValue(client);
+    createServiceClientMock.mockReturnValue(serviceClient);
     const err = await getCurrentAccount().catch((e) => e);
     expect(err).toBeInstanceOf(ForbiddenError);
     expect(err.message).toBe("Could not load account context");
   });
 
-  it("rejects a profile not linked to an account", async () => {
-    const { client } = makeClient({
+  it("rejects a user with no workspace memberships", async () => {
+    const { client, serviceClient } = makeClient({
       user: { id: "user-1" },
-      byTable: {
-        profiles: { data: { account_id: null, account_role: null }, error: null },
-      },
+      memberships: [],
+      byTable: {},
     });
     createClient.mockReturnValue(client);
+    createServiceClientMock.mockReturnValue(serviceClient);
     await expect(getCurrentAccount()).rejects.toThrow(
-      "Profile is not linked to an account",
+      "User has no workspace membership",
     );
   });
 
   it("rejects an account_id that resolves to no readable account", async () => {
-    const { client } = makeClient({
+    const { client, serviceClient } = makeClient({
       user: { id: "user-1" },
+      memberships: [{ account_id: "acct-1", role: "viewer" }],
       byTable: {
-        profiles: {
-          data: { account_id: "acct-1", account_role: "viewer" },
-          error: null,
-        },
         accounts: { data: null, error: null },
       },
     });
     createClient.mockReturnValue(client);
-    await expect(getCurrentAccount()).rejects.toThrow(
-      "Profile is not linked to an account",
-    );
+    createServiceClientMock.mockReturnValue(serviceClient);
+    await expect(getCurrentAccount()).rejects.toThrow("Account not found");
   });
 });

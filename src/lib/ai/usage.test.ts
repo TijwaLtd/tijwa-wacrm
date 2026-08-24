@@ -4,8 +4,13 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 function fakeDb() {
   const insert = vi.fn().mockResolvedValue({ error: null })
-  const db = { from: vi.fn(() => ({ insert })) }
-  return { db: db as unknown as SupabaseClient, insert, from: db.from }
+  const maybeSingle = vi.fn().mockResolvedValue({ data: null, error: null })
+  const eq = vi.fn().mockReturnValue({ maybeSingle })
+  const select = vi.fn().mockReturnValue({ eq })
+  const from = vi.fn().mockReturnValue({ insert, select })
+  const rpc = vi.fn().mockResolvedValue({ data: true, error: null })
+  const db = { from, rpc }
+  return { db: db as unknown as SupabaseClient, insert, from, rpc }
 }
 
 describe('logAiUsage', () => {
@@ -29,6 +34,7 @@ describe('logAiUsage', () => {
       prompt_tokens: 30,
       completion_tokens: 6,
       total_tokens: 36,
+      credits_used: 0,
     })
   })
 

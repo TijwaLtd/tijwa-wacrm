@@ -24,14 +24,15 @@ vi.mock("@supabase/ssr", () => ({
     },
   ) => ({
     auth: {
-      // Mirrors real auth-js: an expired access token is transparently
-      // refreshed inside getUser(), which rotates the refresh token and
-      // pushes the new cookies through setAll() before resolving.
       getUser: async () => {
         if (refreshedCookies.length) opts.cookies.setAll(refreshedCookies);
         return { data: { user: mockUser } };
       },
     },
+    rpc: async () => ({
+      data: [{ account_id: "acct-1", role: "owner" }],
+      error: null,
+    }),
   }),
 }));
 
@@ -102,9 +103,9 @@ describe("middleware — refreshed auth cookies survive redirects", () => {
     mockUser = { id: "user-1" };
     refreshedCookies = [ROTATED];
 
-    const res = await middleware(
-      new NextRequest("https://app.test/dashboard"),
-    );
+    const req = new NextRequest("https://app.test/dashboard");
+    req.cookies.set("wacrm_active_account", "acct-1");
+    const res = await middleware(req);
 
     // No redirect — the normal NextResponse.next() already carries cookies.
     expect(res.headers.get("location")).toBeNull();

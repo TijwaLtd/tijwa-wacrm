@@ -14,34 +14,22 @@ interface AiConfigRow {
 const CONFIG_COLUMNS =
   'provider, model, system_prompt, is_active, auto_reply_enabled, auto_reply_max_per_conversation, handoff_agent_id'
 
-/**
- * Platform-provided API keys via environment variables.
- * No more BYO-key — users pay for credits, the platform provides the key.
- */
-const PLATFORM_API_KEYS: Record<AiProvider, string | undefined> = {
-  openai: process.env.OPENAI_API_KEY,
-  anthropic: process.env.ANTHROPIC_API_KEY,
+function getPlatformApiKey(provider: AiProvider): string | undefined {
+  if (provider === 'openai') return process.env.OPENAI_API_KEY
+  if (provider === 'anthropic') return process.env.ANTHROPIC_API_KEY
+  return undefined
 }
 
-/**
- * Optional platform embeddings key for semantic KB search.
- */
 export function getEmbeddingsApiKey(): string | null {
   return process.env.EMBEDDINGS_API_KEY ?? null
 }
 
-/**
- * Check if a given provider has a platform key configured.
- */
 export function hasPlatformKey(provider: AiProvider): boolean {
-  return Boolean(PLATFORM_API_KEYS[provider])
+  return Boolean(getPlatformApiKey(provider))
 }
 
-/**
- * Get the platform API key for a provider. Throws if not configured.
- */
 function getPlatformKey(provider: AiProvider): string {
-  const key = PLATFORM_API_KEYS[provider]
+  const key = getPlatformApiKey(provider)
   if (!key) {
     throw new Error(
       `AI provider "${provider}" is not configured on this platform. ` +

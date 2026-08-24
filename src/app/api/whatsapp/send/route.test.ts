@@ -145,6 +145,37 @@ vi.mock('@/lib/flows/admin-client', () => ({
   }),
 }))
 
+vi.mock('next/headers', () => ({
+  cookies: vi.fn(async () => ({
+    get: vi.fn(() => undefined),
+    getAll: vi.fn(() => []),
+    set: vi.fn(),
+    delete: vi.fn(),
+  })),
+}))
+
+const serviceClientBuilder = () => {
+  const b: Record<string, unknown> = {}
+  const chain = () => b
+  for (const m of ['select', 'eq', 'in', 'order', 'limit', 'update', 'delete']) {
+    b[m] = vi.fn(chain)
+  }
+  b.then = (resolve: (v: unknown) => unknown) =>
+    resolve({
+      data: [
+        { account_id: 'acct-1', role: callerRole, joined_at: '2024-01-01T00:00:00Z' },
+      ],
+      error: null,
+    })
+  return b
+}
+
+vi.mock('@supabase/supabase-js', () => ({
+  createClient: vi.fn(() => ({
+    from: vi.fn(serviceClientBuilder),
+  })),
+}))
+
 vi.mock('@/lib/whatsapp/encryption', () => ({
   decrypt: vi.fn(() => 'plaintext-token'),
   encrypt: vi.fn(() => 'enc-token'),
