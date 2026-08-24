@@ -65,6 +65,15 @@ export interface GenerateResult {
 }
 
 /**
+ * Application-level validated reply — the final shape after output
+ * validation. Consumers should use this instead of raw GenerateResult
+ * to ensure only protocol-correct output reaches WhatsApp.
+ */
+export type ReplyResult =
+  | { type: 'reply'; text: string }
+  | { type: 'handoff' }
+
+/**
  * Typed error for every AI failure mode. `status` maps cleanly to an
  * HTTP response in the draft route; `code` lets the UI/tests branch
  * (invalid_key vs rate_limited vs timeout, etc.).

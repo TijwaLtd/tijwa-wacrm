@@ -4,7 +4,7 @@ import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit
 import { loadAiConfig } from '@/lib/ai/config'
 import { buildConversationContext } from '@/lib/ai/context'
 import { retrieveKnowledge } from '@/lib/ai/knowledge'
-import { generateReply } from '@/lib/ai/generate'
+import { generateReply, validateOutput } from '@/lib/ai/generate'
 import { buildSystemPrompt } from '@/lib/ai/defaults'
 import { latestUserMessage } from '@/lib/ai/query'
 import { logAiUsage } from '@/lib/ai/usage'
@@ -112,6 +112,12 @@ export async function POST(request: Request) {
 
     const { text, usage } = await generateReply({ config, systemPrompt, messages })
 
+    // Validate and normalize the output. In draft mode, handoff means
+    // "I'll check and follow up" — we pass the text through for the
+    // agent to review. But we still check for prompt leakage and
+    // internal output.
+    const reply = validateOutput(text)
+
     // Record spend on the account's BYO key. Best-effort + via the
     // service role (the log has no `authenticated` INSERT policy). This
     // must not fail or delay the draft the agent is waiting on, so:
@@ -132,7 +138,12 @@ export async function POST(request: Request) {
       console.error('[ai/draft] usage log skipped:', logErr)
     }
 
-    return NextResponse.json({ draft: text })
+    // In draft mode, handoff means the model couldn't answer — return
+    // a helpful fallback text for the agent to review and edit.
+    if (reply.type === 'handoff') {
+      return NextResponse.json({ draft: "I'm not sure about that — let me check and get back to you." })
+    }
+    return NextResponse.json({ draft: reply.text })
   } catch (err) {
     if (err instanceof AiError) {
       return NextResponse.json(

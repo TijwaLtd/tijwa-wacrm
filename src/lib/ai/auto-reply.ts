@@ -2,7 +2,7 @@ import { supabaseAdmin } from './admin-client'
 import { loadAiConfig } from './config'
 import { buildConversationContext } from './context'
 import { retrieveKnowledge } from './knowledge'
-import { generateReply } from './generate'
+import { generateReply, validateOutput } from './generate'
 import { buildSystemPrompt } from './defaults'
 import { buildHandoffSummary } from './handoff'
 import { logAiUsage } from './usage'
@@ -10,6 +10,7 @@ import { latestUserMessage } from './query'
 import { engineSendText } from '@/lib/flows/meta-send'
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 import { checkAiCredits } from './credits'
+import { AiError } from './types'
 
 interface DispatchArgs {
   /** Tenancy key — drives config, contact, and whatsapp_config lookups. */
@@ -142,7 +143,23 @@ export async function dispatchInboundToAiReply(
       usage,
     })
 
-    if (handoff || !text) {
+    // Validate and normalize the model output. This is the application-
+    // level safety net — ensures only protocol-correct, customer-safe
+    // content reaches WhatsApp. If validation fails (prompt leakage,
+    // internal output, empty response), we hand off to a human.
+    let reply
+    try {
+      reply = validateOutput(text)
+    } catch (err) {
+      if (err instanceof AiError) {
+        console.warn(`[ai auto-reply] output validation failed (${err.code}) — handing off.`)
+        reply = { type: 'handoff' as const }
+      } else {
+        throw err
+      }
+    }
+
+    if (reply.type === 'handoff' || handoff) {
       // The model can't (or shouldn't) answer — stop auto-replying on
       // this thread and hand it to a human. We (a) pause the bot here
       // (sticky until re-enabled), (b) route the conversation to the
@@ -194,7 +211,7 @@ export async function dispatchInboundToAiReply(
       userId: configOwnerUserId,
       conversationId,
       contactId,
-      text,
+      text: reply.text,
       aiGenerated: true,
     })
   } catch (err) {
