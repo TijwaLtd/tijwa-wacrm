@@ -1,6 +1,7 @@
 import { NextResponse, after } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { decrypt } from '@/lib/whatsapp/encryption'
+import { decrypt, encrypt, isLegacyFormat } from '@/lib/whatsapp/encryption'
+import { getMediaUrl } from '@/lib/whatsapp/meta-api'
 import { normalizePhone } from '@/lib/whatsapp/phone-utils'
 import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe'
 import { reopenClosedConversation } from '@/lib/conversations/reopen'
@@ -14,16 +15,20 @@ import {
   isTemplateWebhookField,
 } from '@/lib/whatsapp/template-webhook'
 
+// The `after()` callback in POST runs within this route's max duration.
+// Inbound processing can fan out to per-media Meta verification calls, so
+// give it headroom beyond the platform default (Vercel clamps this to the
+// plan's ceiling). Tune as needed.
 export const maxDuration = 60
 
-// Lazy-initialized admin client
+// Lazy-initialized to avoid build-time crash when env vars are missing
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _adminClient: any = null
 function supabaseAdmin() {
   if (!_adminClient) {
     _adminClient = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
     )
   }
   return _adminClient
@@ -42,12 +47,26 @@ interface WhatsAppMessage {
   sticker?: { id: string; mime_type: string }
   location?: { latitude: number; longitude: number; name?: string; address?: string }
   reaction?: { message_id: string; emoji: string }
+  /**
+   * Set when the customer taps a button or list row on an interactive
+   * message we sent. `button_reply.id` / `list_reply.id` is whatever id
+   * we put on the button/row when sending — the Flows engine uses this
+   * to advance the per-contact run.
+   */
   interactive?: {
     type: 'button_reply' | 'list_reply'
     button_reply?: { id: string; title: string }
     list_reply?: { id: string; title: string; description?: string }
   }
+  /**
+   * Set when the customer taps a QUICK_REPLY button on a *template*
+   * message — a broadcast, or any template send. Meta uses a different
+   * envelope from `interactive` above: `type: 'button'`, the label in
+   * `button.text`, and the payload configured on the template's button
+   * in `button.payload`.
+   */
   button?: { text?: string; payload?: string }
+  /** Present when the customer swipe-replies to one of our messages. */
   context?: { id: string }
 }
 
@@ -76,10 +95,19 @@ interface WhatsAppWebhookEntry {
   }>
 }
 
-// GET - Webhook verification
+// ────────────────────────────────────────────────────────────────
+// GET — Meta webhook verification
+//
+// Meta sends a GET with hub.mode=subscribe, hub.verify_token, and
+// hub.challenge. We look up the account by slug (subdomain), fetch
+// its whatsapp_config, decrypt the verify_token, and compare. If
+// the token matches (or is still in legacy CBC format), we return
+// the challenge as plain text. Legacy tokens are opportunistically
+// upgraded to GCM on every successful verify.
+// ────────────────────────────────────────────────────────────────
 export async function GET(
   request: Request,
-  { params }: { params: Promise<{ slug: string }> }
+  { params }: { params: Promise<{ slug: string }> },
 ) {
   try {
     const { slug } = await params
@@ -91,11 +119,11 @@ export async function GET(
     if (mode !== 'subscribe' || !challenge || !verifyToken) {
       return NextResponse.json(
         { error: 'Missing verification parameters' },
-        { status: 400 }
+        { status: 400 },
       )
     }
 
-    // Resolve account from slug
+    // Resolve account from slug (the account's subdomain).
     const { data: account, error: accountError } = await supabaseAdmin()
       .from('accounts')
       .select('id')
@@ -103,14 +131,14 @@ export async function GET(
       .single()
 
     if (accountError || !account) {
-      console.error('No account found for slug:', slug)
+      console.error('[webhook] No account found for slug:', slug)
       return NextResponse.json(
         { error: 'Verification failed' },
-        { status: 403 }
+        { status: 403 },
       )
     }
 
-    // Get whatsapp_config for this account
+    // Get whatsapp_config for this account.
     const { data: config, error: configError } = await supabaseAdmin()
       .from('whatsapp_config')
       .select('id, verify_token')
@@ -120,12 +148,28 @@ export async function GET(
     if (configError || !config || !config.verify_token) {
       return NextResponse.json(
         { error: 'Verification failed' },
-        { status: 403 }
+        { status: 403 },
       )
     }
 
     try {
       if (decrypt(config.verify_token) === verifyToken) {
+        // Fire-and-forget GCM upgrade. Safe to run on every subscribe
+        // since it's a no-op once the column is already GCM.
+        if (isLegacyFormat(config.verify_token)) {
+          void supabaseAdmin()
+            .from('whatsapp_config')
+            .update({ verify_token: encrypt(verifyToken) })
+            .eq('id', config.id)
+            .then(({ error }: { error: unknown }) => {
+              if (error) {
+                console.warn(
+                  '[webhook] verify_token GCM upgrade failed:',
+                  (error as { message?: string })?.message ?? error,
+                )
+              }
+            })
+        }
         return new Response(challenge, {
           status: 200,
           headers: { 'Content-Type': 'text/plain' },
@@ -137,21 +181,35 @@ export async function GET(
 
     return NextResponse.json(
       { error: 'Verification token mismatch' },
-      { status: 403 }
+      { status: 403 },
     )
   } catch (error) {
-    console.error('Error in webhook GET verification:', error)
+    console.error('[webhook] Error in GET verification:', error)
     return NextResponse.json(
       { error: 'Internal server error' },
-      { status: 500 }
+      { status: 500 },
     )
   }
 }
 
-// POST - Receive messages
+// ────────────────────────────────────────────────────────────────
+// POST — Receive inbound messages & status updates
+//
+// Read raw body first so we can HMAC-verify the exact bytes Meta
+// signed. request.json() would re-encode and break the signature.
+//
+// Process AFTER the response so we ack Meta within their ~20s
+// timeout (a slow ack triggers Meta retries + duplicate inserts),
+// while still guaranteeing the work runs to completion.
+//
+// This MUST use `after()` rather than a detached promise: on
+// serverless platforms (Vercel) the function can be frozen or
+// terminated the moment the response is sent, so a floating
+// promise's DB writes are not guaranteed to finish.
+// ────────────────────────────────────────────────────────────────
 export async function POST(
   request: Request,
-  { params }: { params: Promise<{ slug: string }> }
+  { params }: { params: Promise<{ slug: string }> },
 ) {
   const { slug } = await params
 
@@ -170,7 +228,8 @@ export async function POST(
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
-  // Resolve account from slug upfront
+  // Resolve account from slug upfront — one lookup for the whole
+  // delivery instead of per-change.
   const { data: account, error: accountError } = await supabaseAdmin()
     .from('accounts')
     .select('id')
@@ -184,7 +243,7 @@ export async function POST(
 
   const accountId = account.id
 
-  // Get whatsapp_config for this account
+  // Get whatsapp_config for this account.
   const { data: configs, error: configError } = await supabaseAdmin()
     .from('whatsapp_config')
     .select('*')
@@ -195,16 +254,15 @@ export async function POST(
     return NextResponse.json({ status: 'received' }, { status: 200 })
   }
 
-  // Use the config for this account
   const config = configs[0]
   const decryptedAccessToken = decrypt(config.access_token)
 
-  // Process AFTER response
+  // Process AFTER the response — see comment block above.
   after(async () => {
     try {
       await processWebhook(body, accountId, config.user_id, decryptedAccessToken)
     } catch (error) {
-      console.error('Error processing webhook:', error)
+      console.error('[webhook] Error processing webhook:', error)
     }
   })
 
@@ -215,12 +273,17 @@ async function processWebhook(
   body: { entry?: WhatsAppWebhookEntry[] },
   accountId: string,
   configOwnerUserId: string,
-  accessToken: string
+  accessToken: string,
 ) {
   if (!body.entry) return
 
   for (const entry of body.entry) {
     for (const change of entry.changes) {
+      // Template-lifecycle events (status / quality / components
+      // updates from Meta) come in on a different change.field and
+      // have a different value shape — route them through the
+      // dedicated handler. Skip the messaging branches below so we
+      // don't try to read message-shaped fields off a template event.
       if (isTemplateWebhookField(change.field)) {
         await handleTemplateWebhookChange(
           { field: change.field, value: change.value as unknown },
@@ -231,12 +294,14 @@ async function processWebhook(
 
       const value = change.value
 
+      // Handle status updates
       if (value.statuses) {
         for (const status of value.statuses) {
           await handleStatusUpdate(status)
         }
       }
 
+      // Handle incoming messages
       if (!value.messages || !value.contacts) continue
 
       for (let i = 0; i < value.messages.length; i++) {
@@ -248,12 +313,16 @@ async function processWebhook(
           contact,
           accountId,
           configOwnerUserId,
-          accessToken
+          accessToken,
         )
       }
     }
   }
 }
+
+// ────────────────────────────────────────────────────────────────
+// Status updates — broadcast delivery tracking
+// ────────────────────────────────────────────────────────────────
 
 const RECIPIENT_STATUS_LADDER = [
   'pending',
@@ -288,17 +357,19 @@ async function handleStatusUpdate(
     status: string
     timestamp: string
     recipient_id: string
-  }
+  },
 ) {
+  // 1) Mirror onto messages (legacy behavior).
   const { error: msgErr } = await supabaseAdmin()
     .from('messages')
     .update({ status: status.status })
     .eq('message_id', status.id)
 
   if (msgErr) {
-    console.error('Error updating message status:', msgErr)
+    console.error('[webhook] Error updating message status:', msgErr)
   }
 
+  // 2) Mirror onto broadcast_recipients via whatsapp_message_id.
   const tsIso = new Date(parseInt(status.timestamp) * 1000).toISOString()
 
   const { data: recipient, error: recFetchErr } = await supabaseAdmin()
@@ -308,7 +379,7 @@ async function handleStatusUpdate(
     .maybeSingle()
 
   if (recFetchErr) {
-    console.error('Error fetching broadcast recipient:', recFetchErr)
+    console.error('[webhook] Error fetching broadcast recipient:', recFetchErr)
   } else if (
     recipient &&
     isValidStatusTransition(recipient.status, status.status)
@@ -324,10 +395,11 @@ async function handleStatusUpdate(
       .eq('id', recipient.id)
 
     if (recUpdateErr) {
-      console.error('Error updating broadcast recipient status:', recUpdateErr)
+      console.error('[webhook] Error updating broadcast recipient status:', recUpdateErr)
     }
   }
 
+  // 3) Webhook fan-out for status changes.
   const { data: msgRow } = await supabaseAdmin()
     .from('messages')
     .select('conversation_id, conversations(account_id)')
@@ -347,7 +419,7 @@ async function handleStatusUpdate(
           whatsapp_message_id: status.id,
           conversation_id: msgRow.conversation_id,
           status: status.status,
-        }
+        },
       )
     }
   }
@@ -373,16 +445,16 @@ async function flagBroadcastReplyIfAny(accountId: string, contactId: string) {
       .eq('id', row.id)
 
     if (updErr) {
-      console.error('Error marking broadcast recipient replied:', updErr)
+      console.error('[webhook] Error marking broadcast recipient replied:', updErr)
     }
   } catch (err) {
-    console.error('flagBroadcastReplyIfAny failed:', err)
+    console.error('[webhook] flagBroadcastReplyIfAny failed:', err)
   }
 }
 
 async function lookupInternalIdByMetaId(
   metaId: string,
-  conversationId: string
+  conversationId: string,
 ): Promise<string | null> {
   const { data, error } = await supabaseAdmin()
     .from('messages')
@@ -400,19 +472,19 @@ async function lookupInternalIdByMetaId(
 async function handleReaction(
   message: WhatsAppMessage,
   conversationId: string,
-  contactId: string
+  contactId: string,
 ) {
   const reaction = message.reaction
   if (!reaction?.message_id) return
 
   const targetInternalId = await lookupInternalIdByMetaId(
     reaction.message_id,
-    conversationId
+    conversationId,
   )
   if (!targetInternalId) {
     console.warn(
       '[webhook] reaction target message not found; skipping',
-      reaction.message_id
+      reaction.message_id,
     )
     return
   }
@@ -440,28 +512,34 @@ async function handleReaction(
         actor_id: contactId,
         emoji: reaction.emoji,
       },
-      { onConflict: 'message_id,actor_type,actor_id' }
+      { onConflict: 'message_id,actor_type,actor_id' },
     )
   if (upsertError) {
     console.error('[webhook] reaction upsert failed:', upsertError.message)
   }
 }
 
+// ────────────────────────────────────────────────────────────────
+// Inbound message processing
+// ────────────────────────────────────────────────────────────────
+
 async function processMessage(
   message: WhatsAppMessage,
   contact: { profile: { name: string }; wa_id: string },
   accountId: string,
   configOwnerUserId: string,
-  accessToken: string
+  accessToken: string,
 ) {
   const senderPhone = normalizePhone(message.from)
   const contactName = contact.profile.name
+  const waId = contact.wa_id || null
 
   const contactOutcome = await findOrCreateContact(
     accountId,
     configOwnerUserId,
     senderPhone,
-    contactName
+    contactName,
+    waId,
   )
   if (!contactOutcome) return
   const contactRecord = contactOutcome.contact
@@ -469,7 +547,7 @@ async function processMessage(
   const convResult = await findOrCreateConversation(
     accountId,
     configOwnerUserId,
-    contactRecord.id
+    contactRecord.id,
   )
   if (!convResult) return
   const conversation = convResult.conversation
@@ -493,12 +571,12 @@ async function processMessage(
   if (message.context?.id) {
     replyToInternalId = await lookupInternalIdByMetaId(
       message.context.id,
-      conversation.id
+      conversation.id,
     )
     if (!replyToInternalId) {
       console.warn(
         '[webhook] reply context parent not found:',
-        message.context.id
+        message.context.id,
       )
     }
   }
@@ -539,19 +617,19 @@ async function processMessage(
         reply_to_message_id: replyToInternalId,
         interactive_reply_id: interactiveReplyId,
       },
-      { onConflict: 'conversation_id,message_id', ignoreDuplicates: true }
+      { onConflict: 'conversation_id,message_id', ignoreDuplicates: true },
     )
     .select('id')
 
   if (msgError) {
-    console.error('Error inserting message:', msgError)
+    console.error('[webhook] Error inserting message:', msgError)
     return
   }
 
   if (!insertedRows || insertedRows.length === 0) {
     console.info(
       '[webhook] duplicate inbound message ignored (idempotent replay):',
-      message.id
+      message.id,
     )
     return
   }
@@ -561,11 +639,11 @@ async function processMessage(
     {
       p_conversation_id: conversation.id,
       p_last_message_text: contentText || `[${message.type}]`,
-    }
+    },
   )
 
   if (convError) {
-    console.error('Error updating conversation:', convError)
+    console.error('[webhook] Error updating conversation:', convError)
   }
 
   await reopenClosedConversation(supabaseAdmin(), conversation)
@@ -646,7 +724,7 @@ async function processMessage(
 
 async function parseMessageContent(
   message: WhatsAppMessage,
-  accessToken: string
+  accessToken: string,
 ): Promise<{
   contentText: string | null
   mediaUrl: string | null
@@ -654,16 +732,15 @@ async function parseMessageContent(
   interactiveReplyId: string | null
 }> {
   const verifyAndBuildUrl = async (
-    mediaId: string
+    mediaId: string,
   ): Promise<string | null> => {
     try {
-      const { getMediaUrl } = await import('@/lib/whatsapp/meta-api')
       await getMediaUrl({ mediaId, accessToken })
       return `/api/whatsapp/media/${mediaId}`
     } catch (error) {
       console.error(
-        `Failed to verify media ${mediaId} with Meta:`,
-        error instanceof Error ? error.message : error
+        `[webhook] Failed to verify media ${mediaId} with Meta:`,
+        error instanceof Error ? error.message : error,
       )
       return null
     }
@@ -790,8 +867,39 @@ async function findOrCreateContact(
   accountId: string,
   configOwnerUserId: string,
   phone: string,
-  name: string
+  name: string,
+  waId: string | null,
 ): Promise<ContactOutcome | null> {
+  // 1. Try lookup by Meta's wa_id (business-scoped user ID) first —
+  //    this is the most reliable identifier Meta provides.
+  if (waId) {
+    const { data: byWaId } = await supabaseAdmin()
+      .from('contacts')
+      .select('*')
+      .eq('account_id', accountId)
+      .eq('wa_id', waId)
+      .maybeSingle()
+
+    if (byWaId) {
+      // Backfill wa_id on contacts created before this migration.
+      if (!byWaId.wa_id) {
+        await supabaseAdmin()
+          .from('contacts')
+          .update({ wa_id: waId, updated_at: new Date().toISOString() })
+          .eq('id', byWaId.id)
+      }
+      // Update name if it changed.
+      if (name && name !== byWaId.name) {
+        await supabaseAdmin()
+          .from('contacts')
+          .update({ name, updated_at: new Date().toISOString() })
+          .eq('id', byWaId.id)
+      }
+      return { contact: byWaId, wasCreated: false }
+    }
+  }
+
+  // 2. Fall back to phone-based lookup.
   const existingContact = await findExistingContact(
     supabaseAdmin(),
     accountId,
@@ -799,6 +907,13 @@ async function findOrCreateContact(
   )
 
   if (existingContact) {
+    // Backfill wa_id on contacts created before this migration.
+    if (waId && !existingContact.wa_id) {
+      await supabaseAdmin()
+        .from('contacts')
+        .update({ wa_id: waId, updated_at: new Date().toISOString() })
+        .eq('id', existingContact.id)
+    }
     if (name && name !== existingContact.name) {
       await supabaseAdmin()
         .from('contacts')
@@ -808,6 +923,7 @@ async function findOrCreateContact(
     return { contact: existingContact, wasCreated: false }
   }
 
+  // 3. Create new contact — store wa_id alongside phone.
   const { data: newContact, error: createError } = await supabaseAdmin()
     .from('contacts')
     .insert({
@@ -815,6 +931,7 @@ async function findOrCreateContact(
       user_id: configOwnerUserId,
       phone,
       name: name || phone,
+      wa_id: waId,
     })
     .select()
     .single()
@@ -824,7 +941,7 @@ async function findOrCreateContact(
       const raced = await findExistingContact(supabaseAdmin(), accountId, phone)
       if (raced) return { contact: raced, wasCreated: false }
     }
-    console.error('Error creating contact:', createError)
+    console.error('[webhook] Error creating contact:', createError)
     return null
   }
 
@@ -845,7 +962,7 @@ async function findOrCreateConversation(
     .limit(1)
 
   if (findError) {
-    console.error('Error finding conversation:', findError)
+    console.error('[webhook] Error finding conversation:', findError)
     return null
   }
 
@@ -876,7 +993,7 @@ async function findOrCreateConversation(
         return { conversation: raced[0], created: false }
       }
     }
-    console.error('Error creating conversation:', createError)
+    console.error('[webhook] Error creating conversation:', createError)
     return null
   }
 

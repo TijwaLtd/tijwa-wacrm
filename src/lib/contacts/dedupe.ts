@@ -56,6 +56,28 @@ export async function findExistingContact(
 }
 
 /**
+ * Find an existing contact by Meta's business-scoped user ID (wa_id).
+ * Returns null when waId is empty or no match is found.
+ */
+export async function findExistingContactByWaId(
+  db: SupabaseClient,
+  accountId: string,
+  waId: string,
+): Promise<ExistingContact | null> {
+  if (!waId) return null;
+
+  const { data, error } = await db
+    .from("contacts")
+    .select("*")
+    .eq("account_id", accountId)
+    .eq("wa_id", waId)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return data as ExistingContact;
+}
+
+/**
  * True when an existing contact is an *exact* normalized match for
  * `phone` (vs only a fuzzy trunk-variant match). The form hard-blocks
  * exact matches but only warns on fuzzy ones.

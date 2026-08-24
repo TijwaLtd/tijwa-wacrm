@@ -7,11 +7,8 @@ const h = vi.hoisted(() => ({
   dispatchInboundToAiReply: vi.fn(),
   dispatchWebhookEvent: vi.fn(),
   state: {
-    // Result the message upsert's .select() resolves to. A genuine insert
-    // returns the row; a replayed delivery conflicts and returns [].
     messageUpsertResult: [{ id: 'msg-1' }] as { id: string }[],
     priorCustomerMsgCount: 0,
-    /** Row `lookupInternalIdByMetaId` resolves for a `context.id`. */
     replyContextParent: null as { id: string } | null,
     conversation: { id: 'conv-1', unread_count: 0, account_id: 'acc-1' },
     upsertCalls: [] as { row: Record<string, unknown>; options: unknown }[],
@@ -35,6 +32,48 @@ vi.mock('@supabase/supabase-js', () => ({
   createClient: () => ({
     from(table: string) {
       switch (table) {
+        case 'accounts':
+          return {
+            select: () => ({
+              eq: () => ({
+                single: () =>
+                  Promise.resolve({
+                    data: { id: 'acc-1' },
+                    error: null,
+                  }),
+              }),
+            }),
+          }
+        case 'contacts': {
+          // Shared contact row returned by all contacts lookups
+          const contactRow = {
+            id: 'contact-1',
+            name: 'Ada',
+            phone: '15551230000',
+            wa_id: null as string | null,
+          }
+          const contactList = [contactRow]
+          // The contacts mock supports two chain shapes:
+          // 1. wa_id lookup: select().eq('account_id').eq('wa_id').maybeSingle()
+          // 2. phone lookup (dedupe.ts): select().eq('account_id').like('phone', ...)
+          return {
+            select: () => ({
+              eq: () => ({
+                // Second .eq() for wa_id lookup
+                eq: () => ({
+                  maybeSingle: () =>
+                    Promise.resolve({ data: contactRow, error: null }),
+                }),
+                // .like() for phone-based lookup (dedupe.ts)
+                like: () =>
+                  Promise.resolve({ data: contactList, error: null }),
+              }),
+            }),
+            update: () => ({
+              eq: () => Promise.resolve({ error: null }),
+            }),
+          }
+        }
         case 'whatsapp_config':
           return {
             select: () => ({
@@ -52,7 +91,6 @@ vi.mock('@supabase/supabase-js', () => ({
             }),
           }
         case 'conversations':
-          // findOrCreateConversation: select().eq().eq().order().limit()
           return {
             select: () => ({
               eq: () => ({
@@ -69,7 +107,6 @@ vi.mock('@supabase/supabase-js', () => ({
             }),
           }
         case 'broadcast_recipients':
-          // flagBroadcastReplyIfAny: select().eq().eq().in().order().limit()
           return {
             select: () => ({
               eq: () => ({
@@ -86,13 +123,9 @@ vi.mock('@supabase/supabase-js', () => ({
           }
         case 'messages':
           return {
-            // Two different chains land here, told apart by the count
-            // option: the prior-message count (head request) and the
-            // reply-context parent lookup.
             select: (_columns: string, options?: { head?: boolean }) =>
               options?.head
-                ? // priorCustomerMsgCount: select('id',{count,head}).eq().eq()
-                  {
+                ? {
                     eq: () => ({
                       eq: () =>
                         Promise.resolve({
@@ -101,8 +134,7 @@ vi.mock('@supabase/supabase-js', () => ({
                         }),
                     }),
                   }
-                : // lookupInternalIdByMetaId: select('id').eq().eq().maybeSingle()
-                  {
+                : {
                     eq: () => ({
                       eq: () => ({
                         maybeSingle: () =>
@@ -113,7 +145,6 @@ vi.mock('@supabase/supabase-js', () => ({
                       }),
                     }),
                   },
-            // Idempotent insert: upsert(...).select('id')
             upsert: (row: Record<string, unknown>, options: unknown) => {
               h.state.upsertCalls.push({ row, options })
               return {
@@ -151,6 +182,7 @@ vi.mock('@/lib/contacts/dedupe', () => ({
     name: 'Ada',
     phone: '15551230000',
   })),
+  findExistingContactByWaId: vi.fn(async () => null),
   isUniqueViolation: () => false,
 }))
 vi.mock('@/lib/whatsapp/webhook-signature', () => ({
@@ -173,7 +205,7 @@ vi.mock('@/lib/webhooks/deliver', () => ({
   dispatchWebhookEvent: h.dispatchWebhookEvent,
 }))
 
-import { POST } from './route'
+import { POST } from './[slug]/route'
 
 const TEXT_MESSAGE = {
   id: 'wamid.TEST1',
@@ -206,9 +238,10 @@ function inboundRequest(message: Record<string, unknown> = TEXT_MESSAGE) {
   } as unknown as Request
 }
 
+const SLUG_PARAMS = { params: Promise.resolve({ slug: 'my-workspace' }) }
+
 async function runWebhook(message?: Record<string, unknown>) {
-  const res = await POST(inboundRequest(message))
-  // Drain the after() callback exactly as the runtime would.
+  const res = await POST(inboundRequest(message), SLUG_PARAMS)
   for (const cb of h.state.afterCallbacks) await cb()
   return res
 }
@@ -242,27 +275,22 @@ describe('inbound webhook: idempotent insert (#367)', () => {
   it('a genuine first delivery persists once and fans out downstream', async () => {
     await runWebhook()
 
-    // Inserted via upsert with the (conversation_id, message_id) conflict
-    // target — not a bare insert.
     expect(h.state.upsertCalls).toHaveLength(1)
     expect(h.state.upsertCalls[0].options).toMatchObject({
       onConflict: 'conversation_id,message_id',
       ignoreDuplicates: true,
     })
-    // Downstream side effects ran exactly once.
     expect(h.state.rpcCalls).toHaveLength(1)
     expect(h.dispatchInboundToFlows).toHaveBeenCalledTimes(1)
     expect(h.dispatchWebhookEvent).toHaveBeenCalledTimes(1)
   })
 
   it('a replayed delivery is a no-op: no unread bump, no fan-out', async () => {
-    // Upsert hits the unique index and returns no row.
     h.state.messageUpsertResult = []
 
     await runWebhook()
 
     expect(h.state.upsertCalls).toHaveLength(1)
-    // None of the downstream side effects fire on a replay.
     expect(h.state.rpcCalls).toHaveLength(0)
     expect(h.dispatchInboundToFlows).not.toHaveBeenCalled()
     expect(h.runAutomationsForTrigger).not.toHaveBeenCalled()
@@ -284,10 +312,6 @@ describe('inbound webhook: atomic unread bump (#369)', () => {
 })
 
 describe('inbound webhook: template quick-reply buttons (#478)', () => {
-  // A customer tapping a QUICK_REPLY button on a broadcast template.
-  // `context.id` points at the template message we sent — which the
-  // broadcast path never wrote to `messages`, so the parent lookup
-  // legitimately misses and the reply is stored unquoted.
   const templateButtonTap = {
     id: 'wamid.BTN1',
     from: '15551230000',
@@ -326,8 +350,6 @@ describe('inbound webhook: template quick-reply buttons (#478)', () => {
       (call) => (call[0] as { triggerType: string }).triggerType,
     )
     expect(triggers).toContain('interactive_reply')
-    // The AI auto-reply must stay out of it — a button tap is not a
-    // free-text question.
     expect(h.dispatchInboundToAiReply).not.toHaveBeenCalled()
   })
 
@@ -349,10 +371,7 @@ describe('inbound webhook: after() awaits automations (#368)', () => {
   it('every triggered automation settles before the after() callback resolves', async () => {
     await runWebhook()
 
-    // first_inbound_message + new_message_received + keyword_match.
     expect(h.state.automationStarted).toBe(3)
-    // If the dispatches were fire-and-forget, completed would still be 0
-    // here — the callback would have resolved before the timers fired.
     expect(h.state.automationCompleted).toBe(3)
   })
 })

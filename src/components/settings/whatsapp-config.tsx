@@ -92,7 +92,7 @@ export function WhatsAppConfig() {
 
   const webhookUrl =
     typeof window !== 'undefined' && subdomain
-      ? `${window.location.origin}/api/webhook/${subdomain}`
+      ? `${window.location.origin}/api/whatsapp/v1/webhook/${subdomain}`
       : '';
 
   const fetchConfig = useCallback(async (acctId: string) => {
