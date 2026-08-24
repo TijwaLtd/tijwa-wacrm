@@ -10,6 +10,7 @@ import { latestUserMessage } from '@/lib/ai/query'
 import { logAiUsage } from '@/lib/ai/usage'
 import { supabaseAdmin } from '@/lib/ai/admin-client'
 import { AiError } from '@/lib/ai/types'
+import { checkAiCredits } from '@/lib/ai/credits'
 
 /**
  * POST /api/ai/draft  (agent+)
@@ -58,14 +59,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Conversation not found' }, { status: 404 })
     }
 
-    const config = await loadAiConfig(supabase, accountId).catch((err) => {
-      // Decrypt failure — surface distinctly from "not configured".
-      console.error('[ai/draft] loadAiConfig error:', err)
-      throw new AiError('Stored API key could not be decrypted.', {
-        code: 'key_decrypt_failed',
-        status: 400,
-      })
-    })
+    const config = await loadAiConfig(supabase, accountId)
     if (!config) {
       return NextResponse.json(
         {
@@ -73,6 +67,18 @@ export async function POST(request: Request) {
           code: 'ai_not_configured',
         },
         { status: 400 },
+      )
+    }
+
+    // Check if the tenant has AI credits remaining
+    const hasCredits = await checkAiCredits(supabase, accountId)
+    if (!hasCredits) {
+      return NextResponse.json(
+        {
+          error: 'No AI credits remaining. Purchase more credits in Settings → Billing.',
+          code: 'ai_credits_exhausted',
+        },
+        { status: 402 },
       )
     }
 

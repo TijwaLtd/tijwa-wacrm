@@ -9,6 +9,7 @@ import { logAiUsage } from './usage'
 import { latestUserMessage } from './query'
 import { engineSendText } from '@/lib/flows/meta-send'
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
+import { checkAiCredits } from './credits'
 
 interface DispatchArgs {
   /** Tenancy key — drives config, contact, and whatsapp_config lookups. */
@@ -49,6 +50,15 @@ export async function dispatchInboundToAiReply(
 
     const config = await loadAiConfig(db, accountId)
     if (!config || !config.autoReplyEnabled) return
+
+    // Check if the tenant has AI credits remaining
+    const hasCredits = await checkAiCredits(db, accountId)
+    if (!hasCredits) {
+      console.warn(
+        `[ai auto-reply] account ${accountId} has no AI credits remaining — skipping auto-reply.`,
+      )
+      return
+    }
 
     // Deterministic, user-configured responders win over the LLM — the
     // caller already excludes messages a Flow consumed. Message-level

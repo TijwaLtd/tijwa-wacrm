@@ -115,10 +115,7 @@ export async function POST(request: Request) {
     }
 
     // Ingest chunks
-    const { key: embeddingsApiKey, corrupt } = await loadEmbeddingsKey(
-      supabase,
-      accountId,
-    )
+    const { key: embeddingsApiKey, corrupt } = loadEmbeddingsKey()
     try {
       await ingestDocument(
         supabase,

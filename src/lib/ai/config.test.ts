@@ -1,10 +1,9 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-// decrypt is identity in tests so we don't depend on real ciphertext.
-vi.mock('@/lib/whatsapp/encryption', () => ({
-  decrypt: (v: string) => `plain:${v}`,
-}))
+// Mock env vars
+vi.stubEnv('OPENAI_API_KEY', 'test-openai-key')
+vi.stubEnv('ANTHROPIC_API_KEY', 'test-anthropic-key')
 
 import { loadAiConfig } from './config'
 
@@ -20,13 +19,12 @@ function dbReturning(row: Record<string, unknown> | null): SupabaseClient {
 
 const ROW = {
   provider: 'openai',
-  model: 'gpt-x',
-  api_key: 'enc-key',
+  model: 'gpt-4o-mini',
   system_prompt: null,
   is_active: false,
   auto_reply_enabled: false,
   auto_reply_max_per_conversation: 3,
-  embeddings_api_key: null,
+  handoff_agent_id: null,
 }
 
 describe('loadAiConfig requireActive', () => {
@@ -40,12 +38,21 @@ describe('loadAiConfig requireActive', () => {
     })
     expect(config).not.toBeNull()
     expect(config!.provider).toBe('openai')
-    expect(config!.apiKey).toBe('plain:enc-key')
+    expect(config!.apiKey).toBe('test-openai-key')
   })
 
   it('returns null when there is no row', async () => {
     expect(
       await loadAiConfig(dbReturning(null), 'acct', { requireActive: false }),
     ).toBeNull()
+  })
+
+  it('returns null when provider has no platform key', async () => {
+    vi.stubEnv('OPENAI_API_KEY', '')
+    const config = await loadAiConfig(dbReturning(ROW), 'acct', {
+      requireActive: false,
+    })
+    expect(config).toBeNull()
+    vi.stubEnv('OPENAI_API_KEY', 'test-openai-key')
   })
 })

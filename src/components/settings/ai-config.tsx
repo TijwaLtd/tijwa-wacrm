@@ -2,11 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Loader2, Sparkles, CheckCircle2, Trash2, Eye, EyeOff } from 'lucide-react';
+import { Loader2, Sparkles, Trash2, Coins } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { canEditSettings } from '@/lib/auth/roles';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
@@ -26,13 +25,10 @@ import {
 } from '@/components/ui/select';
 import { SettingsPanelHead } from './settings-panel-head';
 import { AiKnowledgeCard } from './ai-knowledge';
-import { AI_PROVIDER_DEFAULT_MODEL } from '@/lib/ai/defaults';
 import type { AiProvider } from '@/lib/ai/types';
 import type { AccountMember } from '@/types';
 import { fetchAccountMembers, memberLabel } from '@/lib/account/members';
 import { useTranslations } from 'next-intl';
-
-const MASKED_KEY = '••••••••••••••••';
 
 // Radix Select can't use an empty-string item value, so the "leave
 // unassigned" choice gets a sentinel that maps to null in the payload.
@@ -43,10 +39,19 @@ const PROVIDER_LABEL: Record<AiProvider, string> = {
   anthropic: 'Anthropic (Claude)',
 };
 
-const KEY_PLACEHOLDER: Record<AiProvider, string> = {
-  openai: 'sk-...',
-  anthropic: 'sk-ant-...',
-};
+interface AvailableModel {
+  provider: AiProvider;
+  model: string;
+  displayName: string;
+  inputCreditsPerMtok: number;
+  outputCreditsPerMtok: number;
+}
+
+interface CreditBalance {
+  creditsRemaining: number;
+  creditsUsed: number;
+  lastResetAt: string | null;
+}
 
 export function AiConfig() {
   const { accountId, accountRole, profileLoading } = useAuth();
@@ -55,31 +60,28 @@ export function AiConfig() {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
   const [removing, setRemoving] = useState(false);
 
   const [configured, setConfigured] = useState(false);
   const [provider, setProvider] = useState<AiProvider>('openai');
-  const [model, setModel] = useState(AI_PROVIDER_DEFAULT_MODEL.openai);
-  const [apiKey, setApiKey] = useState('');
-  const [keyEdited, setKeyEdited] = useState(false);
-  const [showKey, setShowKey] = useState(false);
-  const [hasStoredKey, setHasStoredKey] = useState(false);
-  const [embeddingsKey, setEmbeddingsKey] = useState('');
-  const [embeddingsKeyEdited, setEmbeddingsKeyEdited] = useState(false);
-  const [hasStoredEmbeddingsKey, setHasStoredEmbeddingsKey] = useState(false);
+  const [model, setModel] = useState('');
   const [systemPrompt, setSystemPrompt] = useState('');
   const [isActive, setIsActive] = useState(false);
   const [autoReplyEnabled, setAutoReplyEnabled] = useState(false);
   const [maxPerConversation, setMaxPerConversation] = useState(3);
-  // Empty string = leave unassigned (shared queue).
   const [handoffAgentId, setHandoffAgentId] = useState('');
   const [members, setMembers] = useState<AccountMember[]>([]);
 
-  // Guard keyed on the account (not a bare boolean) so an in-place
-  // account switch — ownership transfer, multi-account membership —
-  // refetches instead of showing the previous account's config. Mirrors
-  // the loadedAccountIdRef pattern in whatsapp-config.tsx.
+  // Platform key availability
+  const [hasOpenaiKey, setHasOpenaiKey] = useState(false);
+  const [hasAnthropicKey, setHasAnthropicKey] = useState(false);
+
+  // Credit balance
+  const [credits, setCredits] = useState<CreditBalance | null>(null);
+
+  // Available models from credit rates
+  const [availableModels, setAvailableModels] = useState<AvailableModel[]>([]);
+
   const loadedAccountIdRef = useRef<string | null>(null);
 
   const fetchConfig = useCallback(async () => {
@@ -100,13 +102,11 @@ export function AiConfig() {
         setAutoReplyEnabled(data.auto_reply_enabled);
         setMaxPerConversation(data.auto_reply_max_per_conversation ?? 3);
         setHandoffAgentId(data.handoff_agent_id ?? '');
-        setHasStoredKey(Boolean(data.has_key));
-        setApiKey(data.has_key ? MASKED_KEY : '');
-        setKeyEdited(false);
-        setHasStoredEmbeddingsKey(Boolean(data.has_embeddings_key));
-        setEmbeddingsKey(data.has_embeddings_key ? MASKED_KEY : '');
-        setEmbeddingsKeyEdited(false);
       }
+      setHasOpenaiKey(Boolean(data.has_openai_key));
+      setHasAnthropicKey(Boolean(data.has_anthropic_key));
+      setCredits(data.credits ?? null);
+      setAvailableModels(data.available_models ?? []);
     } catch {
       toast.error(t('loadFailed'));
     } finally {
@@ -118,34 +118,24 @@ export function AiConfig() {
     if (!accountId || loadedAccountIdRef.current === accountId) return;
     loadedAccountIdRef.current = accountId;
     void fetchConfig();
-    // Members populate the handoff-target picker. Best-effort — on an
-    // older deployment without the endpoint the picker just shows the
-    // queue option.
     void fetchAccountMembers().then(setMembers);
   }, [accountId, fetchConfig]);
 
-  // Swap the model default when the provider changes, unless the user
-  // typed a custom model.
   const handleProviderChange = (next: AiProvider) => {
     setProvider(next);
-    const isDefaultModel =
-      model === AI_PROVIDER_DEFAULT_MODEL.openai ||
-      model === AI_PROVIDER_DEFAULT_MODEL.anthropic ||
-      model.trim() === '';
-    if (isDefaultModel) setModel(AI_PROVIDER_DEFAULT_MODEL[next]);
+    // Reset model to first available for the new provider
+    const providerModels = availableModels.filter((m) => m.provider === next);
+    if (providerModels.length > 0) {
+      const currentModelValid = providerModels.some((m) => m.model === model);
+      if (!currentModelValid) {
+        setModel(providerModels[0].model);
+      }
+    }
   };
-
-  const keyPayload = () => (keyEdited ? apiKey.trim() : undefined);
-
-  // undefined = leave unchanged; '' typed = null (clear); text = set.
-  const embeddingsKeyPayload = () =>
-    embeddingsKeyEdited ? embeddingsKey.trim() || null : undefined;
 
   const buildBody = () => ({
     provider,
     model: model.trim(),
-    api_key: keyPayload(),
-    embeddings_api_key: embeddingsKeyPayload(),
     system_prompt: systemPrompt.trim() || null,
     is_active: isActive,
     auto_reply_enabled: autoReplyEnabled,
@@ -153,35 +143,9 @@ export function AiConfig() {
     handoff_agent_id: handoffAgentId || null,
   });
 
-  const handleTest = async () => {
-    setTesting(true);
-    try {
-      const res = await fetch('/api/ai/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          provider,
-          model: model.trim(),
-          api_key: keyPayload(),
-        }),
-      });
-      const data = await res.json();
-      if (res.ok) toast.success(t('testSuccess'));
-      else toast.error(data.error ?? t('testRejected'));
-    } catch {
-      toast.error(t('testNetworkError'));
-    } finally {
-      setTesting(false);
-    }
-  };
-
   const handleSave = async () => {
     if (!model.trim()) {
       toast.error(t('missingModel'));
-      return;
-    }
-    if (!configured && !keyEdited) {
-      toast.error(t('missingApiKey'));
       return;
     }
     setSaving(true);
@@ -212,9 +176,6 @@ export function AiConfig() {
       if (res.ok) {
         toast.success(t('removeSuccess'));
         setConfigured(false);
-        setHasStoredKey(false);
-        setApiKey('');
-        setKeyEdited(false);
         setIsActive(false);
         setAutoReplyEnabled(false);
         setSystemPrompt('');
@@ -233,13 +194,15 @@ export function AiConfig() {
   if (loading || profileLoading) {
     return (
       <div className="flex items-center justify-center py-16 text-muted-foreground">
-        <Loader2 className="mr-2 h-4 w-4 animate-spin" /> {t('loadFailed')} {/* Re-using label or a global one, wait, loading is better. Let's use useTranslations from overview or just hardcode Loading... actually I should add loading to aiConfig */}
-        {/* Wait, I didn't add loading to aiConfig. I'll just use loading. */}
+        <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading...
       </div>
     );
   }
 
   const disabled = !canEdit || saving;
+  const providerModels = availableModels.filter((m) => m.provider === provider);
+  const hasProviderKey = provider === 'openai' ? hasOpenaiKey : hasAnthropicKey;
+  const selectedModel = providerModels.find((m) => m.model === model);
 
   return (
     <div>
@@ -255,13 +218,55 @@ export function AiConfig() {
       )}
 
       <div className="space-y-6">
+        {/* Credit Balance Card */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Coins className="h-4 w-4 text-primary" /> AI Credits
+            </CardTitle>
+            <CardDescription>
+              Your AI usage is billed from your credit balance. Credits are included in your subscription plan.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="rounded-md border border-border p-3">
+                <p className="text-xs text-muted-foreground">Remaining</p>
+                <p className="text-2xl font-bold text-foreground">
+                  {credits?.creditsRemaining?.toFixed(4) ?? '0.0000'}
+                </p>
+                <p className="text-xs text-muted-foreground">credits</p>
+              </div>
+              <div className="rounded-md border border-border p-3">
+                <p className="text-xs text-muted-foreground">Used this period</p>
+                <p className="text-2xl font-bold text-foreground">
+                  {credits?.creditsUsed?.toFixed(4) ?? '0.0000'}
+                </p>
+                <p className="text-xs text-muted-foreground">credits</p>
+              </div>
+              <div className="rounded-md border border-border p-3">
+                <p className="text-xs text-muted-foreground">Platform keys</p>
+                <div className="mt-1 flex gap-2">
+                  <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${hasOpenaiKey ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-500'}`}>
+                    OpenAI {hasOpenaiKey ? '✓' : '✗'}
+                  </span>
+                  <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${hasAnthropicKey ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-500'}`}>
+                    Anthropic {hasAnthropicKey ? '✓' : '✗'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Provider & Model Card */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <Sparkles className="h-4 w-4 text-primary" /> {t('providerAndKey')}
             </CardTitle>
             <CardDescription>
-              {t('encryptionNotice')}
+              Select the AI provider and model. The platform provides the API key -- no key entry needed.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -277,110 +282,51 @@ export function AiConfig() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="openai">{PROVIDER_LABEL.openai}</SelectItem>
-                    <SelectItem value="anthropic">
-                      {PROVIDER_LABEL.anthropic}
+                    <SelectItem value="openai" disabled={!hasOpenaiKey}>
+                      {PROVIDER_LABEL.openai} {!hasOpenaiKey && '(key not configured)'}
+                    </SelectItem>
+                    <SelectItem value="anthropic" disabled={!hasAnthropicKey}>
+                      {PROVIDER_LABEL.anthropic} {!hasAnthropicKey && '(key not configured)'}
                     </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="ai-model">{t('model')}</Label>
-                <Input
-                  id="ai-model"
+                <Label>{t('model')}</Label>
+                <Select
                   value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  placeholder={AI_PROVIDER_DEFAULT_MODEL[provider]}
-                  disabled={disabled}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="ai-key">{t('apiKey')}</Label>
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <Input
-                    id="ai-key"
-                    type={showKey ? 'text' : 'password'}
-                    value={apiKey}
-                    onChange={(e) => {
-                      setApiKey(e.target.value);
-                      setKeyEdited(true);
-                    }}
-                    onFocus={() => {
-                      if (!keyEdited && hasStoredKey) {
-                        setApiKey('');
-                        setKeyEdited(true);
-                      }
-                    }}
-                    placeholder={KEY_PLACEHOLDER[provider]}
-                    disabled={disabled}
-                    autoComplete="off"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowKey((s) => !s)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    tabIndex={-1}
-                  >
-                    {showKey ? (
-                      <EyeOff className="h-4 w-4" />
-                    ) : (
-                      <Eye className="h-4 w-4" />
-                    )}
-                  </button>
-                </div>
-                <Button
-                  variant="outline"
-                  onClick={handleTest}
-                  disabled={disabled || testing}
+                  onValueChange={(v) => setModel(v ?? '')}
+                  disabled={disabled || providerModels.length === 0}
                 >
-                  {testing ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <CheckCircle2 className="mr-2 h-4 w-4" />
-                  )}
-                  {t('testKey')}
-                </Button>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a model" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {providerModels.map((m) => (
+                      <SelectItem key={m.model} value={m.model}>
+                        {m.displayName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {selectedModel && (
+                  <p className="text-xs text-muted-foreground">
+                    Cost: {selectedModel.inputCreditsPerMtok} credits/MTok input,{' '}
+                    {selectedModel.outputCreditsPerMtok} credits/MTok output
+                  </p>
+                )}
+                {!hasProviderKey && (
+                  <p className="text-xs text-destructive">
+                    {PROVIDER_LABEL[provider]} API key is not configured on the platform.
+                  </p>
+                )}
               </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="ai-embeddings-key">
-                {t('embeddingsKey')}{' '}
-                <span className="font-normal text-muted-foreground">
-                  {t('optionalSemanticSearch')}
-                </span>
-              </Label>
-              <Input
-                id="ai-embeddings-key"
-                type="password"
-                value={embeddingsKey}
-                onChange={(e) => {
-                  setEmbeddingsKey(e.target.value);
-                  setEmbeddingsKeyEdited(true);
-                }}
-                onFocus={() => {
-                  if (!embeddingsKeyEdited && hasStoredEmbeddingsKey) {
-                    setEmbeddingsKey('');
-                    setEmbeddingsKeyEdited(true);
-                  }
-                }}
-                placeholder="sk-... (OpenAI)"
-                disabled={disabled}
-                autoComplete="off"
-              />
-              <p className="text-xs text-muted-foreground">
-                {t('embeddingsHint', {
-                  sameKeyText: provider === 'openai' ? t('sameKeyText') : '',
-                })}
-              </p>
             </div>
           </CardContent>
         </Card>
 
+        {/* Behaviour Card */}
         <Card>
           <CardHeader>
             <CardTitle className="text-base">{t('behaviour')}</CardTitle>
@@ -440,7 +386,7 @@ export function AiConfig() {
                   {t('maxAutoRepliesDesc')}
                 </p>
               </div>
-              <Input
+              <input
                 id="ai-max"
                 type="number"
                 min={1}
@@ -452,7 +398,7 @@ export function AiConfig() {
                   )
                 }
                 disabled={disabled || !autoReplyEnabled}
-                className="w-20"
+                className="w-20 rounded-md border border-border bg-background px-3 py-1.5 text-sm"
               />
             </div>
 
@@ -489,11 +435,7 @@ export function AiConfig() {
         <AiKnowledgeCard
           accountId={accountId}
           canEdit={canEdit}
-          hasEmbeddingsKey={
-            embeddingsKeyEdited
-              ? embeddingsKey.trim().length > 0
-              : hasStoredEmbeddingsKey
-          }
+          hasEmbeddingsKey={false}
         />
 
         <div className="flex items-center justify-between">
