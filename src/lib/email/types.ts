@@ -33,4 +33,5 @@ export type EmailTemplateName =
   | 'plan-change'
   | 'payment-failed'
   | 'invitation'
-  | 'ai-credits-low';
+  | 'ai-credits-low'
+  | 'login-notification';

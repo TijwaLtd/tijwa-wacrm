@@ -7,6 +7,7 @@ import planChange from './templates/plan-change';
 import paymentFailed from './templates/payment-failed';
 import invitation from './templates/invitation';
 import aiCreditsLow from './templates/ai-credits-low';
+import loginNotification from './templates/login-notification';
 
 const templates: Record<EmailTemplateName, EmailTemplate> = {
   welcome,
@@ -14,6 +15,7 @@ const templates: Record<EmailTemplateName, EmailTemplate> = {
   'payment-failed': paymentFailed,
   invitation,
   'ai-credits-low': aiCreditsLow,
+  'login-notification': loginNotification,
 };
 
 function isEnabled(): boolean {
@@ -85,4 +87,11 @@ export async function sendAiCreditsLowEmail(
   data: { name: string; workspaceName: string; creditsLeft: string; plan: string },
 ): Promise<EmailResult> {
   return renderAndSend('ai-credits-low', to, data);
+}
+
+export async function sendLoginNotificationEmail(
+  to: string,
+  data: { name: string; device: string; location: string; ip: string; time: string; securityUrl: string },
+): Promise<EmailResult> {
+  return renderAndSend('login-notification', to, data);
 }

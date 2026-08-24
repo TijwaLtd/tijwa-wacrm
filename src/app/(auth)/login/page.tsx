@@ -60,6 +60,9 @@ function LoginPageInner() {
       return;
     }
 
+    // Fire-and-forget login notification email (don't block navigation)
+    fetch('/api/auth/login-notification', { method: 'POST' }).catch(() => {});
+
     // Full-page navigation (not router.push) so the browser issues a
     // fresh top-level request that carries the just-written Supabase
     // auth cookies to the middleware gating /dashboard. A soft

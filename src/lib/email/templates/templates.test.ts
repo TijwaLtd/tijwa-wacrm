@@ -4,6 +4,7 @@ import planChange from './plan-change';
 import paymentFailed from './payment-failed';
 import invitation from './invitation';
 import aiCreditsLow from './ai-credits-low';
+import loginNotification from './login-notification';
 
 describe('email templates', () => {
   const data = {
@@ -16,6 +17,11 @@ describe('email templates', () => {
     inviterName: 'John',
     inviteUrl: 'https://crm.example.com/invite/abc123',
     creditsLeft: '12',
+    device: 'Chrome · 120 · Windows 11',
+    location: 'Sign-in from 1.2.3.4',
+    ip: '1.2.3.4',
+    time: 'Mon, Jan 15, 2025, 10:30 AM UTC',
+    securityUrl: 'https://crm.example.com/settings/security',
   };
 
   it('welcome template renders', () => {
@@ -58,9 +64,19 @@ describe('email templates', () => {
     expect(html).toContain('Upgrade Plan');
   });
 
+  it('login-notification template renders', () => {
+    const { html } = loginNotification.render(data);
+    expect(html).toContain('New sign-in detected');
+    expect(html).toContain('Chrome');
+    expect(html).toContain('Windows 11');
+    expect(html).toContain('1.2.3.4');
+    expect(html).toContain('Secure My Account');
+    expect(html).toContain('Wasn\'t you?');
+  });
+
   it('all templates are responsive (max-width media query)', () => {
-    const templates = [welcome, planChange, paymentFailed, invitation, aiCreditsLow];
-    for (const tmpl of templates) {
+    const allTemplates = [welcome, planChange, paymentFailed, invitation, aiCreditsLow, loginNotification];
+    for (const tmpl of allTemplates) {
       const { html } = tmpl.render(data);
       expect(html).toContain('max-width:640px');
       expect(html).toContain('viewport');
@@ -68,8 +84,8 @@ describe('email templates', () => {
   });
 
   it('all templates include unsubscribe/notification settings link', () => {
-    const templates = [welcome, planChange, paymentFailed, invitation, aiCreditsLow];
-    for (const tmpl of templates) {
+    const allTemplates = [welcome, planChange, paymentFailed, invitation, aiCreditsLow, loginNotification];
+    for (const tmpl of allTemplates) {
       const { html } = tmpl.render(data);
       expect(html).toContain('Notification settings');
     }
