@@ -20,19 +20,11 @@ import { ConversationList } from '@/components/inbox/conversation-list';
 import { MessageThread } from '@/components/inbox/message-thread';
 import { ContactSidebar } from '@/components/inbox/contact-sidebar';
 import { SyncStatusIndicator } from '@/components/inbox/sync-status-indicator';
-import { toast } from 'sonner';
 import { WifiOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/use-auth';
 import { useLocalSync } from '@/hooks/use-local-sync';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { Button } from '@/components/ui/button';
-import { Building2, ChevronDown, Loader2 } from 'lucide-react';
+
 
 // Remembers the agent's show/hide choice for the desktop contact panel
 // across reloads and sessions (device-scoped, like the theme prefs).
@@ -53,8 +45,8 @@ function InboxPageInner() {
   const t = useTranslations('Inbox.page');
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { workspaces, activeAccountId } = useAuth();
-  const { syncProgress, isSynced, outboxCount, triggerSync } = useLocalSync();
+  const { } = useAuth();
+  const { syncProgress, outboxCount, triggerSync } = useLocalSync();
   /**
    * `?c=<id>` deep-link support. Used when landing here from the
    * dashboard's recent-conversations list so the right thread opens
@@ -80,29 +72,17 @@ function InboxPageInner() {
   const [resyncToken, setResyncToken] = useState(0);
 
   // Multi-workspace: selected account filter (null = all workspaces)
-  const [workspaceFilter, setWorkspaceFilter] = useState<string | null>(null);
-  const [loadingConversations, setLoadingConversations] = useState(false);
+  const [workspaceFilter] = useState<string | null>(null);
 
   // Determine if we should show workspace selector (user has multiple workspaces)
-  const showWorkspaceSelector = workspaces.length > 1;
 
-  /**
-   * Whether the desktop contact sidebar (tags / deals / notes) is shown.
-   * Defaults to `true` (the historical behaviour) and is restored from
-   * localStorage after mount. We deliberately do NOT read localStorage in
-   * the initializer: the server renders with `true`, so reading a stored
-   * `false` synchronously would produce a hydration mismatch. The effect
-   * below reconciles to the stored value right after mount instead.
-   */
-  const [contactPanelOpen, setContactPanelOpen] = useState(true);
-  useEffect(() => {
+  const [contactPanelOpen, setContactPanelOpen] = useState(() => {
     try {
-      const stored = localStorage.getItem(CONTACT_PANEL_STORAGE_KEY);
-      if (stored !== null) setContactPanelOpen(stored === 'true');
+      return localStorage.getItem(CONTACT_PANEL_STORAGE_KEY) === 'true';
     } catch {
-      // localStorage can throw in private-browsing / sandboxed contexts.
+      return true;
     }
-  }, []);
+  });
 
   const handleToggleContactPanel = useCallback(() => {
     setContactPanelOpen((prev) => {

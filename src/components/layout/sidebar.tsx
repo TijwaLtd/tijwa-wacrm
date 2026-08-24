@@ -7,7 +7,6 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/use-auth';
 import { useTotalUnread } from '@/hooks/use-total-unread';
 import {
-  Bell,
   Crown,
   GitBranch,
   LayoutDashboard,

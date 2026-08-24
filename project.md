@@ -744,9 +744,9 @@ NEXT_PUBLIC_APP_URL=  # For redirects, defaults to localhost:3000
 # Fork on GitHub first
 git clone https://github.com/<your-username>/wacrm.git
 cd wacrm
-npm install
+pnpm install
 cp .env.local.example .env.local   # fill in credentials
-npm run dev
+pnpm dev
 ```
 
 ### Available Scripts
@@ -768,9 +768,9 @@ npm run dev
 ### Testing
 
 ```bash
-npm test           # Run all tests
-npm run typecheck  # TypeScript check
-npm run lint       # ESLint
+pnpm test           # Run all tests
+pnpm typecheck  # TypeScript check
+pnpm lint       # ESLint
 ```
 
 ### Project Conventions

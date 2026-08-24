@@ -117,7 +117,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { workspaces: [], activeId: null };
     }
 
-    const workspaces: Workspace[] = (accounts ?? []).map((a: any) => ({
+    const workspaces: Workspace[] = (accounts ?? []).map((a: { account_id: string; account_name: string; role: string; joined_at: string; plan?: string; subscription_status?: string; subdomain?: string }) => ({
       account_id: a.account_id,
       account_name: a.account_name ?? "Unknown",
       role: isAccountRole(a.role) ? a.role : "viewer",
@@ -309,6 +309,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.location.href = "/login";
   }, []);
 
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const refreshProfile = useCallback(async () => {
     if (!user?.id) return;
     const cookieMatch = document.cookie.match(/wacrm_active_account=([^;]+)/);

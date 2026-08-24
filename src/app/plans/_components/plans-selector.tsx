@@ -44,12 +44,6 @@ const PLANS: Plan[] = [
   },
 ];
 
-function formatLimit(value: number | 'unlimited', t: (key: string, opts?: Record<string, unknown>) => string): string {
-  if (value === 'unlimited') return t('features.unlimited');
-  if (value >= 1000000) return t('features.unlimited');
-  return t('features.maxContacts', { count: value.toLocaleString() });
-}
-
 export function PlansSelector({ currentPlan = 'starter', onSelectPlan, loading }: PlansSelectorProps) {
   const t = useTranslations('Onboarding.plans');
 

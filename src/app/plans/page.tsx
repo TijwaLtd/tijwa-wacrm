@@ -15,7 +15,7 @@ export default function PlansPage() {
           {accountName ? `${accountName} — Plans` : 'Choose your plan'}
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Start free, upgrade when you're ready. No credit card required.
+          Start free, upgrade when you&apos;re ready. No credit card required.
         </p>
       </div>
 

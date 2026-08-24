@@ -86,6 +86,7 @@ export function AiThreadBanner({
   // instantly on click; re-seeds whenever the thread (or its server
   // state via realtime) changes.
   const [paused, setPaused] = useState(disabled);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setPaused(disabled), [conversationId, disabled]);
 
   useEffect(() => {

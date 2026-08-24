@@ -210,7 +210,7 @@ export async function PATCH(request: Request) {
 
     // If name changed, update subdomain if it was auto-generated
     if (typeof updates.name === "string" && membership.role === "owner") {
-      let newSubdomain = updates.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      const newSubdomain = updates.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
       // Auto-generate unique subdomain if the raw one is taken
       let attempt = 0;

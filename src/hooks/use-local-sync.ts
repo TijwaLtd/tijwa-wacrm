@@ -168,6 +168,7 @@ export function useLocalSync(): LocalSyncState {
   }, [refreshStats]);
 
   // Trigger a full sync
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const triggerSync = useCallback(() => {
     if (!user?.id) return;
     setSyncProgress({ status: "syncing", phase: "starting", synced: 0, total: 0 });
@@ -243,6 +244,7 @@ export function useLocalSync(): LocalSyncState {
 
   // Refresh stats when active tenant changes
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     refreshStats();
   }, [activeAccountId, refreshStats]);
 

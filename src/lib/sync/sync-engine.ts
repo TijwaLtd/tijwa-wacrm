@@ -6,10 +6,7 @@ import {
   putTags,
   putQuickReplies,
   putSyncState,
-  getSyncState,
   putTenantMemberships,
-  deleteConversation,
-  deleteQuickReply,
   getAllConversations,
   getMessagesByConversation,
   type LocalConversation,
@@ -19,7 +16,7 @@ import {
   type LocalQuickReply,
   type TenantMembership,
 } from "@/lib/db";
-import type { Conversation, Contact, Tag, QuickReply } from "@/types";
+import type { Conversation } from "@/types";
 
 // ============================================================
 // Sync Engine — Progressive synchronization of all authorized
@@ -37,7 +34,6 @@ import type { Conversation, Contact, Tag, QuickReply } from "@/types";
 // IndexedDB first; sync populates in the background.
 // ============================================================
 
-const BATCH_SIZE = 100;
 const MESSAGE_BATCH_SIZE = 200;
 
 export type SyncStatus = "idle" | "syncing" | "error" | "complete";

@@ -233,7 +233,7 @@ async function processWebhook(
 
       if (value.statuses) {
         for (const status of value.statuses) {
-          await handleStatusUpdate(status, accountId)
+          await handleStatusUpdate(status)
         }
       }
 
@@ -288,8 +288,7 @@ async function handleStatusUpdate(
     status: string
     timestamp: string
     recipient_id: string
-  },
-  accountId: string
+  }
 ) {
   const { error: msgErr } = await supabaseAdmin()
     .from('messages')

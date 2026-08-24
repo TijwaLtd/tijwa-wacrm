@@ -27,7 +27,6 @@ export function WorkspaceSelector({ onSelect }: WorkspaceSelectorProps) {
   const { workspaces, activeWorkspace, switchWorkspace, loading: authLoading } = useAuth();
   const [workspacesWithCounts, setWorkspacesWithCounts] = useState<WorkspaceWithCounts[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchCounts() {
@@ -58,13 +57,12 @@ export function WorkspaceSelector({ onSelect }: WorkspaceSelectorProps) {
       // Use replace to avoid history stack issues
       window.location.replace('/dashboard');
     }
-  }, [authLoading, loading, workspaces.length]);
+  }, [authLoading, loading, workspaces]);
 
   const handleSelect = async (accountId: string) => {
-    setSelectedId(accountId);
     await switchWorkspace(accountId);
     onSelect?.(accountId);
-    window.location.href = '/dashboard';
+    window.location.replace('/dashboard');
   };
 
   const handleCreateNew = () => {

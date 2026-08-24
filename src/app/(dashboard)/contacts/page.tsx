@@ -139,7 +139,7 @@ export default function ContactsPage() {
     const to = from + PAGE_SIZE - 1;
     const term = search.trim();
 
-    let contactRows: any[] = [];
+    let contactRows: Contact[] = [];
     let count = 0;
 
     if (workspaceFilter === null) {
@@ -154,7 +154,7 @@ export default function ContactsPage() {
         setLoading(false);
         return;
       }
-      let allContacts = (data ?? []) as any[];
+      let allContacts = (data ?? []) as Contact[];
       // Apply search filter client-side
       if (term) {
         const lower = term.toLowerCase();
@@ -680,8 +680,8 @@ export default function ContactsPage() {
                       <span className="truncate">
                         {contact.name || <span className="text-muted-foreground italic">{t('unnamed')}</span>}
                       </span>
-                      {(contact as any).account_id && (
-                        <WorkspaceBadge accountId={(contact as any).account_id} size="sm" />
+                      {contact.account_id && (
+                        <WorkspaceBadge accountId={contact.account_id} size="sm" />
                       )}
                     </div>
                   </TableCell>

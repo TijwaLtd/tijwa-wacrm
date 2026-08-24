@@ -374,73 +374,6 @@ export function MessageComposer({
     [openInteractiveBuilder, adjustHeight],
   );
 
-  // Handle action selection from the ActionPickerDialog.
-  const handleActionSelect = useCallback(
-    (kind: ActionKind) => {
-      switch (kind) {
-        case "document":
-          documentInputRef.current?.click();
-          break;
-        case "photo":
-          imageInputRef.current?.click();
-          break;
-        case "audio":
-          void startRecording();
-          break;
-        case "interactive":
-          openInteractiveBuilder();
-          break;
-        case "quick-reply":
-          setQuickReplyOpen(true);
-          break;
-        case "template":
-          onOpenTemplates();
-          break;
-        case "ai-draft":
-          void handleDraft();
-          break;
-      }
-    },
-    [openInteractiveBuilder, onOpenTemplates, handleDraft]
-  );
-
-  // Upload a captured file to chat-media and stage it as a draft.
-  const stageUpload = useCallback(
-    async (kind: ComposerMediaKind, file: File) => {
-      // Per-kind ceiling mirrors Meta's caps (image 5 MB, etc.) so we
-      // reject before upload rather than orphaning an object that Meta
-      // would then refuse at send.
-      const max = MEDIA_MAX_BYTES_BY_KIND[kind];
-      if (file.size > max) {
-        toast.error(
-          `File is ${(file.size / 1024 / 1024).toFixed(1)} MB — ${kind} limit is ${Math.round(
-            max / 1024 / 1024,
-          )} MB.`,
-        );
-        return;
-      }
-      setBusy(true);
-      try {
-        const { publicUrl, path } = await uploadAccountMedia(CHAT_MEDIA_BUCKET, file);
-        // Replacing an existing draft? GC the previous object first.
-        removeStaged(draftRef.current?.path);
-        setDraft({ kind, mediaUrl: publicUrl, path, filename: file.name, caption: "" });
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Upload failed.");
-      } finally {
-        setBusy(false);
-      }
-    },
-    [removeStaged],
-  );
-
-  const handlePicked = useCallback(
-    (kind: "image" | "video" | "document", file: File | undefined) => {
-      if (file) void stageUpload(kind, file);
-    },
-    [stageUpload],
-  );
-
   // ---- Voice recording (client-side Ogg/Opus, no server transcode) ---
 
   // The encoded Ogg/Opus file from opus-recorder → upload as an audio
@@ -505,6 +438,73 @@ export function MessageComposer({
     }
   }, [inputsDisabled, busy, recording, finalizeRecording]);
 
+  // Handle action selection from the ActionPickerDialog.
+  const handleActionSelect = useCallback(
+    (kind: ActionKind) => {
+      switch (kind) {
+        case "document":
+          documentInputRef.current?.click();
+          break;
+        case "photo":
+          imageInputRef.current?.click();
+          break;
+        case "audio":
+          void startRecording();
+          break;
+        case "interactive":
+          openInteractiveBuilder();
+          break;
+        case "quick-reply":
+          setQuickReplyOpen(true);
+          break;
+        case "template":
+          onOpenTemplates();
+          break;
+        case "ai-draft":
+          void handleDraft();
+          break;
+      }
+    },
+    [openInteractiveBuilder, onOpenTemplates, handleDraft, startRecording]
+  );
+
+  // Upload a captured file to chat-media and stage it as a draft.
+  const stageUpload = useCallback(
+    async (kind: ComposerMediaKind, file: File) => {
+      // Per-kind ceiling mirrors Meta's caps (image 5 MB, etc.) so we
+      // reject before upload rather than orphaning an object that Meta
+      // would then refuse at send.
+      const max = MEDIA_MAX_BYTES_BY_KIND[kind];
+      if (file.size > max) {
+        toast.error(
+          `File is ${(file.size / 1024 / 1024).toFixed(1)} MB — ${kind} limit is ${Math.round(
+            max / 1024 / 1024,
+          )} MB.`,
+        );
+        return;
+      }
+      setBusy(true);
+      try {
+        const { publicUrl, path } = await uploadAccountMedia(CHAT_MEDIA_BUCKET, file);
+        // Replacing an existing draft? GC the previous object first.
+        removeStaged(draftRef.current?.path);
+        setDraft({ kind, mediaUrl: publicUrl, path, filename: file.name, caption: "" });
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Upload failed.");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [removeStaged],
+  );
+
+  const handlePicked = useCallback(
+    (kind: "image" | "video" | "document", file: File | undefined) => {
+      if (file) void stageUpload(kind, file);
+    },
+    [stageUpload],
+  );
+
   const stopRecording = useCallback(() => {
     clearTimer();
     setRecording(false);
@@ -522,6 +522,7 @@ export function MessageComposer({
   // upload size limit.
   useEffect(() => {
     if (recording && recordSeconds >= MAX_RECORDING_SECONDS) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       stopRecording();
     }
   }, [recording, recordSeconds, stopRecording]);

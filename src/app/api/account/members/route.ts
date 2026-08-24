@@ -20,15 +20,6 @@ import { getCurrentAccount, toErrorResponse } from "@/lib/auth/account";
 import { canManageMembers, isAccountRole } from "@/lib/auth/roles";
 import type { AccountMember } from "@/types";
 
-interface MemberRow {
-  user_id: string;
-  full_name: string | null;
-  email: string | null;
-  avatar_url: string | null;
-  role: string;
-  joined_at: string;
-}
-
 export async function GET() {
   try {
     const ctx = await getCurrentAccount();
@@ -61,15 +52,16 @@ export async function GET() {
     const canSeeEmails = canManageMembers(ctx.role);
 
     const members: AccountMember[] = (data ?? []).flatMap((row) => {
-      const profile = row.user as any;
+      const raw = row.user;
+      const profile = (Array.isArray(raw) ? raw[0] : raw) as Record<string, unknown> | undefined;
       if (!profile?.id) return [];
       if (!isAccountRole(row.role)) return [];
       return [
         {
-          user_id: profile.id,
-          full_name: profile.full_name ?? "",
-          email: canSeeEmails ? profile.email : null,
-          avatar_url: profile.avatar_url,
+          user_id: profile.id as string,
+          full_name: (profile.full_name as string) ?? "",
+          email: canSeeEmails ? ((profile.email as string) ?? null) : null,
+          avatar_url: (profile.avatar_url as string) ?? null,
           role: row.role as AccountMember["role"],
           joined_at: row.joined_at,
         },

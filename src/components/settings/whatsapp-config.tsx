@@ -175,13 +175,14 @@ export function WhatsAppConfig() {
     if (authLoading || profileLoading) return;
     if (!user || !accountId) {
       loadedAccountIdRef.current = null;
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLoading(false);
       return;
     }
     if (loadedAccountIdRef.current === accountId) return;
     loadedAccountIdRef.current = accountId;
     fetchConfig(accountId);
-  }, [authLoading, profileLoading, user?.id, accountId, fetchConfig]);
+  }, [authLoading, profileLoading, user, user?.id, accountId, fetchConfig]);
 
   // Fetch subdomain for the slug-based webhook URL
   useEffect(() => {
@@ -194,7 +195,7 @@ export function WhatsAppConfig() {
         .single();
       if (data?.subdomain) setSubdomain(data.subdomain);
     })();
-  }, [accountId]);
+  }, [accountId, supabase]);
 
   async function handleSave() {
     if (!phoneNumberId.trim()) {

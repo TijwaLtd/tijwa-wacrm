@@ -12,6 +12,7 @@ import type { Conversation, ConversationStatus, Tag } from "@/types";
 import { Search, ChevronDown, X } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useTranslations } from "next-intl";
+import Image from "next/image";
 import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
@@ -148,7 +149,7 @@ export function ConversationList({
       const supabase = createClient();
 
       try {
-        let convs: any[] = [];
+        let convs: Conversation[] = [];
 
         if (workspaceFilter === null) {
           // All workspaces mode - use RPC
@@ -162,23 +163,23 @@ export function ConversationList({
             return;
           }
           // RPC returns flat rows, normalize to conversation shape
-          convs = (data ?? []).map((c: any) => ({
-            id: c.id,
+          convs = (data ?? []).map((c: Record<string, unknown>) => ({
+            id: c.id as string,
             user_id: null,
-            account_id: c.account_id,
-            contact_id: c.contact_id,
-            status: c.status,
-            assigned_agent_id: c.assigned_agent_id,
-            last_message_text: c.last_message_text,
-            last_message_at: c.last_message_at,
-            unread_count: c.unread_count,
-            created_at: c.created_at,
-            updated_at: c.updated_at,
+            account_id: c.account_id as string,
+            contact_id: c.contact_id as string,
+            status: c.status as ConversationStatus,
+            assigned_agent_id: c.assigned_agent_id as string | null,
+            last_message_text: c.last_message_text as string | null,
+            last_message_at: c.last_message_at as string | null,
+            unread_count: c.unread_count as number,
+            created_at: c.created_at as string,
+            updated_at: c.updated_at as string,
             contact: c.contact_name ? {
-              id: c.contact_id,
-              name: c.contact_name,
-              phone: c.contact_phone,
-              company: c.contact_company,
+              id: c.contact_id as string,
+              name: c.contact_name as string,
+              phone: c.contact_phone as string,
+              company: c.contact_company as string,
             } : undefined,
           }));
         } else {
@@ -570,9 +571,12 @@ function ConversationItem({
       {/* Avatar */}
       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium text-foreground">
         {contact?.avatar_url ? (
-          <img
+          <Image
             src={contact.avatar_url}
             alt={displayName}
+            width={40}
+            height={40}
+            unoptimized
             className="h-10 w-10 rounded-full object-cover"
           />
         ) : (

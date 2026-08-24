@@ -3,7 +3,7 @@ import {
   updateOutboxItem,
   getPendingOutboxItems,
   getOutboxItem,
-  outboxHasClientMessage,
+
   putMessage,
   updateMessage,
   putAttachment,

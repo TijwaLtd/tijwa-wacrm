@@ -38,7 +38,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ScrollArea } from "@/components/ui/scroll-area";
+
 import { MessageBubble } from "./message-bubble";
 import { MessageActions } from "./message-actions";
 import { MediaLightbox } from "./media-lightbox";
@@ -352,7 +352,7 @@ export function MessageThread({
             created_at: m.created_at as string,
             reply_to_message_id: (m.reply_to_message_id as string) || undefined,
             interactive_reply_id: (m.interactive_reply_id as string) || undefined,
-            interactive_payload: m.interactive_payload as any || undefined,
+            interactive_payload: m.interactive_payload as InteractiveMessagePayload || undefined,
             ai_generated: (m.ai_generated as boolean) || undefined,
           }));
           await putMessages(localMsgs);
@@ -379,6 +379,7 @@ export function MessageThread({
   // realtime channel.
   useEffect(() => {
     if (!conversationId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setReactions([]);
       return;
     }
@@ -479,6 +480,7 @@ export function MessageThread({
   // Clear any in-progress reply draft when the active conversation changes —
   // a quote pulled from conversation A shouldn't bleed into conversation B.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setReplyTo(null);
   }, [conversationId]);
 
@@ -963,7 +965,7 @@ export function MessageThread({
         preview: buildReplyPreview(msg, tQuote),
       });
     },
-    [authorLabelFor],
+    [authorLabelFor, tQuote],
   );
 
   // Single reaction-set primitive. emoji === "" removes; otherwise adds/swaps.
@@ -971,6 +973,7 @@ export function MessageThread({
   // current reactions for the bubble are already in scope — keeps this
   // function dependency-free w.r.t. the reaction list.
   const postReaction = useCallback(
+    // eslint-disable-next-line react-hooks/preserve-manual-memoization
     async (messageId: string, emoji: string) => {
       if (!user?.id || !conversation) {
         console.warn("[reactions] missing user or conversation");

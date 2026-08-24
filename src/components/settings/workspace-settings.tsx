@@ -45,7 +45,6 @@ export function WorkspaceSettings() {
   const [logoUrl, setLogoUrl] = useState('');
   const [accentColor, setAccentColor] = useState('#7c3aed');
   const [saving, setSaving] = useState(false);
-  const [loading, setLoading] = useState(false);
 
   // Leave dialog
   const [showLeaveDialog, setShowLeaveDialog] = useState(false);
@@ -62,8 +61,7 @@ export function WorkspaceSettings() {
       try {
         const res = await fetch(`/api/workspaces/${activeWorkspace.account_id}`);
         if (res.ok) {
-          const data = await res.json();
-          // Could populate logo, accent color if stored
+          await res.json();
         }
       } catch (err) {
         console.error('Failed to fetch workspace settings:', err);
@@ -180,7 +178,6 @@ export function WorkspaceSettings() {
   }
 
   const isOwner = activeWorkspace.role === 'owner';
-  const memberCount = 1; // Would fetch from API
 
   return (
     <div className="space-y-6">

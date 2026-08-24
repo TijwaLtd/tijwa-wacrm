@@ -101,10 +101,10 @@ the server layers three guards:
 ## Development
 
 ```bash
-npm install
-npm run build      # compile to dist/
-npm run typecheck
-npm start          # run the compiled server (needs the env vars)
+pnpm install
+pnpm build      # compile to dist/
+pnpm typecheck
+pnpm start          # run the compiled server (needs the env vars)
 ```
 
 Logs go to **stderr** — stdout is reserved for the MCP protocol.

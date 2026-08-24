@@ -1,13 +1,13 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { Loader2, Upload, ArrowRight, ArrowLeft, Check, Building2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
+import Image from 'next/image';
 import { cn } from '@/lib/utils';
 
 interface WorkspaceFormProps {
@@ -20,7 +20,6 @@ type Step = typeof STEPS[number];
 
 export function WorkspaceForm({ mode, onModeSwitch }: WorkspaceFormProps) {
   const t = useTranslations('Onboarding.workspace');
-  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<Step>('details');
@@ -281,9 +280,12 @@ export function WorkspaceForm({ mode, onModeSwitch }: WorkspaceFormProps) {
               />
               {logoPreview ? (
                 <div className="relative inline-block">
-                  <img
+                  <Image
                     src={logoPreview}
                     alt="Logo preview"
+                    width={64}
+                    height={64}
+                    unoptimized
                     className="h-16 w-16 rounded-lg object-cover border border-border"
                   />
                   <button
@@ -312,9 +314,12 @@ export function WorkspaceForm({ mode, onModeSwitch }: WorkspaceFormProps) {
           <div className="flex flex-col gap-4">
             <div className="flex items-center gap-4 rounded-lg border border-border p-4">
               {logoPreview ? (
-                <img
+                <Image
                   src={logoPreview}
                   alt="Logo"
+                  width={48}
+                  height={48}
+                  unoptimized
                   className="h-12 w-12 rounded-lg object-cover"
                 />
               ) : (

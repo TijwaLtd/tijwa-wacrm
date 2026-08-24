@@ -30,7 +30,7 @@ export async function GET() {
 
   // Get unread notification counts for each workspace
   const workspacesWithCounts = await Promise.all(
-    (accounts ?? []).map(async (account: any) => {
+    (accounts ?? []).map(async (account: { account_id: string; account_name?: string; role?: string; subdomain?: string }) => {
       const accountId = account.account_id;
 
       // Count unread notifications for this workspace
