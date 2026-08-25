@@ -82,7 +82,7 @@ export function SettingsOverview({
           supabase
             .from('tags')
             .select('id', { count: 'exact', head: true })
-            .eq('user_id', userId),
+            .eq('account_id', acctId),
           supabase.from('custom_fields').select('id', { count: 'exact', head: true }),
         ]);
 
