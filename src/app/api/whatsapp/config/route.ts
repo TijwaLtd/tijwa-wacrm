@@ -27,7 +27,14 @@ async function resolveAccountId(
     .select('account_id')
     .eq('user_id', userId)
     .maybeSingle()
-  if (error || !data?.account_id) return null
+  if (error) {
+    console.error('[resolveAccountId] profiles query error:', error)
+    return null
+  }
+  if (!data?.account_id) {
+    console.warn('[resolveAccountId] no account_id on profile for user:', userId)
+    return null
+  }
   return data.account_id as string
 }
 
@@ -179,7 +186,7 @@ export async function POST(request: Request) {
     const accountId = await resolveAccountId(supabase, user.id)
     if (!accountId) {
       return NextResponse.json(
-        { error: 'Your profile is not linked to an account.' },
+        { error: 'Your profile is not linked to a workspace. Please complete onboarding first, or contact your workspace owner to add you as a member.' },
         { status: 403 },
       )
     }
@@ -245,8 +252,17 @@ export async function POST(request: Request) {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown Meta API error'
       console.error('Meta API verification failed during save:', message)
+      // Provide actionable guidance based on common Meta errors
+      let hint = ''
+      if (message.includes('Invalid OAuth access token') || message.includes('expired')) {
+        hint = ' Your access token may be expired. Generate a new System User token in Meta Business Manager.'
+      } else if (message.includes('Invalid parameter') || message.includes('does not exist')) {
+        hint = ' The Phone Number ID may be incorrect. Check it in Meta Business Manager > WhatsApp Manager > Phone Numbers.'
+      } else if (message.includes('Permission denied') || message.includes('permission')) {
+        hint = ' Your token is missing required permissions. Ensure it has whatsapp_business_management and business_management scopes.'
+      }
       return NextResponse.json(
-        { error: `Meta API error: ${message}` },
+        { error: `Meta verification failed: ${message}.${hint}` },
         { status: 400 }
       )
     }
