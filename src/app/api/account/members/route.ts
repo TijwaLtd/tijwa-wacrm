@@ -24,10 +24,10 @@ export async function GET() {
   try {
     const ctx = await getCurrentAccount();
 
-    // Fetch memberships first, then profiles separately — there's no
-    // direct FK from account_memberships to profiles (both reference
-    // auth.users), so PostgREST can't do an inline join.
-    const { data: memberships, error: memErr } = await ctx.supabase
+    // Use service client for account_memberships to avoid RLS infinite
+    // recursion — the memberships_select policy (auth.uid() = user_id)
+    // triggers the recursion. Auth is already verified via getCurrentAccount().
+    const { data: memberships, error: memErr } = await ctx.serviceClient
       .from("account_memberships")
       .select("user_id, role, joined_at")
       .eq("account_id", ctx.accountId)
@@ -48,7 +48,7 @@ export async function GET() {
     // Collect user IDs to fetch profiles in one batch
     const userIds = memberships.map((m) => m.user_id);
 
-    const { data: profiles, error: profErr } = await ctx.supabase
+    const { data: profiles, error: profErr } = await ctx.serviceClient
       .from("profiles")
       .select("user_id, full_name, email, avatar_url")
       .in("user_id", userIds);
