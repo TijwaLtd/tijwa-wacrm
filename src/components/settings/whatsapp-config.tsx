@@ -599,7 +599,10 @@ export function WhatsAppConfig() {
             </div>
 
             <div className="space-y-2">
-              <Label className="text-muted-foreground">{t('accessToken')}</Label>
+              <Label className="text-muted-foreground">
+                {t('accessToken')}
+                {!config && <span className="ml-1 text-red-400">*</span>}
+              </Label>
               <div className="relative">
                 <Input
                   type={showToken ? 'text' : 'password'}
@@ -625,11 +628,15 @@ export function WhatsAppConfig() {
                   {showToken ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                 </button>
               </div>
-              {config && !tokenEdited && (
+              {config && !tokenEdited ? (
                 <p className="text-xs text-muted-foreground">
                   {t('tokenHidden')}
                 </p>
-              )}
+              ) : config && tokenEdited && accessToken === MASKED_TOKEN ? (
+                <p className="text-xs text-amber-400">
+                  Re-enter your Access Token to save changes
+                </p>
+              ) : null}
             </div>
 
             <div className="space-y-2">
@@ -702,7 +709,7 @@ export function WhatsAppConfig() {
         <div className="flex flex-wrap gap-3">
           <Button
             onClick={handleSave}
-            disabled={saving}
+            disabled={saving || !phoneNumberId.trim() || (!config && (!accessToken.trim() || !tokenEdited)) || (!!config && (!tokenEdited || accessToken === MASKED_TOKEN || !accessToken.trim()))}
             className="bg-primary hover:bg-primary/90 text-primary-foreground"
           >
             {saving ? (

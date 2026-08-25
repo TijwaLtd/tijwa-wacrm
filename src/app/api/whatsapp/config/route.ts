@@ -189,7 +189,7 @@ export async function POST(request: Request) {
 
     if (!access_token || !phone_number_id) {
       return NextResponse.json(
-        { error: 'access_token and phone_number_id are required' },
+        { error: 'Phone Number ID and Access Token are required. Please re-enter your Access Token if updating existing configuration.' },
         { status: 400 }
       )
     }
@@ -374,9 +374,13 @@ export async function POST(request: Request) {
 
       if (updateError) {
         console.error('Error updating whatsapp_config:', updateError)
+        const message =
+          updateError.code === '42501' || updateError.message?.includes('permission')
+            ? 'Only workspace admins can update WhatsApp configuration.'
+            : 'Failed to update configuration. Please try again.'
         return NextResponse.json(
-          { error: 'Failed to update configuration' },
-          { status: 500 }
+          { error: message },
+          { status: 403 }
         )
       }
     } else {
@@ -394,9 +398,15 @@ export async function POST(request: Request) {
 
       if (insertError) {
         console.error('Error inserting whatsapp_config:', insertError)
+        const message =
+          insertError.code === '42501' || insertError.message?.includes('permission')
+            ? 'Only workspace admins can save WhatsApp configuration.'
+            : insertError.code === '23505'
+              ? 'A configuration already exists for this workspace. Please update instead of creating a new one.'
+              : 'Failed to save configuration. Please try again.'
         return NextResponse.json(
-          { error: 'Failed to save configuration' },
-          { status: 500 }
+          { error: message },
+          { status: insertError.code === '42501' ? 403 : 500 }
         )
       }
     }
