@@ -8,6 +8,8 @@ import paymentFailed from './templates/payment-failed';
 import invitation from './templates/invitation';
 import aiCreditsLow from './templates/ai-credits-low';
 import loginNotification from './templates/login-notification';
+import whatsappConfig from './templates/whatsapp-config';
+import whatsappReset from './templates/whatsapp-reset';
 
 const templates: Record<EmailTemplateName, EmailTemplate> = {
   welcome,
@@ -16,6 +18,8 @@ const templates: Record<EmailTemplateName, EmailTemplate> = {
   invitation,
   'ai-credits-low': aiCreditsLow,
   'login-notification': loginNotification,
+  'whatsapp-config': whatsappConfig,
+  'whatsapp-reset': whatsappReset,
 };
 
 function isEnabled(): boolean {
@@ -94,4 +98,18 @@ export async function sendLoginNotificationEmail(
   data: { name: string; device: string; location: string; ip: string; time: string; securityUrl: string },
 ): Promise<EmailResult> {
   return renderAndSend('login-notification', to, data);
+}
+
+export async function sendWhatsappConfigEmail(
+  to: string,
+  data: { name: string; phoneNumberId: string; wabaId?: string; webhookUrl?: string; verifyToken?: string },
+): Promise<EmailResult> {
+  return renderAndSend('whatsapp-config', to, data);
+}
+
+export async function sendWhatsappResetEmail(
+  to: string,
+  data: { name: string; phoneNumberId?: string },
+): Promise<EmailResult> {
+  return renderAndSend('whatsapp-reset', to, data);
 }

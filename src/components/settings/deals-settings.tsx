@@ -6,7 +6,7 @@ import { Coins, Loader2 } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
-import { CURRENCIES } from "@/lib/currency";
+import { getCurrencies } from "@/lib/currency";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
@@ -95,7 +95,7 @@ export function DealsSettings() {
               disabled={!canEditSettings || profileLoading}
               className="h-9 w-full rounded-lg border border-border bg-muted px-2.5 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {CURRENCIES.map((c) => (
+              {getCurrencies().map((c) => (
                 <option key={c.code} value={c.code}>
                   {c.code} — {c.label}
                 </option>

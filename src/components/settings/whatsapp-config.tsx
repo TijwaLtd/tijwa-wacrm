@@ -2,18 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { toast } from 'sonner';
-import {
-  Eye,
-  EyeOff,
-  Copy,
-  CheckCircle2,
-  XCircle,
-  Loader2,
-  ExternalLink,
-  Zap,
-  AlertTriangle,
-  RotateCcw,
-} from 'lucide-react';
+import { Eye, EyeOff, Copy, CheckCircle2, XCircle, Loader2, ExternalLink, Zap, AlertTriangle, RotateCcw } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import { useTranslations } from 'next-intl';
@@ -22,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { SettingsPanelHead } from './settings-panel-head';
 import {
   Accordion,
@@ -50,11 +40,14 @@ export function WhatsAppConfig() {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [showResetDialog, setShowResetDialog] = useState(false);
+  const [resetConfirmText, setResetConfirmText] = useState('');
   const [showToken, setShowToken] = useState(false);
   const [config, setConfig] = useState<WhatsAppConfigType | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('unknown');
   const [resetReason, setResetReason] = useState<ResetReason>(null);
   const [statusMessage, setStatusMessage] = useState<string>('');
+  const [generatedVerifyToken, setGeneratedVerifyToken] = useState<string | null>(null);
   // Guards against re-hydrating the form when the load effect below
   // re-runs for reasons unrelated to actually switching accounts —
   // e.g. Supabase's onAuthStateChange fires a token refresh (new
@@ -76,6 +69,8 @@ export function WhatsAppConfig() {
   // multi-number bug that prompted this work.
   const isRegistered = Boolean(config?.registered_at);
   const lastRegistrationError = config?.last_registration_error ?? null;
+  const registrationFailed = !isRegistered && Boolean(lastRegistrationError);
+  const registrationSkipped = !isRegistered && !lastRegistrationError;
 
   const [verifyingRegistration, setVerifyingRegistration] = useState(false);
   type RegistrationProbe = {
@@ -95,76 +90,65 @@ export function WhatsAppConfig() {
       ? `${window.location.origin}/api/whatsapp/v1/webhook/${subdomain}`
       : '';
 
-  const fetchConfig = useCallback(async (acctId: string) => {
+  const fetchConfig = useCallback(async (_acctId: string) => {
     setLoading(true);
     try {
-      // Load form values from Supabase (shows what's in DB).
-      // Switched from `user_id` (which would only match the row's
-      // original author) to `account_id` so every member of the
-      // account sees the same saved configuration. UNIQUE(account_id)
-      // on the table guarantees the .maybeSingle() return type
-      // remains accurate.
-      const { data, error } = await supabase
-        .from('whatsapp_config')
-        .select('*')
-        .eq('account_id', acctId)
-        .maybeSingle();
+      // Use the API route as the single source of truth. The server uses
+      // getCurrentAccount() (service client, bypasses RLS) to resolve the
+      // active workspace, then reads whatsapp_config + decrypts the token
+      // and pings Meta. A direct Supabase browser query here would go
+      // through RLS and can silently return null even when the row exists.
+      const res = await fetch('/api/whatsapp/config', { method: 'GET' });
+      const payload = await res.json();
 
-      if (error) {
-        console.error('Failed to load config row:', error);
-      }
-
-      if (data) {
-        setConfig(data);
-        setPhoneNumberId(data.phone_number_id || '');
-        setWabaId(data.waba_id || '');
-        setAccessToken(MASKED_TOKEN);
-        setVerifyToken('');
-        setPin('');
-        setTokenEdited(false);
-      } else {
-        setConfig(null);
-        setPhoneNumberId('');
-        setWabaId('');
-        setAccessToken('');
-        setVerifyToken('');
-        setPin('');
-        setTokenEdited(false);
-      }
-      // Clear any stale probe result when reloading the row.
-      setRegistrationProbe(null);
-
-      // Then verify health via the API (decrypts token + pings Meta)
-      if (data) {
-        try {
-          const res = await fetch('/api/whatsapp/config', { method: 'GET' });
-          const payload = await res.json();
-
-          if (payload.connected) {
-            setConnectionStatus('connected');
-            setResetReason(null);
-            setStatusMessage('');
-          } else {
-            setConnectionStatus('disconnected');
-            setResetReason(payload.needs_reset ? 'token_corrupted' : payload.reason === 'meta_api_error' ? 'meta_api_error' : null);
-            setStatusMessage(payload.message || '');
-          }
-        } catch (err) {
-          console.error('Health check failed:', err);
-          setConnectionStatus('disconnected');
-        }
-      } else {
-        setConnectionStatus('disconnected');
+      if (payload.connected) {
+        setConnectionStatus('connected');
         setResetReason(null);
         setStatusMessage('');
+        if (payload.config) {
+          setConfig(payload.config as WhatsAppConfigType);
+          setPhoneNumberId(payload.config.phone_number_id || '');
+          setWabaId(payload.config.waba_id || '');
+          // Never set verifyToken from the API — the server no longer
+          // returns the encrypted value. Leave it empty so the user
+          // can optionally enter a new one, or leave blank to keep
+          // the existing one on save.
+          setVerifyToken('');
+        }
+        setAccessToken(MASKED_TOKEN);
+        setPin('');
+        setTokenEdited(false);
+      } else {
+        // No live connection. If the API found a saved row (but
+        // health check failed), still populate the form so the
+        // user can see what was configured.
+        setConnectionStatus('disconnected');
+        setResetReason(payload.needs_reset ? 'token_corrupted' : payload.reason === 'meta_api_error' ? 'meta_api_error' : null);
+        setStatusMessage(payload.message || '');
+
+        if (payload.config) {
+          setConfig(payload.config);
+          setPhoneNumberId(payload.config.phone_number_id || '');
+          setWabaId(payload.config.waba_id || '');
+          setVerifyToken('');
+        } else {
+          setConfig(null);
+          setPhoneNumberId('');
+          setWabaId('');
+          setVerifyToken('');
+        }
+        setAccessToken(MASKED_TOKEN);
+        setPin('');
+        setTokenEdited(false);
       }
+      setRegistrationProbe(null);
     } catch (err) {
       console.error('fetchConfig error:', err);
       toast.error('Failed to load WhatsApp configuration');
     } finally {
       setLoading(false);
     }
-  }, [supabase]);
+  }, []);
 
   useEffect(() => {
     // Need both the auth session (`!authLoading`) AND the profile
@@ -283,6 +267,13 @@ export function WhatsAppConfig() {
         setPin('');
       }
 
+      // If the server auto-generated a verify_token (first save,
+      // user didn't provide one), show it prominently so they can
+      // copy it into Meta's webhook configuration.
+      if (data.generated_verify_token) {
+        setGeneratedVerifyToken(data.generated_verify_token);
+      }
+
       if (accountId) await fetchConfig(accountId);
     } catch (err) {
       console.error('Save error:', err);
@@ -349,9 +340,12 @@ export function WhatsAppConfig() {
   }
 
   async function handleReset() {
-    if (!confirm('This will delete the current WhatsApp config so you can re-enter it. Continue?')) {
-      return;
-    }
+    setShowResetDialog(true);
+    setResetConfirmText('');
+  }
+
+  async function confirmReset() {
+    setShowResetDialog(false);
 
     try {
       setResetting(true);
@@ -466,6 +460,47 @@ export function WhatsAppConfig() {
           </AlertDescription>
         </Alert>
 
+        {/* Auto-generated verify token — shown once after first save
+            so the user can copy it into Meta's webhook configuration. */}
+        {generatedVerifyToken && (
+          <Alert className="bg-blue-950/30 border-blue-700/50">
+            <div className="flex items-start gap-3">
+              <CheckCircle2 className="size-5 text-blue-400 mt-0.5 shrink-0" />
+              <div className="flex-1">
+                <AlertTitle className="text-blue-200 mb-1">
+                  Webhook Verification Token Generated
+                </AlertTitle>
+                <AlertDescription className="text-blue-100/80 text-sm space-y-2">
+                  <p>
+                    Copy this token and paste it into Meta&apos;s WhatsApp webhook
+                    configuration under <strong>Verify Token</strong>:
+                  </p>
+                  <div className="flex gap-2 items-center">
+                    <code className="bg-blue-900/50 px-3 py-1.5 rounded text-sm font-mono text-blue-100 select-all">
+                      {generatedVerifyToken}
+                    </code>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        navigator.clipboard.writeText(generatedVerifyToken);
+                        toast.success('Verify token copied to clipboard');
+                      }}
+                      className="border-blue-600/40 text-blue-300 hover:bg-blue-900/40 h-7 shrink-0"
+                    >
+                      <Copy className="size-3.5 mr-1" />
+                      Copy
+                    </Button>
+                  </div>
+                  <p className="text-blue-300/60 text-xs">
+                    This token is only shown once. Store it somewhere safe.
+                  </p>
+                </AlertDescription>
+              </div>
+            </div>
+          </Alert>
+        )}
+
         {/* Registration Status — the "is it actually live?" check.
             Credentials being valid is necessary but not sufficient;
             without a successful /register call the number won't
@@ -476,24 +511,34 @@ export function WhatsAppConfig() {
             className={
               isRegistered
                 ? 'bg-emerald-950/30 border-emerald-700/50'
-                : 'bg-amber-950/30 border-amber-700/50'
+                : registrationSkipped
+                  ? 'bg-blue-950/20 border-blue-800/40'
+                  : 'bg-amber-950/30 border-amber-700/50'
             }
           >
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <div className="flex items-center gap-2">
                 {isRegistered ? (
                   <CheckCircle2 className="size-4 text-emerald-400" />
+                ) : registrationSkipped ? (
+                  <Zap className="size-4 text-blue-400" />
                 ) : (
                   <AlertTriangle className="size-4 text-amber-400" />
                 )}
                 <AlertTitle
                   className={
-                    'mb-0 ' + (isRegistered ? 'text-emerald-200' : 'text-amber-200')
+                    'mb-0 ' + (
+                      isRegistered ? 'text-emerald-200' :
+                      registrationSkipped ? 'text-blue-200' :
+                      'text-amber-200'
+                    )
                   }
                 >
                   {isRegistered
                     ? t('registered')
-                    : t('notRegistered')}
+                    : registrationSkipped
+                      ? 'Registration Pending'
+                      : t('notRegistered')}
                 </AlertTitle>
               </div>
               <Button
@@ -522,7 +567,7 @@ export function WhatsAppConfig() {
                     }),
                   }}
                 />
-              ) : lastRegistrationError ? (
+              ) : registrationFailed ? (
                 <>
                   {t('lastAttemptFailed')}
                   <span className="text-red-300">
@@ -530,6 +575,12 @@ export function WhatsAppConfig() {
                   </span>
                   . {t('retryHint')}
                 </>
+              ) : registrationSkipped ? (
+                <span className="text-blue-200/80">
+                  No 2-Step PIN was provided, so inbound registration was skipped.
+                  Test numbers work without registration. For production numbers,
+                  enter your PIN in the field below and save to register.
+                </span>
               ) : (
                 <>{t('noRegistrationHint')}</>
               )}
@@ -641,15 +692,41 @@ export function WhatsAppConfig() {
 
             <div className="space-y-2">
               <Label className="text-muted-foreground">{t('webhookVerifyToken')}</Label>
-              <Input
-                placeholder={t('webhookVerifyTokenPlaceholder')}
-                value={verifyToken}
-                onChange={(e) => setVerifyToken(e.target.value)}
-                className="bg-muted border-border text-foreground placeholder:text-muted-foreground"
-              />
-              <p className="text-xs text-muted-foreground">
-                {t('webhookVerifyTokenHint')}
-              </p>
+              {config?.verify_token ? (
+                <div className="space-y-1">
+                  <div className="flex gap-2 items-center">
+                    <code className="bg-muted px-3 py-2 rounded text-sm font-mono text-foreground select-all flex-1 border border-border">
+                      {config.verify_token}
+                    </code>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => {
+                        navigator.clipboard.writeText(config.verify_token!);
+                        toast.success('Verify token copied to clipboard');
+                      }}
+                      className="shrink-0 border-border text-muted-foreground hover:text-foreground hover:bg-muted"
+                    >
+                      <Copy className="size-4" />
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {t('webhookVerifyTokenHint')}
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <Input
+                    placeholder={t('webhookVerifyTokenPlaceholder')}
+                    value={verifyToken}
+                    onChange={(e) => setVerifyToken(e.target.value)}
+                    className="bg-muted border-border text-foreground placeholder:text-muted-foreground"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {t('webhookVerifyTokenHint')}
+                  </p>
+                </>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -857,6 +934,59 @@ export function WhatsAppConfig() {
         </Card>
       </div>
     </div>
+
+    {/* Reset confirmation dialog — requires typing "reset" to prevent accidental deletion */}
+    <Dialog open={showResetDialog} onOpenChange={setShowResetDialog}>
+      <DialogContent className="bg-popover border-border sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="text-popover-foreground">Reset WhatsApp Configuration</DialogTitle>
+          <DialogDescription className="text-muted-foreground">
+            This will remove your saved credentials and stop inbound messages. You&apos;ll need to re-enter everything and re-register with Meta.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2">
+          <Label className="text-muted-foreground text-xs">
+            Type <span className="font-mono font-medium text-foreground">reset</span> to confirm
+          </Label>
+          <Input
+            value={resetConfirmText}
+            onChange={(e) => setResetConfirmText(e.target.value)}
+            placeholder="reset"
+            className="bg-background border-border text-foreground"
+            autoFocus
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && resetConfirmText === 'reset') {
+                confirmReset();
+              }
+            }}
+          />
+        </div>
+        <DialogFooter className="bg-popover border-border">
+          <Button
+            variant="outline"
+            onClick={() => setShowResetDialog(false)}
+            disabled={resetting}
+            className="border-border text-muted-foreground hover:bg-muted"
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={confirmReset}
+            disabled={resetConfirmText !== 'reset' || resetting}
+            className="bg-red-600 hover:bg-red-700 text-white disabled:opacity-50"
+          >
+            {resetting ? (
+              <>
+                <Loader2 className="size-4 animate-spin" />
+                Resetting...
+              </>
+            ) : (
+              'Reset Configuration'
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
     </section>
   );
 }

@@ -34,4 +34,6 @@ export type EmailTemplateName =
   | 'payment-failed'
   | 'invitation'
   | 'ai-credits-low'
-  | 'login-notification';
+  | 'login-notification'
+  | 'whatsapp-config'
+  | 'whatsapp-reset';

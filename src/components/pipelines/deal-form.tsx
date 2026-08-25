@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
-import { CURRENCIES } from "@/lib/currency";
+import { getCurrencies } from "@/lib/currency";
 import type {
   Contact,
   Conversation,
@@ -316,7 +316,7 @@ export function DealForm({
                   onChange={(e) => setCurrency(e.target.value)}
                   className="h-9 w-full rounded-lg border border-border bg-muted px-2.5 text-sm text-foreground outline-none focus:border-primary"
                 >
-                  {CURRENCIES.map((c) => (
+                  {getCurrencies().map((c) => (
                     <option key={c.code} value={c.code}>
                       {c.code}
                     </option>

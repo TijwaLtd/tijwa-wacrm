@@ -268,13 +268,18 @@ export interface MessageReaction {
 }
 
 export interface WhatsAppConfig {
-  id: string;
-  user_id: string;
+  id?: string;
+  user_id?: string;
   phone_number_id: string;
   waba_id?: string;
-  access_token: string;
+  access_token?: string;
   verify_token?: string;
-  status: 'connected' | 'disconnected';
+  /**
+   * Plaintext verify_token for webhook verification.
+   * Returned by GET so the user can see and copy it to Meta's config.
+   */
+  verify_token?: string;
+  status?: 'connected' | 'disconnected';
   connected_at?: string;
   /**
    * Set when POST /{phone_number_id}/register last succeeded. NULL

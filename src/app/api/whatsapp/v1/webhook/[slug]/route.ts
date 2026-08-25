@@ -116,6 +116,8 @@ export async function GET(
     const challenge = searchParams.get('hub.challenge')
     const verifyToken = searchParams.get('hub.verify_token')
 
+    console.log('[webhook] GET verify request — slug:', slug, 'mode:', mode, 'token_present:', !!verifyToken, 'challenge_present:', !!challenge)
+
     if (mode !== 'subscribe' || !challenge || !verifyToken) {
       return NextResponse.json(
         { error: 'Missing verification parameters' },
@@ -131,12 +133,14 @@ export async function GET(
       .single()
 
     if (accountError || !account) {
-      console.error('[webhook] No account found for slug:', slug)
+      console.error('[webhook] No account found for slug:', slug, accountError?.message)
       return NextResponse.json(
         { error: 'Verification failed' },
         { status: 403 },
       )
     }
+
+    console.log('[webhook] Resolved account', account.id, 'for slug:', slug)
 
     // Get whatsapp_config for this account.
     const { data: config, error: configError } = await supabaseAdmin()
@@ -145,15 +149,28 @@ export async function GET(
       .eq('account_id', account.id)
       .single()
 
-    if (configError || !config || !config.verify_token) {
+    if (configError || !config) {
+      console.error('[webhook] No whatsapp_config for account:', account.id, configError?.message)
       return NextResponse.json(
         { error: 'Verification failed' },
         { status: 403 },
       )
     }
 
+    if (!config.verify_token) {
+      console.error('[webhook] verify_token is null/empty for account:', account.id)
+      return NextResponse.json(
+        { error: 'Verification failed — no verify token configured' },
+        { status: 403 },
+      )
+    }
+
+    console.log('[webhook] verify_token present, format parts:', config.verify_token.split(':').length, 'meta token length:', verifyToken.length)
+
     try {
-      if (decrypt(config.verify_token) === verifyToken) {
+      const decrypted = decrypt(config.verify_token)
+      console.log('[webhook] Decrypted token length:', decrypted.length, 'matches:', decrypted === verifyToken)
+      if (decrypted === verifyToken) {
         // Fire-and-forget GCM upgrade. Safe to run on every subscribe
         // since it's a no-op once the column is already GCM.
         if (isLegacyFormat(config.verify_token)) {
@@ -175,10 +192,12 @@ export async function GET(
           headers: { 'Content-Type': 'text/plain' },
         })
       }
-    } catch {
-      // Malformed token
+    } catch (err) {
+      // Malformed token or decryption failed
+      console.error('[webhook] verify_token decryption failed:', err instanceof Error ? err.message : err)
     }
 
+    console.error('[webhook] Token mismatch for account:', account.id, 'slug:', slug)
     return NextResponse.json(
       { error: 'Verification token mismatch' },
       { status: 403 },
