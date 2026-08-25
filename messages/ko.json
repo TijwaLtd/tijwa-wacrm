@@ -440,7 +440,9 @@
       "toastFailedDelete": "연락처를 삭제하지 못했습니다",
       "toastDeleted": "연락처가 삭제되었습니다",
       "toastBulkFailedDelete": "연락처를 삭제하지 못했습니다",
-      "toastBulkDeleted": "연락처 {count}개가 삭제되었습니다"
+      "toastBulkDeleted": "연락처 {count}개가 삭제되었습니다",
+      "crossWorkspaceEditHint": "이 연락처는 다른 워크스페이스에 속해 있습니다. 편집하려면 해당 워크스페이스로 전환하세요.",
+      "crossWorkspaceDeleteHint": "이 연락처는 다른 워크스페이스에 속해 있습니다. 삭제하려면 해당 워크스페이스로 전환하세요."
     },
     "form": {
       "addTitle": "연락처 추가",

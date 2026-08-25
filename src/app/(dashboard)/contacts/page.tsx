@@ -36,6 +36,11 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
   Search,
   Plus,
   Upload,
@@ -73,7 +78,7 @@ export default function ContactsPage() {
   const supabase = createClient();
   const canEdit = useCan('send-messages');
   const canEditSettings = useCan('edit-settings');
-  const { workspaces } = useAuth();
+  const { workspaces, accountId } = useAuth();
 
   const [contacts, setContacts] = useState<ContactWithTags[]>([]);
   const [loading, setLoading] = useState(true);
@@ -744,27 +749,66 @@ export default function ContactsPage() {
                         align="end"
                         className="bg-popover border-border"
                       >
-                        <DropdownMenuItem
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openEditForm(contact);
-                          }}
-                          className="text-popover-foreground focus:bg-muted focus:text-foreground"
-                        >
-                          <Pencil className="size-4" />
-                          {t('editAction')}
-                        </DropdownMenuItem>
+                        {contact.account_id && contact.account_id !== accountId ? (
+                          <Tooltip>
+                            <TooltipTrigger
+                              render={
+                                <DropdownMenuItem
+                                  disabled
+                                  className="text-popover-foreground focus:bg-muted focus:text-foreground opacity-50"
+                                />
+                              }
+                            >
+                              <Pencil className="size-4" />
+                              {t('editAction')}
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              {t('crossWorkspaceEditHint')}
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          <DropdownMenuItem
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openEditForm(contact);
+                            }}
+                            className="text-popover-foreground focus:bg-muted focus:text-foreground"
+                          >
+                            <Pencil className="size-4" />
+                            {t('editAction')}
+                          </DropdownMenuItem>
+                        )}
                         <DropdownMenuSeparator className="bg-border" />
-                        <DropdownMenuItem
-                          variant="destructive"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            confirmDelete(contact);
-                          }}
-                        >
-                          <Trash2 className="size-4" />
-                          {t('deleteAction')}
-                        </DropdownMenuItem>
+                        {contact.account_id && contact.account_id !== accountId ? (
+                          <Tooltip>
+                            <TooltipTrigger
+                              render={
+                                <DropdownMenuItem
+                                  disabled
+                                  variant="destructive"
+                                  className="opacity-50"
+                                />
+                              }
+                            >
+                              <Trash2 className="size-4" />
+                              {t('deleteAction')}
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              {t('crossWorkspaceDeleteHint')}
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          <DropdownMenuItem
+                            variant="destructive"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              confirmDelete(contact);
+                            }}
+                          >
+                            <Trash2 className="size-4" />
+                            {t('deleteAction')}
+                          </DropdownMenuItem>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>

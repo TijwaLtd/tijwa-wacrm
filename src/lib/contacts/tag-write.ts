@@ -23,9 +23,8 @@ async function assertContactAndTagOwnership(
   const [contactResult, tagResult] = await Promise.all([
     db
       .from('contacts')
-      .select('id')
+      .select('id, account_id')
       .eq('id', input.contactId)
-      .eq('account_id', input.accountId)
       .maybeSingle(),
     db
       .from('tags')
@@ -40,6 +39,12 @@ async function assertContactAndTagOwnership(
   }
   if (!contactResult.data) {
     throw new ContactTagWriteError('Contact not found', 404);
+  }
+  if (contactResult.data.account_id !== input.accountId) {
+    throw new ContactTagWriteError(
+      'This contact belongs to another workspace. Switch to that workspace to edit it.',
+      403,
+    );
   }
   if (!tagResult.data) {
     throw new ContactTagWriteError('Tag not found', 404);

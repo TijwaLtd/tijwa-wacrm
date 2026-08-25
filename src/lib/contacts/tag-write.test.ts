@@ -4,7 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { addContactTagIfAbsent } from './tag-write';
 
 interface FakeOptions {
-  contact?: { id: string } | null;
+  contact?: { id: string; account_id?: string } | null;
   tag?: { id: string } | null;
   insertData?: { id: string } | null;
   insertError?: { code?: string; message: string } | null;
@@ -12,7 +12,9 @@ interface FakeOptions {
 
 function fakeDb(options: FakeOptions = {}): SupabaseClient {
   const contact =
-    options.contact === undefined ? { id: 'contact-1' } : options.contact;
+    options.contact === undefined
+      ? { id: 'contact-1', account_id: 'account-1' }
+      : options.contact;
   const tag = options.tag === undefined ? { id: 'tag-1' } : options.tag;
 
   return {
@@ -83,6 +85,15 @@ describe('addContactTagIfAbsent', () => {
     await expect(
       addContactTagIfAbsent(fakeDb({ tag: null }), input)
     ).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('refuses contacts belonging to a different workspace', async () => {
+    await expect(
+      addContactTagIfAbsent(
+        fakeDb({ contact: { id: 'contact-1', account_id: 'other-workspace' } }),
+        input,
+      )
+    ).rejects.toMatchObject({ status: 403 });
   });
 
   it('surfaces non-duplicate insert failures', async () => {
