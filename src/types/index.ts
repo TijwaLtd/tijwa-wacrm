@@ -273,7 +273,6 @@ export interface WhatsAppConfig {
   phone_number_id: string;
   waba_id?: string;
   access_token?: string;
-  verify_token?: string;
   /**
    * Plaintext verify_token for webhook verification.
    * Returned by GET so the user can see and copy it to Meta's config.
