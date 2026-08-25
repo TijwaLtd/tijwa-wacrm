@@ -1,7 +1,7 @@
 import { NextResponse, after } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { decrypt, encrypt, isLegacyFormat } from '@/lib/whatsapp/encryption'
-import { getMediaUrl } from '@/lib/whatsapp/meta-api'
+import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/meta-api'
 import { normalizePhone } from '@/lib/whatsapp/phone-utils'
 import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe'
 import { reopenClosedConversation } from '@/lib/conversations/reopen'
@@ -621,6 +621,27 @@ async function processMessage(
     await parseMessageContent(message, accessToken)
   console.log('[processMessage] content parsed — type:', message.type, 'contentText:', contentText?.slice(0, 100) ?? 'null', 'hasMedia:', !!mediaUrl, 'interactiveReplyId:', interactiveReplyId ?? 'null')
 
+  // Persist inbound media to public storage so we don't depend on
+  // the auth-gated proxy. If persistence fails, fall back to the
+  // proxy URL (best-effort — message is still saved).
+  let finalMediaUrl = mediaUrl
+  if (mediaUrl && message.type !== 'reaction') {
+    const metaMediaId = mediaUrl.replace('/api/whatsapp/media/', '')
+    console.log('[processMessage] persisting inbound media — metaMediaId:', metaMediaId)
+    const publicUrl = await persistInboundMedia(
+      accountId,
+      metaMediaId,
+      accessToken,
+      `${contactName.replace(/[^a-zA-Z0-9]+/g, '_')}_${message.type}`,
+    )
+    if (publicUrl) {
+      finalMediaUrl = publicUrl
+      console.log('[processMessage] media persisted to public bucket')
+    } else {
+      console.warn('[processMessage] media persistence failed — falling back to proxy URL')
+    }
+  }
+
   let replyToInternalId: string | null = null
   if (message.context?.id) {
     replyToInternalId = await lookupInternalIdByMetaId(
@@ -665,7 +686,7 @@ async function processMessage(
         sender_type: 'customer',
         content_type: contentType,
         content_text: contentText,
-        media_url: mediaUrl,
+        media_url: finalMediaUrl,
         message_id: message.id,
         status: 'delivered',
         created_at: new Date(parseInt(message.timestamp) * 1000).toISOString(),
@@ -911,6 +932,101 @@ async function parseMessageContent(
         ...empty,
         contentText: `[Unsupported message type: ${message.type}]`,
       }
+  }
+}
+
+// ────────────────────────────────────────────────────────────────
+// Inbound media persistence
+//
+// Instead of storing a proxy URL (/api/whatsapp/media/<id>) that
+// requires auth + Meta round-trip on every page load, we download
+// the bytes from Meta once during webhook processing and upload them
+// to the public chat-media bucket. The stored public URL works like
+// any other image — no proxy, no auth, no blob cache needed.
+// ────────────────────────────────────────────────────────────────
+
+const MIME_TO_EXT: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+  'video/mp4': 'mp4',
+  'video/3gpp': '3gp',
+  'audio/ogg': 'ogg',
+  'audio/mpeg': 'mp3',
+  'audio/aac': 'aac',
+  'audio/mp4': 'm4a',
+  'audio/amr': 'amr',
+  'application/pdf': 'pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  'application/msword': 'doc',
+  'application/vnd.ms-powerpoint': 'ppt',
+  'application/vnd.ms-excel': 'xls',
+  'text/plain': 'txt',
+}
+
+function extForMime(contentType: string): string {
+  return MIME_TO_EXT[contentType.split(';')[0].trim()] || 'bin'
+}
+
+const BUCKET = 'chat-media'
+
+/**
+ * Download media from Meta and upload to the public chat-media bucket.
+ * Returns the public URL on success, or null on failure (logged and
+ * swallowed — the message is still saved, just without media).
+ */
+async function persistInboundMedia(
+  accountId: string,
+  mediaId: string,
+  accessToken: string,
+  contentLabel: string,
+): Promise<string | null> {
+  try {
+    // Step 1: Resolve Meta CDN URL + MIME type
+    const mediaInfo = await getMediaUrl({ mediaId, accessToken })
+    console.log('[persistMedia] Meta resolved — mimeType:', mediaInfo.mimeType)
+
+    // Step 2: Download binary bytes
+    const { buffer, contentType } = await downloadMedia({
+      downloadUrl: mediaInfo.url,
+      accessToken,
+    })
+    console.log('[persistMedia] downloaded — size:', buffer.byteLength, 'bytes')
+
+    // Step 3: Build account-scoped storage path
+    const ext = extForMime(contentType)
+    const safeLabel = contentLabel.replace(/[^a-zA-Z0-9_-]+/g, '_').slice(0, 40) || 'media'
+    const path = `account-${accountId}/${Date.now()}-${safeLabel}.${ext}`
+
+    // Step 4: Upload to chat-media bucket (service-role bypasses RLS)
+    const { error: upErr } = await supabaseAdmin()
+      .storage
+      .from(BUCKET)
+      .upload(path, buffer, {
+        cacheControl: '3600',
+        upsert: false,
+        contentType,
+      })
+
+    if (upErr) {
+      console.error('[persistMedia] upload failed:', upErr.message)
+      return null
+    }
+
+    // Step 5: Get public URL
+    const { data: urlData } = supabaseAdmin()
+      .storage
+      .from(BUCKET)
+      .getPublicUrl(path)
+
+    console.log('[persistMedia] persisted — publicUrl:', urlData.publicUrl)
+    return urlData.publicUrl
+  } catch (err) {
+    console.error('[persistMedia] failed:', err instanceof Error ? err.message : err)
+    return null
   }
 }
 
