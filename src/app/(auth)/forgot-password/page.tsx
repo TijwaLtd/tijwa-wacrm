@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { getAuthErrorMessage } from "@/lib/auth-errors";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,12 +28,18 @@ export default function ForgotPasswordPage() {
     setError(null);
     setLoading(true);
 
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/auth/callback?next=/reset-password`,
-    });
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/auth/callback?next=/reset-password`,
+      });
 
-    if (error) {
-      setError(error.message);
+      if (error) {
+        setError(getAuthErrorMessage(error));
+        setLoading(false);
+        return;
+      }
+    } catch (err) {
+      setError(getAuthErrorMessage(err instanceof Error ? err : new Error(String(err))));
       setLoading(false);
       return;
     }
@@ -110,7 +117,7 @@ export default function ForgotPasswordPage() {
 
             <Button
               type="submit"
-              disabled={loading}
+              disabled={loading || !email.trim()}
               className="mt-2 h-10 w-full bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
               {loading ? "Sending..." : "Send reset link"}
