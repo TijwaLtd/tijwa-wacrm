@@ -20,7 +20,10 @@ vi.mock("@supabase/ssr", () => ({
     _url: string,
     _key: string,
     opts: {
-      cookies: { setAll: (c: typeof refreshedCookies) => void };
+      cookies: {
+        getAll: () => Array<{ name: string; value: string }>;
+        setAll: (c: typeof refreshedCookies) => void;
+      };
     },
   ) => ({
     auth: {
@@ -37,7 +40,7 @@ vi.mock("@supabase/ssr", () => ({
 }));
 
 // Imported after the mock is registered.
-const { middleware } = await import("./middleware");
+const { proxy } = await import("./proxy");
 
 beforeEach(() => {
   process.env.NEXT_PUBLIC_SUPABASE_URL = "https://test.supabase.co";
@@ -54,12 +57,12 @@ const ROTATED = {
   options: { path: "/", httpOnly: true },
 };
 
-describe("middleware — refreshed auth cookies survive redirects", () => {
+describe("proxy — refreshed auth cookies survive redirects", () => {
   it("carries the rotated token when redirecting a signed-in user off /login", async () => {
     mockUser = { id: "user-1" };
     refreshedCookies = [ROTATED];
 
-    const res = await middleware(
+    const res = await proxy(
       new NextRequest("https://app.test/login"),
     );
 
@@ -78,7 +81,7 @@ describe("middleware — refreshed auth cookies survive redirects", () => {
     // clearing a dead session); those must not be dropped on the redirect.
     refreshedCookies = [{ ...ROTATED, value: "cleared" }];
 
-    const res = await middleware(
+    const res = await proxy(
       new NextRequest("https://app.test/dashboard"),
     );
 
@@ -91,7 +94,7 @@ describe("middleware — refreshed auth cookies survive redirects", () => {
     mockUser = { id: "user-1" };
     refreshedCookies = [ROTATED];
 
-    const res = await middleware(
+    const res = await proxy(
       new NextRequest("https://app.test/login?invite=abc123"),
     );
 
@@ -105,7 +108,7 @@ describe("middleware — refreshed auth cookies survive redirects", () => {
 
     const req = new NextRequest("https://app.test/dashboard");
     req.cookies.set("wacrm_active_account", "acct-1");
-    const res = await middleware(req);
+    const res = await proxy(req);
 
     // No redirect — the normal NextResponse.next() already carries cookies.
     expect(res.headers.get("location")).toBeNull();
