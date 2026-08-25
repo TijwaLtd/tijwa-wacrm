@@ -232,20 +232,26 @@ export async function POST(
 ) {
   const { slug } = await params
 
+  console.log('[webhook] POST received — slug:', slug)
+
   const rawBody = await request.text()
   const signature = request.headers.get('x-hub-signature-256')
+  console.log('[webhook] body_length:', rawBody.length, 'signature_present:', !!signature)
 
   if (!verifyMetaWebhookSignature(rawBody, signature)) {
     console.warn('[webhook] rejected request with invalid signature')
     return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
   }
+  console.log('[webhook] signature verified OK')
 
   let body: { entry?: WhatsAppWebhookEntry[] }
   try {
     body = JSON.parse(rawBody)
   } catch {
+    console.error('[webhook] Failed to parse JSON body')
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
+  console.log('[webhook] body parsed — entries:', body.entry?.length ?? 0)
 
   // Resolve account from slug upfront — one lookup for the whole
   // delivery instead of per-change.
@@ -256,11 +262,12 @@ export async function POST(
     .single()
 
   if (accountError || !account) {
-    console.error('[webhook] No account found for slug:', slug)
+    console.error('[webhook] No account found for slug:', slug, accountError?.message)
     return NextResponse.json({ status: 'received' }, { status: 200 })
   }
 
   const accountId = account.id
+  console.log('[webhook] resolved account:', accountId, 'for slug:', slug)
 
   // Get whatsapp_config for this account.
   const { data: configs, error: configError } = await supabaseAdmin()
@@ -269,19 +276,23 @@ export async function POST(
     .eq('account_id', accountId)
 
   if (configError || !configs || configs.length === 0) {
-    console.error('[webhook] No whatsapp_config for account:', accountId)
+    console.error('[webhook] No whatsapp_config for account:', accountId, configError?.message)
     return NextResponse.json({ status: 'received' }, { status: 200 })
   }
 
   const config = configs[0]
+  console.log('[webhook] config found — id:', config.id, 'user_id:', config.user_id, 'phone_number_id:', config.phone_number_id, 'has_access_token:', !!config.access_token)
   const decryptedAccessToken = decrypt(config.access_token)
+  console.log('[webhook] access_token decrypted OK')
 
   // Process AFTER the response — see comment block above.
   after(async () => {
     try {
+      console.log('[webhook] after() — starting processWebhook for account:', accountId)
       await processWebhook(body, accountId, config.user_id, decryptedAccessToken)
+      console.log('[webhook] after() — processWebhook completed for account:', accountId)
     } catch (error) {
-      console.error('[webhook] Error processing webhook:', error)
+      console.error('[webhook] after() — Error processing webhook:', error)
     }
   })
 
@@ -296,14 +307,19 @@ async function processWebhook(
 ) {
   if (!body.entry) return
 
+  console.log('[processWebhook] processing', body.entry.length, 'entries')
+
   for (const entry of body.entry) {
+    console.log('[processWebhook] entry id:', entry.id, 'changes:', entry.changes.length)
     for (const change of entry.changes) {
+      console.log('[processWebhook] change.field:', change.field, 'has_messages:', !!change.value.messages, 'has_statuses:', !!change.value.statuses, 'has_contacts:', !!change.value.contacts, 'contacts_count:', change.value.contacts?.length ?? 0, 'messages_count:', change.value.messages?.length ?? 0)
       // Template-lifecycle events (status / quality / components
       // updates from Meta) come in on a different change.field and
       // have a different value shape — route them through the
       // dedicated handler. Skip the messaging branches below so we
       // don't try to read message-shaped fields off a template event.
       if (isTemplateWebhookField(change.field)) {
+        console.log('[processWebhook] routing to template webhook handler — field:', change.field)
         await handleTemplateWebhookChange(
           { field: change.field, value: change.value as unknown },
           supabaseAdmin(),
@@ -315,17 +331,24 @@ async function processWebhook(
 
       // Handle status updates
       if (value.statuses) {
+        console.log('[processWebhook] processing', value.statuses.length, 'status updates')
         for (const status of value.statuses) {
+          console.log('[processWebhook] status:', status.status, 'message_id:', status.id, 'recipient_id:', status.recipient_id)
           await handleStatusUpdate(status)
         }
       }
 
       // Handle incoming messages
-      if (!value.messages || !value.contacts) continue
+      if (!value.messages || !value.contacts) {
+        console.log('[processWebhook] skipping — no messages or contacts in change')
+        continue
+      }
 
+      console.log('[processWebhook] processing', value.messages.length, 'messages with', value.contacts.length, 'contacts')
       for (let i = 0; i < value.messages.length; i++) {
         const message = value.messages[i]
         const contact = value.contacts[i] || value.contacts[0]
+        console.log('[processWebhook] message[' + i + ']:', 'id:', message.id, 'from:', message.from, 'type:', message.type, 'wa_id:', contact.wa_id, 'contact_name:', contact.profile.name)
 
         await processMessage(
           message,
@@ -553,6 +576,8 @@ async function processMessage(
   const contactName = contact.profile.name
   const waId = contact.wa_id || null
 
+  console.log('[processMessage] senderPhone:', senderPhone, 'contactName:', contactName, 'waId:', waId, 'messageId:', message.id)
+
   const contactOutcome = await findOrCreateContact(
     accountId,
     configOwnerUserId,
@@ -560,16 +585,24 @@ async function processMessage(
     contactName,
     waId,
   )
-  if (!contactOutcome) return
+  if (!contactOutcome) {
+    console.error('[processMessage] findOrCreateContact returned null — aborting message:', message.id)
+    return
+  }
   const contactRecord = contactOutcome.contact
+  console.log('[processMessage] contact resolved — id:', contactRecord.id, 'wasCreated:', contactOutcome.wasCreated, 'phone:', contactRecord.phone, 'wa_id:', contactRecord.wa_id)
 
   const convResult = await findOrCreateConversation(
     accountId,
     configOwnerUserId,
     contactRecord.id,
   )
-  if (!convResult) return
+  if (!convResult) {
+    console.error('[processMessage] findOrCreateConversation returned null — aborting message:', message.id)
+    return
+  }
   const conversation = convResult.conversation
+  console.log('[processMessage] conversation resolved — id:', conversation.id, 'created:', convResult.created)
 
   if (convResult.created) {
     await dispatchWebhookEvent(supabaseAdmin(), accountId, 'conversation.created', {
@@ -579,12 +612,14 @@ async function processMessage(
   }
 
   if (message.type === 'reaction') {
+    console.log('[processMessage] handling reaction for message:', message.id)
     await handleReaction(message, conversation.id, contactRecord.id)
     return
   }
 
   const { contentText, mediaUrl, mediaType, interactiveReplyId } =
     await parseMessageContent(message, accessToken)
+  console.log('[processMessage] content parsed — type:', message.type, 'contentText:', contentText?.slice(0, 100) ?? 'null', 'hasMedia:', !!mediaUrl, 'interactiveReplyId:', interactiveReplyId ?? 'null')
 
   let replyToInternalId: string | null = null
   if (message.context?.id) {
@@ -620,6 +655,7 @@ async function processMessage(
     .eq('conversation_id', conversation.id)
     .eq('sender_type', 'customer')
   const isFirstInboundMessage = (priorCustomerMsgCount ?? 0) === 0
+  console.log('[processMessage] priorCustomerMsgCount:', priorCustomerMsgCount, 'isFirstInbound:', isFirstInboundMessage)
 
   const { data: insertedRows, error: msgError } = await supabaseAdmin()
     .from('messages')
@@ -641,17 +677,18 @@ async function processMessage(
     .select('id')
 
   if (msgError) {
-    console.error('[webhook] Error inserting message:', msgError)
+    console.error('[processMessage] Error inserting message:', msgError.message, msgError.code, msgError.details)
     return
   }
 
   if (!insertedRows || insertedRows.length === 0) {
     console.info(
-      '[webhook] duplicate inbound message ignored (idempotent replay):',
+      '[processMessage] duplicate inbound message ignored (idempotent replay):',
       message.id,
     )
     return
   }
+  console.log('[processMessage] message inserted — id:', insertedRows[0].id, 'meta_message_id:', message.id)
 
   const { error: convError } = await supabaseAdmin().rpc(
     'bump_conversation_on_inbound',
@@ -662,7 +699,7 @@ async function processMessage(
   )
 
   if (convError) {
-    console.error('[webhook] Error updating conversation:', convError)
+    console.error('[processMessage] Error bumping conversation:', convError.message, convError.code)
   }
 
   await reopenClosedConversation(supabaseAdmin(), conversation)
@@ -690,6 +727,7 @@ async function processMessage(
     isFirstInboundMessage,
   })
   const flowConsumed = flowResult.consumed
+  console.log('[processMessage] flow dispatch — consumed:', flowConsumed)
 
   const inboundText = contentText ?? message.text?.body ?? ''
   const automationTriggers: (
@@ -709,6 +747,7 @@ async function processMessage(
 
   if (contactOutcome.wasCreated) automationTriggers.unshift('new_contact_created')
   if (isFirstInboundMessage) automationTriggers.unshift('first_inbound_message')
+  console.log('[processMessage] automation triggers:', automationTriggers)
 
   for (const triggerType of automationTriggers) {
     await runAutomationsForTrigger({
@@ -724,6 +763,7 @@ async function processMessage(
   }
 
   if (!flowConsumed && !interactiveReplyId && inboundText.trim()) {
+    console.log('[processMessage] dispatching AI auto-reply for conversation:', conversation.id)
     await dispatchInboundToAiReply({
       accountId,
       conversationId: conversation.id,
@@ -889,9 +929,12 @@ async function findOrCreateContact(
   name: string,
   waId: string | null,
 ): Promise<ContactOutcome | null> {
+  console.log('[findOrCreateContact] accountId:', accountId, 'phone:', phone, 'waId:', waId, 'name:', name)
+
   // 1. Try lookup by Meta's wa_id (business-scoped user ID) first —
   //    this is the most reliable identifier Meta provides.
   if (waId) {
+    console.log('[findOrCreateContact] step 1: looking up by wa_id:', waId)
     const { data: byWaId } = await supabaseAdmin()
       .from('contacts')
       .select('*')
@@ -900,8 +943,10 @@ async function findOrCreateContact(
       .maybeSingle()
 
     if (byWaId) {
+      console.log('[findOrCreateContact] step 1: found contact by wa_id — id:', byWaId.id, 'phone:', byWaId.phone, 'existing_wa_id:', byWaId.wa_id)
       // Backfill wa_id on contacts created before this migration.
       if (!byWaId.wa_id) {
+        console.log('[findOrCreateContact] backfilling wa_id on contact:', byWaId.id)
         await supabaseAdmin()
           .from('contacts')
           .update({ wa_id: waId, updated_at: new Date().toISOString() })
@@ -909,6 +954,7 @@ async function findOrCreateContact(
       }
       // Update name if it changed.
       if (name && name !== byWaId.name) {
+        console.log('[findOrCreateContact] updating name on contact:', byWaId.id, 'old:', byWaId.name, 'new:', name)
         await supabaseAdmin()
           .from('contacts')
           .update({ name, updated_at: new Date().toISOString() })
@@ -916,9 +962,11 @@ async function findOrCreateContact(
       }
       return { contact: byWaId, wasCreated: false }
     }
+    console.log('[findOrCreateContact] step 1: no contact found by wa_id')
   }
 
   // 2. Fall back to phone-based lookup.
+  console.log('[findOrCreateContact] step 2: looking up by phone:', phone)
   const existingContact = await findExistingContact(
     supabaseAdmin(),
     accountId,
@@ -926,14 +974,17 @@ async function findOrCreateContact(
   )
 
   if (existingContact) {
+    console.log('[findOrCreateContact] step 2: found contact by phone — id:', existingContact.id, 'phone:', existingContact.phone)
     // Backfill wa_id on contacts created before this migration.
     if (waId && !existingContact.wa_id) {
+      console.log('[findOrCreateContact] backfilling wa_id on phone-matched contact:', existingContact.id)
       await supabaseAdmin()
         .from('contacts')
         .update({ wa_id: waId, updated_at: new Date().toISOString() })
         .eq('id', existingContact.id)
     }
     if (name && name !== existingContact.name) {
+      console.log('[findOrCreateContact] updating name on phone-matched contact:', existingContact.id, 'old:', existingContact.name, 'new:', name)
       await supabaseAdmin()
         .from('contacts')
         .update({ name, updated_at: new Date().toISOString() })
@@ -943,6 +994,7 @@ async function findOrCreateContact(
   }
 
   // 3. Create new contact — store wa_id alongside phone.
+  console.log('[findOrCreateContact] step 3: creating new contact — phone:', phone, 'wa_id:', waId, 'name:', name || phone)
   const { data: newContact, error: createError } = await supabaseAdmin()
     .from('contacts')
     .insert({
@@ -956,14 +1008,19 @@ async function findOrCreateContact(
     .single()
 
   if (createError) {
+    console.error('[findOrCreateContact] step 3: create error:', createError.message, createError.code, createError.details)
     if (isUniqueViolation(createError)) {
+      console.log('[findOrCreateContact] step 3: unique violation — retrying phone lookup')
       const raced = await findExistingContact(supabaseAdmin(), accountId, phone)
-      if (raced) return { contact: raced, wasCreated: false }
+      if (raced) {
+        console.log('[findOrCreateContact] step 3: race-resolved contact — id:', raced.id)
+        return { contact: raced, wasCreated: false }
+      }
     }
-    console.error('[webhook] Error creating contact:', createError)
     return null
   }
 
+  console.log('[findOrCreateContact] step 3: new contact created — id:', newContact.id, 'phone:', newContact.phone, 'wa_id:', newContact.wa_id)
   return { contact: newContact, wasCreated: true }
 }
 
@@ -981,14 +1038,16 @@ async function findOrCreateConversation(
     .limit(1)
 
   if (findError) {
-    console.error('[webhook] Error finding conversation:', findError)
+    console.error('[findOrCreateConversation] Error finding conversation:', findError.message, findError.code)
     return null
   }
 
   if (existingRows && existingRows.length > 0) {
+    console.log('[findOrCreateConversation] found existing conversation — id:', existingRows[0].id, 'created_at:', existingRows[0].created_at)
     return { conversation: existingRows[0], created: false }
   }
 
+  console.log('[findOrCreateConversation] no existing conversation — creating new for contact:', contactId)
   const { data: newConv, error: createError } = await supabaseAdmin()
     .from('conversations')
     .insert({
@@ -1000,7 +1059,9 @@ async function findOrCreateConversation(
     .single()
 
   if (createError) {
+    console.error('[findOrCreateConversation] create error:', createError.message, createError.code, createError.details)
     if (isUniqueViolation(createError)) {
+      console.log('[findOrCreateConversation] unique violation — retrying find')
       const { data: raced } = await supabaseAdmin()
         .from('conversations')
         .select('*')
@@ -1009,12 +1070,13 @@ async function findOrCreateConversation(
         .order('created_at', { ascending: true })
         .limit(1)
       if (raced && raced.length > 0) {
+        console.log('[findOrCreateConversation] race-resolved conversation — id:', raced[0].id)
         return { conversation: raced[0], created: false }
       }
     }
-    console.error('[webhook] Error creating conversation:', createError)
     return null
   }
 
+  console.log('[findOrCreateConversation] new conversation created — id:', newConv.id)
   return { conversation: newConv, created: true }
 }
