@@ -7,7 +7,7 @@
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { sendPlanChangeEmail } from "@/lib/email/send";
+import { sendPlanChangeEmail, sendSubscriptionRenewedEmail } from "@/lib/email/send";
 
 const VALID_PLANS = ['starter', 'pro', 'enterprise'] as const;
 type Plan = typeof VALID_PLANS[number];
@@ -57,11 +57,12 @@ export async function POST(request: Request) {
 
   const oldPlan = currentSettings?.plan;
 
-  // Update tenant_settings with new plan
+  // Update tenant_settings with new plan + activate subscription
   const { error: updateError } = await supabase
     .from("tenant_settings")
     .update({
       plan,
+      subscription_status: 'active',
       updated_at: new Date().toISOString(),
     })
     .eq("account_id", accountId);
@@ -91,6 +92,15 @@ export async function POST(request: Request) {
     oldPlan: oldPlan || undefined,
     action: oldPlan ? 'updated' : 'started',
   }).catch((err) => console.error("[workspaces/plan] email failed:", err));
+
+  // If upgrading from starter, send subscription-renewed email
+  if (!oldPlan || oldPlan === 'starter') {
+    sendSubscriptionRenewedEmail(user.email || '', {
+      name: profile?.full_name || 'there',
+      workspaceName: account?.name || 'your workspace',
+      plan,
+    }).catch((err) => console.error("[workspaces/plan] renewed email failed:", err));
+  }
 
   return NextResponse.json({ ok: true, plan });
 }

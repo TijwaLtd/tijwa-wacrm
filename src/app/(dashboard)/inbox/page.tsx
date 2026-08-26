@@ -20,7 +20,7 @@ import { ConversationList } from '@/components/inbox/conversation-list';
 import { MessageThread } from '@/components/inbox/message-thread';
 import { ContactSidebar } from '@/components/inbox/contact-sidebar';
 import { SyncStatusIndicator } from '@/components/inbox/sync-status-indicator';
-import { WifiOff, MessageSquare, Users } from 'lucide-react';
+import { WifiOff, MessageSquare, Users, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/use-auth';
 import { useLocalSync } from '@/hooks/use-local-sync';
@@ -45,7 +45,7 @@ function InboxPageInner() {
   const t = useTranslations('Inbox.page');
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { } = useAuth();
+  const { activeWorkspace } = useAuth();
   const { syncProgress, outboxCount, triggerSync } = useLocalSync();
   /**
    * `?c=<id>` deep-link support. Used when landing here from the
@@ -637,6 +637,7 @@ function InboxPageInner() {
   // it back to the list. On lg+ both panes render side-by-side as
   // before, unchanged.
   const hasActiveConv = !!activeConversation;
+  const subscriptionExpired = activeWorkspace?.subscription_status && !['active', 'trial'].includes(activeWorkspace.subscription_status);
 
   return (
     <div className="-m-4 flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden sm:-m-6">
@@ -646,6 +647,17 @@ function InboxPageInner() {
         <div className="flex shrink-0 items-center justify-center gap-2 border-b border-amber-500/20 bg-amber-500/10 px-4 py-2">
           <WifiOff className="h-4 w-4 text-amber-400" />
           <p className="text-xs text-amber-400">{t('whatsappNotConnected')}</p>
+        </div>
+      )}
+
+      {/* Subscription expired banner */}
+      {subscriptionExpired && (
+        <div className="flex shrink-0 items-center justify-center gap-2 border-b border-destructive/20 bg-destructive/10 px-4 py-2">
+          <AlertTriangle className="h-4 w-4 text-destructive" />
+          <p className="text-xs text-destructive">
+            Your subscription has expired. Sending is disabled.{' '}
+            <a href="/billing" className="underline font-medium">Renew now</a>
+          </p>
         </div>
       )}
 

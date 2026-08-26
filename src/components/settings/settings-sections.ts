@@ -2,7 +2,6 @@ import {
   ArrowRightLeft,
   Building2,
   Coins,
-  CreditCard,
   FileText,
   KeyRound,
   LayoutGrid,
@@ -39,7 +38,6 @@ export const SETTINGS_SECTIONS = [
   'auto-assign',
   'members',
   'workspace',
-  'plans',
   'api',
 ] as const;
 
@@ -69,7 +67,6 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   'auto-assign': { id: 'auto-assign', label: 'Auto-assignment', icon: ArrowRightLeft, group: 'workspace' },
   members: { id: 'members', label: 'Team members', icon: UsersRound, group: 'workspace' },
   workspace: { id: 'workspace', label: 'Workspace', icon: Building2, group: 'workspace' },
-  plans: { id: 'plans', label: 'Plans & billing', icon: CreditCard, group: 'workspace' },
   api: { id: 'api', label: 'API keys', icon: KeyRound, group: 'workspace' },
 };
 
@@ -91,6 +88,7 @@ function isSection(value: string | null): value is SettingsSection {
  */
 export function resolveSection(raw: string | null): SettingsSection {
   if (raw === 'tags' || raw === 'custom-fields') return 'fields';
+  if (raw === 'plans') return 'overview';
   if (isSection(raw)) return raw;
   return DEFAULT_SECTION;
 }

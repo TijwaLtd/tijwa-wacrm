@@ -10,6 +10,7 @@
 
 import { requireApiKey } from '@/lib/auth/api-context';
 import { ok, okList, fail, toApiErrorResponse } from '@/lib/api/v1/respond';
+import { checkUsageLimit } from '@/lib/subscription/check';
 import {
   parseListParams,
   keysetFilter,
@@ -111,6 +112,12 @@ export async function POST(request: Request) {
     }
 
     const auditUserId = await resolveAuditUserId(ctx.supabase, ctx.accountId);
+
+    // Check contact limit before creating
+    const contactCheck = await checkUsageLimit(ctx.supabase, ctx.accountId, 'max_contacts');
+    if (!contactCheck.allowed) {
+      return fail('forbidden', `Contact limit reached (${contactCheck.max}). Upgrade your plan to add more contacts.`, 403);
+    }
 
     const { id, created } = await findOrCreateContact(
       ctx.supabase,

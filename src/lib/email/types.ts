@@ -36,4 +36,7 @@ export type EmailTemplateName =
   | 'ai-credits-low'
   | 'login-notification'
   | 'whatsapp-config'
-  | 'whatsapp-reset';
+  | 'whatsapp-reset'
+  | 'subscription-reminder'
+  | 'subscription-expired'
+  | 'subscription-renewed';

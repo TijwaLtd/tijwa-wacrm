@@ -6,7 +6,7 @@ import {
 } from '@/lib/auth/account'
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
 import type { AiProvider } from '@/lib/ai/types'
-import { hasPlatformKey } from '@/lib/ai/config'
+import { hasPlatformKey, getEmbeddingsApiKey } from '@/lib/ai/config'
 import { getCreditRatesForProvider, getAiCreditBalance } from '@/lib/ai/credits'
 
 function bad(message: string) {
@@ -67,6 +67,7 @@ export async function GET() {
         configured: false,
         has_openai_key: hasPlatformKey('openai'),
         has_anthropic_key: hasPlatformKey('anthropic'),
+        has_embeddings_key: Boolean(getEmbeddingsApiKey()),
         credits: balance,
         available_models: availableModels,
       })
@@ -77,6 +78,7 @@ export async function GET() {
       ...data,
       has_openai_key: hasPlatformKey('openai'),
       has_anthropic_key: hasPlatformKey('anthropic'),
+      has_embeddings_key: Boolean(getEmbeddingsApiKey()),
       credits: balance,
       available_models: availableModels,
     })

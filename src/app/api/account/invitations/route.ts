@@ -27,6 +27,7 @@ import {
   inviteUrl,
 } from "@/lib/auth/invitations";
 import { isAccountRole } from "@/lib/auth/roles";
+import { requireActiveSubscription, getPlanLimits, checkUsageLimit } from "@/lib/subscription/check";
 import {
   checkRateLimit,
   rateLimitResponse,
@@ -167,6 +168,18 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const ctx = await requireRole("admin");
+
+    // Require active subscription before inviting
+    await requireActiveSubscription(ctx.serviceClient, ctx.accountId);
+
+    // Check team member limit
+    const memberCheck = await checkUsageLimit(ctx.serviceClient, ctx.accountId, 'max_team_members');
+    if (!memberCheck.allowed) {
+      return NextResponse.json(
+        { error: `Team member limit reached (${memberCheck.max}). Upgrade your plan to add more members.` },
+        { status: 403 },
+      );
+    }
 
     // 30/min per user. The Members tab is a clicks-only UI so any
     // legitimate admin is far below this; the cap exists to keep

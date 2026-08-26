@@ -20,6 +20,8 @@
     "inbox": "Inbox",
     "notifications": "Notifications",
     "contacts": "Contacts",
+    "knowledge": "Knowledge",
+    "billing": "Billing",
     "pipelines": "Pipelines",
     "broadcasts": "Broadcasts",
     "automations": "Automations",
@@ -1693,7 +1695,7 @@
     },
     "aiConfig": {
       "title": "Agent setup",
-      "description": "Bring your own OpenAI or Anthropic key. wacrm calls the provider directly with your key — no per-seat AI fees, and your data stays yours. This powers AI-drafted replies in the inbox, the auto-reply bot, and the Playground.",
+      "description": "The platform provides the AI keys — no per-seat fees, and your data stays yours. Select a provider and model below to power AI-drafted replies, the auto-reply bot, and the Playground.",
       "adminOnlyConfig": "Only admins and owners can change the AI configuration.",
       "loadFailed": "Failed to load AI configuration",
       "providerAndKey": "Provider & key",
@@ -1777,7 +1779,8 @@
       "fileRequired": "Please select a file to upload.",
       "dropOrClick": "Drop a file here or click to browse",
       "acceptedFormats": "PDF, DOCX, TXT, CSV, MD, TSV (max {max} MB)",
-      "removeFile": "Remove file"
+      "removeFile": "Remove file",
+      "fileTooLarge": "File is too large. Maximum size is {max} MB."
     }
   },
   "Onboarding": {

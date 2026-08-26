@@ -20,7 +20,6 @@ import { AiConfig } from '@/components/settings/ai-config';
 import { AutoAssignSettings } from '@/components/settings/auto-assign-settings';
 import { MembersTab } from '@/components/settings/members-tab';
 import { ApiKeysSettings } from '@/components/settings/api-keys-settings';
-import { PlansSettings } from '@/components/settings/plans-settings';
 import { WorkspaceSettings } from '@/components/settings/workspace-settings';
 import {
   resolveSection,
@@ -87,7 +86,6 @@ function SettingsPageInner() {
     'auto-assign': <AutoAssignSettings />,
     members: <MembersTab />,
     workspace: <WorkspaceSettings />,
-    plans: <PlansSettings />,
     api: <ApiKeysSettings />,
   };
 

@@ -10,6 +10,9 @@ import aiCreditsLow from './templates/ai-credits-low';
 import loginNotification from './templates/login-notification';
 import whatsappConfig from './templates/whatsapp-config';
 import whatsappReset from './templates/whatsapp-reset';
+import subscriptionReminder from './templates/subscription-reminder';
+import subscriptionExpired from './templates/subscription-expired';
+import subscriptionRenewed from './templates/subscription-renewed';
 
 const templates: Record<EmailTemplateName, EmailTemplate> = {
   welcome,
@@ -20,6 +23,9 @@ const templates: Record<EmailTemplateName, EmailTemplate> = {
   'login-notification': loginNotification,
   'whatsapp-config': whatsappConfig,
   'whatsapp-reset': whatsappReset,
+  'subscription-reminder': subscriptionReminder,
+  'subscription-expired': subscriptionExpired,
+  'subscription-renewed': subscriptionRenewed,
 };
 
 function isEnabled(): boolean {
@@ -112,4 +118,25 @@ export async function sendWhatsappResetEmail(
   data: { name: string; phoneNumberId?: string },
 ): Promise<EmailResult> {
   return renderAndSend('whatsapp-reset', to, data);
+}
+
+export async function sendSubscriptionReminderEmail(
+  to: string,
+  data: { name: string; workspaceName: string; plan: string; days: string },
+): Promise<EmailResult> {
+  return renderAndSend('subscription-reminder', to, data);
+}
+
+export async function sendSubscriptionExpiredEmail(
+  to: string,
+  data: { name: string; workspaceName: string; plan: string },
+): Promise<EmailResult> {
+  return renderAndSend('subscription-expired', to, data);
+}
+
+export async function sendSubscriptionRenewedEmail(
+  to: string,
+  data: { name: string; workspaceName: string; plan: string },
+): Promise<EmailResult> {
+  return renderAndSend('subscription-renewed', to, data);
 }

@@ -7,6 +7,8 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/use-auth';
 import { useTotalUnread } from '@/hooks/use-total-unread';
 import {
+  BookOpen,
+  CreditCard,
   Crown,
   GitBranch,
   LayoutDashboard,
@@ -83,6 +85,7 @@ const navItems: NavItem[] = [
   { href: '/dashboard', labelKey: 'dashboard', icon: LayoutDashboard },
   { href: '/inbox', labelKey: 'inbox', icon: MessageSquare },
   { href: '/contacts', labelKey: 'contacts', icon: Users },
+  { href: '/knowledge', labelKey: 'knowledge', icon: BookOpen },
   { href: '/pipelines', labelKey: 'pipelines', icon: GitBranch },
   { href: '/broadcasts', labelKey: 'broadcasts', icon: Radio },
   { href: '/automations', labelKey: 'automations', icon: Zap },
@@ -90,6 +93,7 @@ const navItems: NavItem[] = [
 ];
 
 const bottomNavItems = [
+  { href: '/billing', labelKey: 'billing', icon: CreditCard },
   { href: '/settings', labelKey: 'settings', icon: Settings },
 ];
 

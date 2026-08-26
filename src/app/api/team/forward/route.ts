@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
+import { requireActiveSubscription } from '@/lib/subscription/check';
 
 // POST /api/team/forward — forward a WhatsApp message to a team conversation
 export async function POST(request: Request) {
   try {
     const ctx = await requireRole('agent');
+    await requireActiveSubscription(ctx.serviceClient, ctx.accountId);
     const body = await request.json().catch(() => null);
 
     const sourceMessageId = body?.source_message_id;

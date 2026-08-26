@@ -25,7 +25,6 @@ import {
 } from '@/components/ui/select';
 import { SettingsPanelHead } from './settings-panel-head';
 import { cn } from '@/lib/utils';
-import { AiKnowledgeCard } from './ai-knowledge';
 import type { AiProvider } from '@/lib/ai/types';
 import type { AccountMember } from '@/types';
 import { fetchAccountMembers, memberLabel } from '@/lib/account/members';
@@ -80,6 +79,7 @@ export function AiConfig() {
   // Platform key availability
   const [hasOpenaiKey, setHasOpenaiKey] = useState(false);
   const [hasAnthropicKey, setHasAnthropicKey] = useState(false);
+  const [hasEmbeddingsKey, setHasEmbeddingsKey] = useState(false);
 
   // Credit balance
   const [credits, setCredits] = useState<CreditBalance | null>(null);
@@ -110,6 +110,7 @@ export function AiConfig() {
       }
       setHasOpenaiKey(Boolean(data.has_openai_key));
       setHasAnthropicKey(Boolean(data.has_anthropic_key));
+      setHasEmbeddingsKey(Boolean(data.has_embeddings_key));
       setCredits(data.credits ?? null);
       setAvailableModels(data.available_models ?? []);
     } catch {
@@ -223,7 +224,7 @@ export function AiConfig() {
             <p className="mb-6 max-w-sm text-sm text-muted-foreground">
               AI-powered auto-replies, smart drafts, and knowledge base are available on Pro and Enterprise plans.
             </p>
-            <a href="/settings?tab=plans" className={cn(buttonVariants({ variant: 'default' }))}>
+            <a href="/billing" className={cn(buttonVariants({ variant: 'default' }))}>
               Upgrade plan
               <ArrowUpRight className="ml-1.5 h-4 w-4" />
             </a>
@@ -466,11 +467,7 @@ export function AiConfig() {
           </CardContent>
         </Card>
 
-        <AiKnowledgeCard
-          accountId={accountId}
-          canEdit={canEdit}
-          hasEmbeddingsKey={false}
-        />
+        {/* Knowledge base is now a standalone page at /knowledge */}
 
         <div className="flex items-center justify-between">
           {configured ? (
