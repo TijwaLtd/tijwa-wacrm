@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Loader2, Sparkles, Trash2, Coins } from 'lucide-react';
+import { Loader2, Sparkles, Trash2, Coins, Lock, ArrowUpRight } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { canEditSettings } from '@/lib/auth/roles';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
@@ -24,11 +24,14 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { SettingsPanelHead } from './settings-panel-head';
+import { cn } from '@/lib/utils';
 import { AiKnowledgeCard } from './ai-knowledge';
 import type { AiProvider } from '@/lib/ai/types';
 import type { AccountMember } from '@/types';
 import { fetchAccountMembers, memberLabel } from '@/lib/account/members';
 import { useTranslations } from 'next-intl';
+
+const AI_ENABLED_PLANS = new Set(['pro', 'enterprise']);
 
 // Radix Select can't use an empty-string item value, so the "leave
 // unassigned" choice gets a sentinel that maps to null in the payload.
@@ -54,9 +57,11 @@ interface CreditBalance {
 }
 
 export function AiConfig() {
-  const { accountId, accountRole, profileLoading } = useAuth();
+  const { accountId, accountRole, profileLoading, activeWorkspace } = useAuth();
   const canEdit = accountRole ? canEditSettings(accountRole) : false;
   const t = useTranslations('Settings.aiConfig');
+  const currentPlan = activeWorkspace?.plan ?? 'starter';
+  const aiIncluded = AI_ENABLED_PLANS.has(currentPlan);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -195,6 +200,35 @@ export function AiConfig() {
     return (
       <div className="flex items-center justify-center py-16 text-muted-foreground">
         <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading...
+      </div>
+    );
+  }
+
+  // Plan-gating: AI is only available on Pro and Enterprise plans.
+  if (!aiIncluded) {
+    return (
+      <div>
+        <SettingsPanelHead
+          title={t('title')}
+          description={t('description')}
+        />
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+            <div className="mb-4 rounded-full bg-muted p-3">
+              <Lock className="h-6 w-6 text-muted-foreground" />
+            </div>
+            <h3 className="mb-1 text-lg font-semibold text-foreground">
+              AI Assistant
+            </h3>
+            <p className="mb-6 max-w-sm text-sm text-muted-foreground">
+              AI-powered auto-replies, smart drafts, and knowledge base are available on Pro and Enterprise plans.
+            </p>
+            <a href="/settings?tab=plans" className={cn(buttonVariants({ variant: 'default' }))}>
+              Upgrade plan
+              <ArrowUpRight className="ml-1.5 h-4 w-4" />
+            </a>
+          </CardContent>
+        </Card>
       </div>
     );
   }

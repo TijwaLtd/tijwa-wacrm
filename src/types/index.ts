@@ -156,12 +156,15 @@ export interface ContactNote {
 }
 
 export type ConversationStatus = 'open' | 'pending' | 'closed';
+export type ConversationType = 'whatsapp' | 'team';
 
 export interface Conversation {
   id: string;
   user_id: string;
   account_id?: string;
-  contact_id: string;
+  /** Required for whatsapp conversations, null for team conversations */
+  contact_id: string | null;
+  type: ConversationType;
   status: ConversationStatus;
   assigned_agent_id?: string;
   last_message_text?: string;
@@ -170,6 +173,10 @@ export interface Conversation {
   created_at: string;
   updated_at: string;
   contact?: Contact;
+  /** Display name for team conversations */
+  team_name?: string | null;
+  /** User IDs of team conversation participants */
+  team_participant_ids?: string[];
   /**
    * AI auto-reply state for this thread (migration 029 + 033):
    *  - `ai_autoreply_disabled` — the bot is paused here (a human took

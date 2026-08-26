@@ -16,6 +16,8 @@ import { TemplateManager } from '@/components/settings/template-manager';
 import { QuickRepliesManager } from '@/components/settings/quick-replies-manager';
 import { FieldsAndTagsPanel } from '@/components/settings/fields-and-tags-panel';
 import { DealsSettings } from '@/components/settings/deals-settings';
+import { AiConfig } from '@/components/settings/ai-config';
+import { AutoAssignSettings } from '@/components/settings/auto-assign-settings';
 import { MembersTab } from '@/components/settings/members-tab';
 import { ApiKeysSettings } from '@/components/settings/api-keys-settings';
 import { PlansSettings } from '@/components/settings/plans-settings';
@@ -81,6 +83,8 @@ function SettingsPageInner() {
     'quick-replies': <QuickRepliesManager />,
     fields: <FieldsAndTagsPanel />,
     deals: <DealsSettings />,
+    ai: <AiConfig />,
+    'auto-assign': <AutoAssignSettings />,
     members: <MembersTab />,
     workspace: <WorkspaceSettings />,
     plans: <PlansSettings />,

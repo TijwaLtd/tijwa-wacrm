@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { CornerUpLeft, Copy, SmilePlus } from "lucide-react";
+import { CornerUpLeft, Copy, Forward, SmilePlus } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
@@ -20,6 +20,7 @@ interface MessageActionsProps {
   message: Message;
   onReply: () => void;
   onReact: (emoji: string) => void;
+  onForward?: () => void;
   children: ReactNode;
 }
 
@@ -32,6 +33,7 @@ export function MessageActions({
   message,
   onReply,
   onReact,
+  onForward,
   children,
 }: MessageActionsProps) {
   const t = useTranslations("Inbox.actions");
@@ -73,6 +75,11 @@ export function MessageActions({
 
   const handleReply = () => {
     onReply();
+    setTouchOpen(false);
+  };
+
+  const handleForward = () => {
+    onForward?.();
     setTouchOpen(false);
   };
 
@@ -144,6 +151,16 @@ export function MessageActions({
         >
           <Copy className="h-3.5 w-3.5" />
         </button>
+        {onForward && (
+        <button
+          type="button"
+          onClick={handleForward}
+          className="flex h-5 w-5 items-center justify-center rounded-full text-popover-foreground hover:bg-muted hover:text-foreground"
+          aria-label={t("forward")}
+        >
+          <Forward className="h-3.5 w-3.5" />
+        </button>
+        )}
       </div>
       </div>
     </div>

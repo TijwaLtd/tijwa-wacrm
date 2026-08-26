@@ -20,7 +20,7 @@ import { ConversationList } from '@/components/inbox/conversation-list';
 import { MessageThread } from '@/components/inbox/message-thread';
 import { ContactSidebar } from '@/components/inbox/contact-sidebar';
 import { SyncStatusIndicator } from '@/components/inbox/sync-status-indicator';
-import { WifiOff } from 'lucide-react';
+import { WifiOff, MessageSquare, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/use-auth';
 import { useLocalSync } from '@/hooks/use-local-sync';
@@ -73,6 +73,9 @@ function InboxPageInner() {
 
   // Multi-workspace: selected account filter (null = all workspaces)
   const [workspaceFilter] = useState<string | null>(null);
+
+  // Inbox mode: whatsapp (customer chats) or team (internal)
+  const [inboxMode, setInboxMode] = useState<'whatsapp' | 'team'>('whatsapp');
 
   // Determine if we should show workspace selector (user has multiple workspaces)
 
@@ -655,6 +658,46 @@ function InboxPageInner() {
         />
       </div>
 
+      {/* Inbox mode tabs — full width at top */}
+      <div className="flex shrink-0 border-b border-border bg-card">
+        <button
+          onClick={() => {
+            setInboxMode('whatsapp');
+            setConversations([]);
+            setActiveConversation(null);
+            setActiveContact(null);
+            setMessages([]);
+          }}
+          className={cn(
+            'flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium transition-colors',
+            inboxMode === 'whatsapp'
+              ? 'border-b-2 border-primary text-primary'
+              : 'text-muted-foreground hover:text-foreground'
+          )}
+        >
+          <MessageSquare className="h-4 w-4" />
+          WhatsApp
+        </button>
+        <button
+          onClick={() => {
+            setInboxMode('team');
+            setConversations([]);
+            setActiveConversation(null);
+            setActiveContact(null);
+            setMessages([]);
+          }}
+          className={cn(
+            'flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium transition-colors',
+            inboxMode === 'team'
+              ? 'border-b-2 border-primary text-primary'
+              : 'text-muted-foreground hover:text-foreground'
+          )}
+        >
+          <Users className="h-4 w-4" />
+          Team
+        </button>
+      </div>
+
       <div className="flex flex-1 overflow-hidden">
         {/* Left panel: Conversation list.
             Hidden on mobile when a conversation is selected so the
@@ -710,6 +753,7 @@ function InboxPageInner() {
               {loadingConversations && <Loader2 className="h-3 w-3 animate-spin" />}
             </div>
           )} */}
+
           <ConversationList
             activeConversationId={activeConversation?.id ?? null}
             onSelect={handleSelectConversation}
@@ -717,6 +761,7 @@ function InboxPageInner() {
             onConversationsLoaded={handleConversationsLoaded}
             resyncToken={resyncToken}
             workspaceFilter={workspaceFilter}
+            mode={inboxMode}
           />
         </div>
 

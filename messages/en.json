@@ -156,7 +156,8 @@
       "clearAll": "Clear all",
       "noConversations": "No conversations found",
       "noMessagesYet": "No messages yet",
-      "unknown": "Unknown"
+      "unknown": "Unknown",
+      "teamChat": "Team Chat"
     },
     "messageThread": {
       "backToConversations": "Back to conversations",
@@ -261,12 +262,25 @@
     "actions": {
       "reply": "Reply",
       "copyText": "Copy text",
+      "forward": "Forward",
       "delete": "Delete",
       "react": "React",
       "reactWith": "React with {emoji}",
       "nothingToCopy": "Nothing to copy",
       "copied": "Copied",
       "copyFailed": "Copy failed"
+    },
+    "forward": {
+      "title": "Forward to team",
+      "description": "Choose a team conversation to forward this message to.",
+      "searchPlaceholder": "Search conversations...",
+      "noConversations": "No team conversations found.",
+      "unnamed": "Team Chat",
+      "cancel": "Cancel",
+      "forward": "Forward",
+      "success": "Message forwarded.",
+      "failed": "Failed to forward message.",
+      "loadFailed": "Failed to load team conversations."
     },
     "replyQuote": {
       "photo": "[Photo]",
@@ -1550,6 +1564,8 @@
       "quick-replies": "Quick replies",
       "fields": "Fields & tags",
       "deals": "Deals & currency",
+      "ai": "AI Assistant",
+      "auto-assign": "Auto-assignment",
       "members": "Team members",
       "workspace": "Workspace",
       "plans": "Plans & billing",
@@ -1714,6 +1730,20 @@
       "saveFailed": "Failed to save.",
       "removeSuccess": "AI configuration removed.",
       "removeFailed": "Failed to remove."
+    },
+    "autoAssign": {
+      "title": "Auto-assignment",
+      "description": "Automatically assign incoming conversations to team members. Manual assignment is always available regardless of this setting.",
+      "adminOnly": "Only admins and owners can change auto-assignment settings.",
+      "manual": "Manual",
+      "manualDesc": "Conversations are not assigned automatically. Agents pick up threads manually.",
+      "roundRobin": "Round Robin",
+      "roundRobinDesc": "Cycles through agents in order. Each new conversation goes to the next agent in the rotation.",
+      "loadBalanced": "Load Balanced",
+      "loadBalancedDesc": "Assigns to the agent with the fewest active conversations for even distribution.",
+      "save": "Save",
+      "saveSuccess": "Auto-assignment settings saved.",
+      "saveFailed": "Failed to save settings."
     },
     "aiKnowledge": {
       "loadFailed": "Failed to load knowledge base",

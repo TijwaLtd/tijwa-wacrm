@@ -130,6 +130,9 @@ export async function PATCH(
   if (typeof body?.accent_color === "string") {
     settingsUpdates.accent_color = body.accent_color.trim() || null;
   }
+  if (typeof body?.auto_assign_mode === "string" && ["manual", "round_robin", "load_balanced"].includes(body.auto_assign_mode)) {
+    settingsUpdates.auto_assign_mode = body.auto_assign_mode;
+  }
 
   if (Object.keys(settingsUpdates).length > 0) {
     const { error: settingsError } = await supabase

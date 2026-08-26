@@ -10,6 +10,7 @@ import { runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
+import { autoAssignConversation } from '@/lib/assignments/auto-assign'
 import {
   handleTemplateWebhookChange,
   isTemplateWebhookField,
@@ -608,6 +609,15 @@ async function processMessage(
     await dispatchWebhookEvent(supabaseAdmin(), accountId, 'conversation.created', {
       conversation_id: conversation.id,
       contact_id: contactRecord.id,
+    })
+
+    // Auto-assign newly created conversations (fire-and-forget)
+    after(async () => {
+      try {
+        await autoAssignConversation(supabaseAdmin(), accountId, conversation.id)
+      } catch (err) {
+        console.error('[processMessage] auto-assign failed:', err)
+      }
     })
   }
 

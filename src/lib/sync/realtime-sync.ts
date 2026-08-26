@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/client";
+import type { ConversationType } from "@/types";
 import {
   putConversation,
   putMessage,
@@ -45,7 +46,9 @@ export function startRealtimeSync(userId: string): () => void {
           id: row.id as string,
           user_id: userId,
           account_id: row.account_id as string,
-          contact_id: row.contact_id as string,
+          contact_id: (row.contact_id as string) ?? null,
+          type: ((row.type as string) ?? "whatsapp") as ConversationType,
+          team_name: (row.team_name as string) ?? undefined,
           status: row.status as LocalConversation["status"],
           assigned_agent_id: (row.assigned_agent_id as string) || undefined,
           last_message_text: (row.last_message_text as string) || undefined,
@@ -66,7 +69,9 @@ export function startRealtimeSync(userId: string): () => void {
           id: row.id as string,
           user_id: userId,
           account_id: row.account_id as string,
-          contact_id: row.contact_id as string,
+          contact_id: (row.contact_id as string) ?? null,
+          type: ((row.type as string) ?? "whatsapp") as ConversationType,
+          team_name: (row.team_name as string) ?? undefined,
           status: row.status as LocalConversation["status"],
           assigned_agent_id: (row.assigned_agent_id as string) || undefined,
           last_message_text: (row.last_message_text as string) || undefined,

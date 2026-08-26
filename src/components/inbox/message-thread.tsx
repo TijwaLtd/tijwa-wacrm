@@ -41,6 +41,7 @@ import {
 
 import { MessageBubble } from "./message-bubble";
 import { MessageActions } from "./message-actions";
+import { ForwardModal } from "./forward-modal";
 import { MediaLightbox } from "./media-lightbox";
 import { collectMediaGallery } from "@/lib/media/gallery";
 import {
@@ -179,6 +180,8 @@ export function MessageThread({
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
+  const [forwardModalOpen, setForwardModalOpen] = useState(false);
+  const [forwardMessage, setForwardMessage] = useState<Message | null>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [reactions, setReactions] = useState<MessageReaction[]>([]);
   // Purely visual spin state for the manual-refresh button. The actual
@@ -513,6 +516,10 @@ export function MessageThread({
     }
   }, [messages]);
 
+  // Team conversation flag — used to hide WhatsApp-specific UI and
+  // route messages through the team API instead of WhatsApp send.
+  const isTeam = conversation?.type === 'team';
+
   const handleSend = useCallback(
     async (text: string, replyToId?: string) => {
       if (!conversation) return;
@@ -533,6 +540,38 @@ export function MessageThread({
       onNewMessage(optimisticMsg);
       setReplyTo(null);
 
+      // Team conversations: use the team messages API
+      if (isTeam) {
+        try {
+          const res = await fetch("/api/team/messages", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              conversation_id: conversation.id,
+              content_text: text,
+            }),
+          });
+
+          const payload = await res.json().catch(() => ({}));
+
+          if (!res.ok) {
+            const reason = payload?.error || `HTTP ${res.status}`;
+            console.error("Failed to send team message:", reason);
+            toast.error(`Failed to send: ${reason}`);
+            onUpdateMessage(tempId, { status: "failed" });
+            return;
+          }
+
+          onUpdateMessage(tempId, { status: "sent" });
+        } catch (err) {
+          console.error("Failed to send team message:", err);
+          toast.error("Failed to send message");
+          onUpdateMessage(tempId, { status: "failed" });
+        }
+        return;
+      }
+
+      // WhatsApp conversations: existing logic
       // Check if online — if offline, queue for later
       const online = typeof navigator !== "undefined" && navigator.onLine;
       if (!online) {
@@ -598,7 +637,7 @@ export function MessageThread({
         }
       }
     },
-    [conversation, onNewMessage, onUpdateMessage]
+    [conversation, onNewMessage, onUpdateMessage, isTeam]
   );
 
   const handleSendMedia = useCallback(
@@ -1073,7 +1112,9 @@ export function MessageThread({
     );
   }
 
-  const displayName = contact.name || contact.phone;
+  const displayName = isTeam
+    ? (conversation.team_name || 'Team Chat')
+    : (contact?.name || contact?.phone || 'Customer');
   const messageGroups = groupMessagesByDate(messages);
   const currentStatus = STATUS_OPTIONS.find(
     (s) => s.value === conversation.status
@@ -1115,10 +1156,16 @@ export function MessageThread({
           </div>
           <div className="min-w-0">
             <h2 className="truncate text-sm font-semibold text-foreground">{displayName}</h2>
-            <p className="truncate text-xs text-muted-foreground">{contact.phone}</p>
+            {isTeam ? (
+              <p className="truncate text-xs text-muted-foreground">
+                {conversation.team_participant_ids?.length ?? 0} members
+              </p>
+            ) : contact?.phone ? (
+              <p className="truncate text-xs text-muted-foreground">{contact.phone}</p>
+            ) : null}
           </div>
-          {/* Session timer badge — hidden on the narrowest phones so
-              the name + back arrow keep their room. */}
+          {/* Session timer badge — hidden for team conversations and on narrowest phones */}
+          {!isTeam && (
           <Badge
             variant="outline"
             className={cn(
@@ -1129,15 +1176,12 @@ export function MessageThread({
             <Clock className="h-3 w-3" />
             {sessionInfo.remaining}
           </Badge>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Contact-panel toggle — desktop only. The contact sidebar
-              eats a chunk of horizontal width that crowds the thread on
-              smaller laptops; this lets agents reclaim it when they just
-              want to read and reply. Hidden on mobile, where the sidebar
-              never renders as a permanent panel anyway. Issue #258. */}
-          {onToggleContactPanel && (
+          {/* Contact-panel toggle — desktop only. Hidden for team conversations. */}
+          {onToggleContactPanel && !isTeam && (
             <button
               type="button"
               onClick={onToggleContactPanel}
@@ -1181,7 +1225,8 @@ export function MessageThread({
             </button>
           )}
 
-          {/* Status dropdown */}
+          {/* Status dropdown — hidden for team conversations */}
+          {!isTeam && (
           <DropdownMenu>
             <DropdownMenuTrigger className={cn(
                   "inline-flex items-center justify-center h-7 gap-1 px-2 text-xs rounded-md hover:bg-muted",
@@ -1205,8 +1250,10 @@ export function MessageThread({
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
+          )}
 
-          {/* Assign dropdown */}
+          {/* Assign dropdown — hidden for team conversations */}
+          {!isTeam && (
           <DropdownMenu>
             <DropdownMenuTrigger
               className={cn(
@@ -1270,6 +1317,7 @@ export function MessageThread({
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+          )}
         </div>
       </div>
 
@@ -1331,6 +1379,10 @@ export function MessageThread({
                         onReact={(emoji) => {
                           if (emoji) void postReaction(msg.id, emoji);
                         }}
+                        onForward={() => {
+                          setForwardMessage(msg);
+                          setForwardModalOpen(true);
+                        }}
                       >
                         <MessageBubble
                           message={msg}
@@ -1350,9 +1402,8 @@ export function MessageThread({
         )}
       </div>
 
-      {/* AI auto-reply banner — take over an active bot, or resume it
-          after a handoff. Renders nothing unless the account has
-          auto-reply configured. */}
+      {/* AI auto-reply banner — hidden for team conversations */}
+      {!isTeam && (
       <AiThreadBanner
         conversationId={conversation.id}
         disabled={conversation.ai_autoreply_disabled ?? false}
@@ -1365,24 +1416,29 @@ export function MessageThread({
           }
         }}
       />
+      )}
 
       {/* Composer */}
       <MessageComposer
         conversationId={conversation.id}
-        sessionExpired={sessionInfo.expired}
+        sessionExpired={isTeam ? false : sessionInfo.expired}
         onSend={handleSend}
-        onSendMedia={handleSendMedia}
-        onSendInteractive={handleSendInteractive}
-        onOpenTemplates={handleOpenTemplates}
+        onSendMedia={isTeam ? undefined : handleSendMedia}
+        onSendInteractive={isTeam ? undefined : handleSendInteractive}
+        onOpenTemplates={isTeam ? undefined : handleOpenTemplates}
         replyTo={replyTo}
         onClearReply={() => setReplyTo(null)}
+        isTeam={isTeam}
       />
 
+      {/* Template picker — hidden for team conversations */}
+      {!isTeam && (
       <TemplatePicker
         open={templateModalOpen}
         onOpenChange={setTemplateModalOpen}
         onSelect={handleSendTemplate}
       />
+      )}
 
       {/* Full-size viewer for the thread's images/videos. Renders nothing
           until a bubble opens it. */}
@@ -1391,6 +1447,14 @@ export function MessageThread({
         activeId={mediaMessageId}
         onActiveIdChange={handleMediaChange}
         contactLabel={contactDisplayName}
+      />
+
+      {/* Forward message modal */}
+      <ForwardModal
+        open={forwardModalOpen}
+        onOpenChange={setForwardModalOpen}
+        messageId={forwardMessage?.id ?? ''}
+        messagePreview={forwardMessage?.content_text ?? ''}
       />
     </div>
   );

@@ -5,6 +5,7 @@ import {
   useRef,
   useCallback,
   useEffect,
+  useMemo,
   KeyboardEvent,
 } from "react";
 import {
@@ -103,11 +104,13 @@ interface MessageComposerProps {
   conversationId: string;
   sessionExpired: boolean;
   onSend: (text: string, replyToId?: string) => void;
-  onSendMedia: (payload: SendMediaPayload) => void;
-  onSendInteractive: (payload: InteractiveMessagePayload, replyToId?: string) => void;
-  onOpenTemplates: () => void;
+  onSendMedia?: (payload: SendMediaPayload) => void;
+  onSendInteractive?: (payload: InteractiveMessagePayload, replyToId?: string) => void;
+  onOpenTemplates?: () => void;
   replyTo?: ReplyDraft | null;
   onClearReply?: () => void;
+  /** When true, only text input is shown (team conversations). */
+  isTeam?: boolean;
 }
 
 function formatDuration(seconds: number): string {
@@ -130,6 +133,7 @@ export function MessageComposer({
   onOpenTemplates,
   replyTo,
   onClearReply,
+  isTeam = false,
 }: MessageComposerProps) {
   const t = useTranslations("Inbox.composer");
 
@@ -147,6 +151,13 @@ export function MessageComposer({
 
   // Action picker dialog (WhatsApp-style "+" menu).
   const [actionPickerOpen, setActionPickerOpen] = useState(false);
+
+  // Slash-command quick-reply menu state.
+  const [slashMenuOpen, setSlashMenuOpen] = useState(false);
+  const [slashItems, setSlashItems] = useState<QuickReply[]>([]);
+  const [slashQuery, setSlashQuery] = useState("");
+  const [slashIndex, setSlashIndex] = useState(0);
+  const slashMenuRef = useRef<HTMLDivElement>(null);
 
   // Media attachment state. `draft` holds an uploaded-but-not-yet-sent
   // attachment; `busy` covers the upload/transcode window.
@@ -227,24 +238,39 @@ export function MessageComposer({
     } finally {
       setSending(false);
     }
-  }, [text, sending, sessionExpired, onSend, replyTo?.id]);
+  },     [text, sending, sessionExpired, onSend, replyTo?.id]);
 
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        handleSend();
-      }
-    },
-    [handleSend]
-  );
 
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      setText(e.target.value);
+      const val = e.target.value;
+      setText(val);
       adjustHeight();
+
+      // Slash-command detection: text ends with "/" or "/query"
+      const lines = val.split("\n");
+      const lastLine = lines[lines.length - 1] ?? "";
+      const slashMatch = lastLine.match(/^\/(.*)$/);
+      if (slashMatch) {
+        const q = slashMatch[1].toLowerCase();
+        setSlashQuery(q);
+        setSlashIndex(0);
+        setSlashMenuOpen(true);
+        // Load from IndexedDB (instant)
+        void (async () => {
+          try {
+            const { getAllQuickReplies } = await import("@/lib/db");
+            const all = await getAllQuickReplies();
+            setSlashItems(all);
+          } catch {
+            setSlashItems([]);
+          }
+        })();
+      } else {
+        setSlashMenuOpen(false);
+      }
     },
-    [adjustHeight]
+    [adjustHeight],
   );
 
   // Ask the AI assistant for a suggested reply and drop it into the
@@ -301,13 +327,104 @@ export function MessageComposer({
     [],
   );
 
+  // ---- Slash-command quick-reply menu -----------------------------------
+
+  const filteredSlashItems = useMemo(() => {
+    if (!slashQuery) return slashItems;
+    return slashItems.filter(
+      (qr) =>
+        qr.title.toLowerCase().includes(slashQuery) ||
+        (qr.content_text ?? "").toLowerCase().includes(slashQuery),
+    );
+  }, [slashItems, slashQuery]);
+
+  const selectSlashItem = useCallback(
+    (qr: QuickReply) => {
+      const lines = text.split("\n");
+      lines.pop(); // remove the "/query" line
+      if (qr.kind === "interactive" && qr.interactive_payload) {
+        openInteractiveBuilder(qr.interactive_payload);
+      } else {
+        const insertion = qr.content_text ?? "";
+        if (insertion) lines.push(insertion);
+      }
+      const next = lines.join("\n");
+      setText(next);
+      setSlashMenuOpen(false);
+      requestAnimationFrame(() => {
+        adjustHeight();
+        const el = textareaRef.current;
+        if (el) {
+          el.focus();
+          el.setSelectionRange(el.value.length, el.value.length);
+        }
+      });
+    },
+    [text, openInteractiveBuilder, adjustHeight],
+  );
+
+  // Scroll the selected slash-menu item into view.
+  useEffect(() => {
+    if (!slashMenuOpen) return;
+    const container = slashMenuRef.current;
+    if (!container) return;
+    const btn = container.children[slashIndex] as HTMLElement | undefined;
+    btn?.scrollIntoView({ block: "nearest" });
+  }, [slashMenuOpen, slashIndex]);
+
+  // Close the slash menu on click-outside.
+  useEffect(() => {
+    if (!slashMenuOpen) return;
+    const handle = (e: MouseEvent) => {
+      if (slashMenuRef.current && !slashMenuRef.current.contains(e.target as Node)) {
+        setSlashMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [slashMenuOpen]);
+
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      // Slash-menu keyboard navigation
+      if (slashMenuOpen && filteredSlashItems.length > 0) {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setSlashIndex((i) => (i + 1) % filteredSlashItems.length);
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setSlashIndex((i) => (i - 1 + filteredSlashItems.length) % filteredSlashItems.length);
+          return;
+        }
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          selectSlashItem(filteredSlashItems[slashIndex]);
+          return;
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          setSlashMenuOpen(false);
+          return;
+        }
+      }
+
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        handleSend();
+      }
+    },
+    [handleSend, slashMenuOpen, filteredSlashItems, slashIndex, selectSlashItem],
+  );
+
   const sendInteractive = useCallback(() => {
     const result = validateInteractivePayload(interactivePayload);
     if (!result.ok) {
       toast.error(result.error);
       return;
     }
-    onSendInteractive(interactivePayload, replyTo?.id);
+    onSendInteractive?.(interactivePayload, replyTo?.id);
     setInteractiveOpen(false);
     onClearReply?.();
   }, [interactivePayload, onSendInteractive, replyTo?.id, onClearReply]);
@@ -458,7 +575,7 @@ export function MessageComposer({
           setQuickReplyOpen(true);
           break;
         case "template":
-          onOpenTemplates();
+          onOpenTemplates?.();
           break;
         case "ai-draft":
           void handleDraft();
@@ -530,7 +647,7 @@ export function MessageComposer({
   // ---- Draft send / discard -----------------------------------------
 
   const sendDraft = useCallback(() => {
-    if (!draft || busy) return;
+    if (!draft || busy || !onSendMedia) return;
     onSendMedia({
       kind: draft.kind,
       mediaUrl: draft.mediaUrl,
@@ -579,7 +696,7 @@ export function MessageComposer({
             variant="ghost"
             size="sm"
             className="h-7 text-xs text-amber-400 hover:text-amber-300"
-            onClick={onOpenTemplates}
+            onClick={() => onOpenTemplates?.()}
           >
             <LayoutTemplate className="mr-1 h-3 w-3" />
             {t("templates")}
@@ -653,8 +770,49 @@ export function MessageComposer({
           </Button>
         </div>
       ) : (
-        <div className="flex items-end gap-2">
+        <>
+          {/* Slash-command quick-reply dropdown */}
+          {slashMenuOpen && filteredSlashItems.length > 0 && (
+            <div
+              ref={slashMenuRef}
+              className="mb-1 max-h-48 overflow-y-auto rounded-lg border border-border bg-popover shadow-md"
+            >
+              {filteredSlashItems.map((qr, i) => (
+                <button
+                  key={qr.id}
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    selectSlashItem(qr);
+                  }}
+                  onMouseEnter={() => setSlashIndex(i)}
+                  className={cn(
+                    "flex w-full items-center gap-2 px-3 py-2 text-left text-sm",
+                    i === slashIndex
+                      ? "bg-accent text-accent-foreground"
+                      : "text-foreground hover:bg-accent/50",
+                  )}
+                >
+                  {qr.kind === "interactive" ? (
+                    <Zap className="h-3.5 w-3.5 shrink-0 text-primary" />
+                  ) : (
+                    <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  )}
+                  <span className="min-w-0 flex-1 truncate font-medium">{qr.title}</span>
+                  <span className="truncate text-xs text-muted-foreground">
+                    {qr.kind === "interactive" && qr.interactive_payload
+                      ? "interactive"
+                      : qr.content_text}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="flex items-end gap-2">
           {/* Single "+" button — opens the action picker dialog. */}
+          {/* Attach button — hidden for team conversations */}
+          {!isTeam && (
           <GatedButton
             variant="ghost"
             size="sm"
@@ -671,6 +829,7 @@ export function MessageComposer({
               <Plus className="h-4 w-4" />
             )}
           </GatedButton>
+          )}
 
           <textarea
             ref={textareaRef}
@@ -720,6 +879,7 @@ export function MessageComposer({
             </GatedButton>
           )}
         </div>
+        </>
       )}
 
       {/* Hint sits outside the flex row so its height doesn't push

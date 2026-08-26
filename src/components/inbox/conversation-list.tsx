@@ -8,7 +8,7 @@ import {
   normalizeConversations,
 } from "@/lib/inbox/conversations";
 import { cn } from "@/lib/utils";
-import type { Conversation, ConversationStatus, Tag } from "@/types";
+import type { Conversation, ConversationStatus, ConversationType, Tag } from "@/types";
 import { Search, ChevronDown, X } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useTranslations } from "next-intl";
@@ -42,6 +42,11 @@ interface ConversationListProps {
    * When null, fetch conversations from ALL workspaces via RPC.
    */
   workspaceFilter?: string | null;
+  /**
+   * Conversation mode: 'whatsapp' (default) shows customer conversations,
+   * 'team' shows internal team conversations.
+   */
+  mode?: 'whatsapp' | 'team';
 }
 
 const STATUS_COLORS: Record<ConversationStatus, string> = {
@@ -61,6 +66,7 @@ export function ConversationList({
   onConversationsLoaded,
   resyncToken = 0,
   workspaceFilter = null,
+  mode = 'whatsapp',
 }: ConversationListProps) {
   const t = useTranslations("Inbox.conversationList");
   
@@ -105,6 +111,40 @@ export function ConversationList({
     (async () => {
       setLoading(true);
 
+      // Team mode: fetch from team conversations API
+      if (mode === 'team') {
+        try {
+          const res = await fetch('/api/team/conversations');
+          if (res.ok) {
+            const data = await res.json();
+            const teamConvs: Conversation[] = (data.conversations ?? []).map((c: Record<string, unknown>) => ({
+              id: c.id as string,
+              user_id: c.user_id as string,
+              account_id: c.account_id as string,
+              contact_id: null,
+              type: 'team' as const,
+              status: (c.status as ConversationStatus) ?? 'open',
+              assigned_agent_id: c.assigned_agent_id as string | null,
+              last_message_text: c.last_message_text as string | null,
+              last_message_at: c.last_message_at as string | null,
+              unread_count: (c.unread_count as number) ?? 0,
+              created_at: c.created_at as string,
+              updated_at: c.updated_at as string,
+              team_name: c.team_name as string | null,
+              team_participant_ids: (c.team_participant_ids as string[]) ?? [],
+            }));
+            if (!cancelled) {
+              onConversationsLoadedRef.current(teamConvs);
+              setLoading(false);
+            }
+          }
+        } catch {
+          if (!cancelled) setLoading(false);
+        }
+        return;
+      }
+
+      // WhatsApp mode: existing logic
       // 1. Load from IndexedDB first (instant, works offline)
       try {
         const localConvs = workspaceFilter === null
@@ -118,6 +158,7 @@ export function ConversationList({
             user_id: lc.user_id,
             account_id: lc.account_id ?? "",
             contact_id: lc.contact_id,
+            type: (lc.type as ConversationType) ?? 'whatsapp',
             status: lc.status,
             assigned_agent_id: lc.assigned_agent_id,
             last_message_text: lc.last_message_text,
@@ -125,7 +166,7 @@ export function ConversationList({
             unread_count: lc.unread_count,
             created_at: lc.created_at,
             updated_at: lc.updated_at,
-            contact: lc.contact_name
+            contact: lc.contact_name && lc.contact_id
               ? {
                   id: lc.contact_id,
                   user_id: lc.user_id,
@@ -167,7 +208,8 @@ export function ConversationList({
             id: c.id as string,
             user_id: null,
             account_id: c.account_id as string,
-            contact_id: c.contact_id as string,
+            contact_id: c.contact_id as string | null,
+            type: (c.type as ConversationType) ?? 'whatsapp',
             status: c.status as ConversationStatus,
             assigned_agent_id: c.assigned_agent_id as string | null,
             last_message_text: c.last_message_text as string | null,
@@ -175,6 +217,8 @@ export function ConversationList({
             unread_count: c.unread_count as number,
             created_at: c.created_at as string,
             updated_at: c.updated_at as string,
+            team_name: c.team_name as string | null,
+            team_participant_ids: (c.team_participant_ids as string[]) ?? [],
             contact: c.contact_name ? {
               id: c.contact_id as string,
               name: c.contact_name as string,
@@ -234,7 +278,7 @@ export function ConversationList({
     // `resyncToken` is included so the parent can force a refetch when
     // the realtime channel reconnects or the tab regains focus — catches
     // up on any events sent while the WS was disconnected or throttled.
-  }, [resyncToken, workspaceFilter]);
+  }, [resyncToken, workspaceFilter, mode]);
 
   // Tag definitions for the filter picker — loaded once so labels/colours
   // stay stable regardless of which conversations happen to be loaded.
@@ -546,8 +590,11 @@ function ConversationItem({
   onSelect,
   t,
 }: ConversationItemProps) {
+  const isTeam = conversation.type === 'team';
   const contact = conversation.contact;
-  const displayName = contact?.name || contact?.phone || t("unknown");
+  const displayName = isTeam
+    ? (conversation.team_name || t("teamChat"))
+    : (contact?.name || contact?.phone || t("unknown"));
   const initials = displayName.charAt(0).toUpperCase();
 
   const handleClick = useCallback(() => {
@@ -569,7 +616,10 @@ function ConversationItem({
       )}
     >
       {/* Avatar */}
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium text-foreground">
+      <div className={cn(
+        "flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-medium text-foreground",
+        isTeam ? "bg-primary/10 text-primary" : "bg-muted"
+      )}>
         {contact?.avatar_url ? (
           <Image
             src={contact.avatar_url}
@@ -591,9 +641,13 @@ function ConversationItem({
             <span className="truncate text-sm font-medium text-foreground">
               {displayName}
             </span>
-            {conversation.account_id && (
+            {isTeam ? (
+              <span className="shrink-0 rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                Team
+              </span>
+            ) : conversation.account_id ? (
               <WorkspaceBadge accountId={conversation.account_id} size="sm" />
-            )}
+            ) : null}
           </div>
           <span className="shrink-0 text-[10px] text-muted-foreground">{timeAgo}</span>
         </div>
@@ -607,13 +661,15 @@ function ConversationItem({
                 {conversation.unread_count}
               </span>
             )}
-            <span
-              className={cn(
-                "h-2 w-2 rounded-full",
-                STATUS_COLORS[conversation.status]
-              )}
-              title={conversation.status}
-            />
+            {!isTeam && (
+              <span
+                className={cn(
+                  "h-2 w-2 rounded-full",
+                  STATUS_COLORS[conversation.status]
+                )}
+                title={conversation.status}
+              />
+            )}
           </div>
         </div>
       </div>
