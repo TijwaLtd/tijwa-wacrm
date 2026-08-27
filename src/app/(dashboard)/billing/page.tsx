@@ -43,14 +43,18 @@ interface PlanFeatures {
   max_flows: number;
   ai_replies_per_month: number;
   ai_credits_per_month: number;
+  ai_credits_per_conversation: number;
+  price_kes: number;
+  price_usd: number;
 }
 
 interface Plan {
   id: string;
   name: string;
-  price: string;
   description: string;
   cta: string;
+  price_kes: number;
+  price_usd: number;
   features: PlanFeatures;
 }
 
@@ -74,11 +78,16 @@ interface TopupOption {
 }
 
 const TOPUP_OPTIONS: TopupOption[] = [
-  { credits: 50, price: '$5' },
-  { credits: 100, price: '$10' },
-  { credits: 250, price: '$25' },
-  { credits: 500, price: '$50' },
+  { credits: 50, price: 'KES 500' },
+  { credits: 100, price: 'KES 1,000' },
+  { credits: 250, price: 'KES 2,500' },
+  { credits: 500, price: 'KES 5,000' },
 ];
+
+function formatPrice(plan: Plan): string {
+  if (plan.price_kes === 0) return 'Free';
+  return `KES ${plan.price_kes.toLocaleString()}/mo`;
+}
 
 function formatLimit(val: number | undefined | null): string {
   if (val == null || val >= 999999) return 'Unlimited';
@@ -371,7 +380,7 @@ export default function BillingPage() {
           <div className="flex items-start justify-between">
             <div>
               <p className="text-2xl font-bold text-foreground">{activePlan?.name ?? currentPlan}</p>
-              <p className="text-sm text-muted-foreground">{activePlan?.price}</p>
+              <p className="text-sm text-muted-foreground">{activePlan ? formatPrice(activePlan) : ''}</p>
             </div>
             <div className="text-right">
               <p className="text-sm text-muted-foreground">Status</p>
@@ -411,7 +420,7 @@ export default function BillingPage() {
           </div>
 
           {activePlan?.features && (
-            <div className="mt-6 grid gap-4 sm:grid-cols-3">
+            <div className="mt-6 grid gap-4 sm:grid-cols-4">
               <div className="rounded-md border border-border p-3">
                 <p className="text-xs text-muted-foreground">Contacts</p>
                 <p className="text-lg font-bold text-foreground">{formatLimit(activePlan.features.max_contacts)}</p>
@@ -423,6 +432,10 @@ export default function BillingPage() {
               <div className="rounded-md border border-border p-3">
                 <p className="text-xs text-muted-foreground">AI credits/mo</p>
                 <p className="text-lg font-bold text-foreground">{formatLimit(activePlan.features.ai_credits_per_month)}</p>
+              </div>
+              <div className="rounded-md border border-border p-3">
+                <p className="text-xs text-muted-foreground">Per AI reply</p>
+                <p className="text-lg font-bold text-foreground">{activePlan.features.ai_credits_per_conversation ?? 1} credit</p>
               </div>
             </div>
           )}
@@ -595,7 +608,7 @@ export default function BillingPage() {
               <CardHeader className="items-center text-center">
                 <CardTitle className="text-foreground">{plan.name}</CardTitle>
                 <CardDescription className="text-2xl font-bold text-foreground">
-                  {plan.price}
+                  {formatPrice(plan)}
                 </CardDescription>
               </CardHeader>
 
@@ -623,6 +636,10 @@ export default function BillingPage() {
                   <li className="flex items-center gap-2">
                     <Check className="h-4 w-4 shrink-0 text-primary" />
                     <span>{formatLimit(plan.features?.ai_credits_per_month)} AI credits/mo</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <Check className="h-4 w-4 shrink-0 text-primary" />
+                    <span>{plan.features?.ai_credits_per_conversation ?? 1} credit per AI reply</span>
                   </li>
                 </ul>
               </CardContent>

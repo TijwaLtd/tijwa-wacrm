@@ -2,6 +2,10 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { AiProvider, AiUsage } from './types'
 import { getCreditRateForModel, calculateCreditsUsed, deductAiCredits } from './credits'
 
+// Minimum flat cost per AI conversation (1 credit per reply)
+// This ensures even cheap/short conversations consume credits
+const FLAT_COST_PER_CONVERSATION = 1
+
 export interface LogAiUsageArgs {
   accountId: string
   /** Null for a draft not tied to one thread, or when the row was
@@ -21,7 +25,8 @@ export interface LogAiUsageArgs {
  * error is logged and swallowed. Skips entirely when the provider didn't
  * report usage (we'd only be writing zeros).
  *
- * Also deducts credits from the tenant's balance.
+ * Deducts credits = max(flat per-conversation cost, token-based cost).
+ * This ensures every AI reply costs at least 1 credit.
  */
 export async function logAiUsage(
   db: SupabaseClient,
@@ -29,16 +34,19 @@ export async function logAiUsage(
 ): Promise<void> {
   if (!args.usage) return
 
-  // Calculate credit cost
-  let creditsUsed = 0
+  // Calculate token-based credit cost
+  let tokenCredits = 0
   try {
     const rate = await getCreditRateForModel(db, args.provider, args.model)
     if (rate) {
-      creditsUsed = calculateCreditsUsed(rate, args.usage)
+      tokenCredits = calculateCreditsUsed(rate, args.usage)
     }
   } catch (err) {
     console.error('[ai usage] credit calculation failed:', err)
   }
+
+  // Use the higher of flat cost or token cost
+  const creditsUsed = Math.max(FLAT_COST_PER_CONVERSATION, tokenCredits)
 
   // Log usage
   try {

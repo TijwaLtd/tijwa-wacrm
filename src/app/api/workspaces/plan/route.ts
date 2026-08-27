@@ -84,6 +84,19 @@ export async function POST(request: Request) {
       });
     }
 
+    // Reset AI credits to plan allocation
+    const PLAN_CREDITS: Record<string, number> = {
+      starter: 100,
+      pro: 1000,
+      enterprise: 999999,
+    };
+    const creditsToGrant = PLAN_CREDITS[plan] ?? 100;
+
+    await serviceClient.rpc("reset_ai_credits", {
+      p_account_id: accountId,
+      p_new_credits: creditsToGrant,
+    });
+
     // Send email notification (fire-and-forget, don't block the response)
     const { data: profile } = await supabase
       .from("profiles")

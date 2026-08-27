@@ -40,11 +40,36 @@ export async function GET() {
       )
     }
 
-    // Ensure ai_credits row exists (seed for pre-049 accounts)
-    await serviceClient.rpc('add_ai_credits', {
-      p_account_id: accountId,
-      p_credits: 0,
-    })
+    // Ensure ai_credits row exists — seed with plan allocation if missing
+    const PLAN_CREDITS: Record<string, number> = {
+      starter: 100,
+      pro: 1000,
+      enterprise: 999999,
+    };
+
+    // Check if row exists first
+    const { data: existingCredits } = await serviceClient
+      .from("ai_credits")
+      .select("id")
+      .eq("account_id", accountId)
+      .maybeSingle();
+
+    if (!existingCredits) {
+      // Get current plan
+      const { data: settings } = await serviceClient
+        .from("tenant_settings")
+        .select("plan")
+        .eq("account_id", accountId)
+        .maybeSingle();
+
+      const plan = settings?.plan ?? "starter";
+      const credits = PLAN_CREDITS[plan] ?? 100;
+
+      await serviceClient.rpc("add_ai_credits", {
+        p_account_id: accountId,
+        p_credits: credits,
+      });
+    }
 
     const balance = await getAiCreditBalance(supabase, accountId)
 

@@ -12,19 +12,16 @@ import { getCurrentAccount, toErrorResponse } from '@/lib/auth/account'
 const PLAN_META = {
   starter: {
     name: 'Starter',
-    price: 'Free',
     description: 'For small teams getting started with WhatsApp CRM.',
     cta: 'Upgrade',
   },
   pro: {
     name: 'Pro',
-    price: '$29/mo',
     description: 'For growing businesses that need more power.',
     cta: 'Upgrade',
   },
   enterprise: {
     name: 'Enterprise',
-    price: 'Custom',
     description: 'For large organizations with custom needs.',
     cta: 'Contact Sales',
   },
@@ -49,6 +46,8 @@ export async function GET() {
           id: planId,
           ...PLAN_META[planId],
           features: data,
+          price_kes: data?.price_kes ?? 0,
+          price_usd: data?.price_usd ?? 0,
         }
       }),
     )
