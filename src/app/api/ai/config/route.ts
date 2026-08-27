@@ -22,7 +22,7 @@ function bad(message: string) {
  */
 export async function GET() {
   try {
-    const { supabase, accountId } = await getCurrentAccount()
+    const { supabase, serviceClient, accountId } = await getCurrentAccount()
 
     const { data, error } = await supabase
       .from('ai_configs')
@@ -39,6 +39,12 @@ export async function GET() {
         { status: 500 },
       )
     }
+
+    // Ensure ai_credits row exists (seed for pre-049 accounts)
+    await serviceClient.rpc('add_ai_credits', {
+      p_account_id: accountId,
+      p_credits: 0,
+    })
 
     const balance = await getAiCreditBalance(supabase, accountId)
 
