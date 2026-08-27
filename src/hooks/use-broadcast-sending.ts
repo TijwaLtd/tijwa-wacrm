@@ -167,7 +167,10 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
     let contacts: Contact[] = [];
 
     if (audience.type === 'all') {
-      const { data, error } = await supabase.from('contacts').select('*');
+      const { data, error } = await supabase
+        .from('contacts')
+        .select('*')
+        .eq('account_id', accountId);
       if (error) throw new Error(`Failed to fetch contacts: ${error.message}`);
       contacts = data ?? [];
     } else if (
@@ -190,7 +193,8 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
         const { data, error } = await supabase
           .from('contacts')
           .select('*')
-          .in('id', uniqueContactIds);
+          .in('id', uniqueContactIds)
+          .eq('account_id', accountId);
         if (error) throw new Error(`Failed to fetch contacts: ${error.message}`);
         contacts = data ?? [];
       }
@@ -210,6 +214,15 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
       const excludedIds = new Set((excludeRows ?? []).map((r) => r.contact_id));
       contacts = contacts.filter((c) => !excludedIds.has(c.id));
     }
+
+    // Deduplicate by id — prevents duplicate contact_id in recipient rows
+    // which would cause PK collisions on broadcast_recipients.id.
+    const seen = new Set<string>();
+    contacts = contacts.filter((c) => {
+      if (seen.has(c.id)) return false;
+      seen.add(c.id);
+      return true;
+    });
 
     return contacts;
   }
@@ -302,9 +315,6 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
   ): Promise<Contact[]> {
     const { fieldId, operator, value } = filter;
 
-    // Build the WHERE clause for the operator. PostgREST supports
-    // eq/neq/ilike via the query builder — use ilike with wildcards
-    // for "contains" so the match is case-insensitive.
     let query = supabase
       .from('contact_custom_values')
       .select('contact_id')
@@ -324,7 +334,8 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
     const { data, error } = await supabase
       .from('contacts')
       .select('*')
-      .in('id', contactIds);
+      .in('id', contactIds)
+      .eq('account_id', accountId);
     if (error) throw new Error(`Failed to fetch contacts: ${error.message}`);
     return data ?? [];
   }
@@ -396,7 +407,17 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
 
       // ── Step 3: Insert recipient rows ─────────────────────────────
       setProgress(20);
-      const recipientRows = contacts.map((contact) => ({
+
+      // Deduplicate contacts GLOBALLY before creating recipient rows.
+      // Per-batch seen sets in the loop below would let the same
+      // contact_id slip through two batches and violate the unique
+      // constraint on (broadcast_id, contact_id).
+      const uniqueContacts = contacts.reduce<Contact[]>((acc, c) => {
+        if (!acc.some((existing) => existing.id === c.id)) acc.push(c);
+        return acc;
+      }, []);
+
+      const recipientRows = uniqueContacts.map((contact) => ({
         broadcast_id: broadcast.id,
         contact_id: contact.id,
         status: 'pending' as const,
@@ -408,21 +429,24 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
           .from('broadcast_recipients')
           .insert(batch);
         if (recipientError) {
-          // Previous impl logged and marched on — the broadcast then ran
-          // with an incomplete recipient set, so webhook status updates
-          // couldn't find some rows and the aggregate counts drifted.
-          // Flip the broadcast to failed so the user sees the problem
-          // immediately, then throw to abort the send loop.
-          await supabase
-            .from('broadcasts')
-            .update({
-              status: 'failed',
-              failed_count: contacts.length,
-            })
-            .eq('id', broadcast.id);
-          throw new Error(
-            `Failed to insert recipient batch ${i / INSERT_BATCH_SIZE + 1}: ${recipientError.message}`,
-          );
+          // Broadcast_recipients has a UNIQUE constraint on (broadcast_id, contact_id).
+          // ON CONFLICT DO NOTHING silently skips any duplicate contact_id for this
+          // broadcast without failing or deleting prior batches.
+          const { error: upsertError } = await supabase
+            .from('broadcast_recipients')
+            .upsert(batch, {
+              onConflict: 'broadcast_id,contact_id',
+              ignoreDuplicates: true,
+            });
+          if (upsertError) {
+            await supabase
+              .from('broadcasts')
+              .update({ status: 'failed', failed_count: uniqueContacts.length })
+              .eq('id', broadcast.id);
+            throw new Error(
+              `Failed to insert recipient batch ${i / INSERT_BATCH_SIZE + 1}: ${upsertError.message}`,
+            );
+          }
         }
       }
 
