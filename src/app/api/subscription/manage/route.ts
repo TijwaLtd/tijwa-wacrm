@@ -1,12 +1,42 @@
 // ============================================================
-// POST /api/subscription/manage
+// GET/POST /api/subscription/manage
 //
-// Manage subscription: cancel or reactivate.
-// No Stripe — updates the DB directly (dev/testing, Mpesa later).
+// GET: Returns current subscription details from the subscriptions table.
+// POST: Manage subscription (cancel/reactivate).
 // ============================================================
 
 import { NextResponse } from "next/server";
 import { requireRole, toErrorResponse } from "@/lib/auth/account";
+
+export async function GET() {
+  try {
+    const { serviceClient, accountId } = await requireRole('viewer');
+
+    const { data: sub, error } = await serviceClient
+      .from("subscriptions")
+      .select("plan, status, current_period_start, current_period_end, cancel_at_period_end")
+      .eq("account_id", accountId)
+      .maybeSingle();
+
+    if (error || !sub) {
+      return NextResponse.json({
+        subscription: null,
+      });
+    }
+
+    return NextResponse.json({
+      subscription: {
+        plan: sub.plan,
+        status: sub.status,
+        current_period_start: sub.current_period_start,
+        current_period_end: sub.current_period_end,
+        cancel_at_period_end: sub.cancel_at_period_end,
+      },
+    });
+  } catch (err) {
+    return toErrorResponse(err);
+  }
+}
 
 export async function POST(request: Request) {
   try {

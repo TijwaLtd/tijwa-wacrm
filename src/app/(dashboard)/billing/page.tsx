@@ -168,15 +168,17 @@ export default function BillingPage() {
     setFetching(true);
     setPlansError(false);
     try {
-      const [plansRes, subRes, creditRes] = await Promise.all([
+      const [plansRes, subRes, creditRes, subscriptionRes] = await Promise.all([
         fetch('/api/plans'),
         fetch('/api/workspaces'),
         fetch('/api/ai/config'),
+        fetch('/api/subscription/manage'),
       ]);
 
       const plansData = plansRes.ok ? await plansRes.json() : null;
       const subData = subRes.ok ? await subRes.json() : null;
       const creditData = creditRes.ok ? await creditRes.json() : null;
+      const subscriptionDetails = subscriptionRes.ok ? await subscriptionRes.json() : null;
 
       const dbPlans: Plan[] = plansData?.plans ?? [];
       if (dbPlans.length) {
@@ -190,12 +192,13 @@ export default function BillingPage() {
           (w: { account_id: string }) => w.account_id === activeWorkspace.account_id,
         );
         if (ws) {
+          const subDetails = subscriptionDetails?.subscription;
           setSubscription({
             plan: ws.plan ?? 'starter',
             status: ws.subscription_status ?? 'active',
-            current_period_start: null,
-            current_period_end: null,
-            cancel_at_period_end: false,
+            current_period_start: subDetails?.current_period_start ?? null,
+            current_period_end: subDetails?.current_period_end ?? null,
+            cancel_at_period_end: subDetails?.cancel_at_period_end ?? false,
           });
         }
       }
