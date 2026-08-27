@@ -1,7 +1,8 @@
 // ============================================================
 // GET/POST /api/subscription/manage
 //
-// GET: Returns current subscription details from the subscriptions table.
+// GET: Returns current subscription details. Creates a subscription
+//      row if missing (backfills from account creation date).
 // POST: Manage subscription (cancel/reactivate).
 // ============================================================
 
@@ -12,25 +13,62 @@ export async function GET() {
   try {
     const { serviceClient, accountId } = await requireRole('viewer');
 
+    // Try to get existing subscription
     const { data: sub, error } = await serviceClient
       .from("subscriptions")
       .select("plan, status, current_period_start, current_period_end, cancel_at_period_end")
       .eq("account_id", accountId)
       .maybeSingle();
 
-    if (error || !sub) {
+    if (sub) {
       return NextResponse.json({
-        subscription: null,
+        subscription: {
+          plan: sub.plan,
+          status: sub.status,
+          current_period_start: sub.current_period_start,
+          current_period_end: sub.current_period_end,
+          cancel_at_period_end: sub.cancel_at_period_end,
+        },
       });
     }
 
+    // No subscription row — create one backdated from account creation
+    const { data: settings } = await serviceClient
+      .from("tenant_settings")
+      .select("plan, subscription_status")
+      .eq("account_id", accountId)
+      .maybeSingle();
+
+    const { data: account } = await serviceClient
+      .from("accounts")
+      .select("created_at")
+      .eq("id", accountId)
+      .maybeSingle();
+
+    const plan = settings?.plan ?? "starter";
+    const status = settings?.subscription_status ?? "active";
+
+    // Use account creation date as period start, +30 days as end
+    const accountCreated = account?.created_at ? new Date(account.created_at) : new Date();
+    const periodStart = accountCreated.toISOString();
+    const periodEnd = new Date(accountCreated.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    // Upsert subscription row
+    await serviceClient.from("subscriptions").insert({
+      account_id: accountId,
+      plan,
+      status,
+      current_period_start: periodStart,
+      current_period_end: periodEnd,
+    }).select();
+
     return NextResponse.json({
       subscription: {
-        plan: sub.plan,
-        status: sub.status,
-        current_period_start: sub.current_period_start,
-        current_period_end: sub.current_period_end,
-        cancel_at_period_end: sub.cancel_at_period_end,
+        plan,
+        status,
+        current_period_start: periodStart,
+        current_period_end: periodEnd,
+        cancel_at_period_end: false,
       },
     });
   } catch (err) {
