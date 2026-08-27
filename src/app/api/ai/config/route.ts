@@ -40,9 +40,9 @@ export async function GET() {
       )
     }
 
-    // Ensure ai_credits row exists with proper allocation.
-    // The on_account_created_ai_credits trigger creates a row with 0 credits,
-    // so we need to seed when the row is missing OR has 0 remaining.
+    // Ensure ai_credits row exists and matches plan allocation.
+    // The on_account_created_ai_credits trigger creates a row with 0 credits.
+    // We sync: if the row exists but has wrong allocation, reset to plan's value.
     const PLAN_CREDITS: Record<string, number> = {
       starter: 0,
       business: 400,
@@ -50,28 +50,32 @@ export async function GET() {
       enterprise: 999999,
     };
 
+    const { data: settings } = await serviceClient
+      .from("tenant_settings")
+      .select("plan")
+      .eq("account_id", accountId)
+      .maybeSingle();
+
+    const plan = settings?.plan ?? "starter";
+    const planCredits = PLAN_CREDITS[plan] ?? 0;
+
     const { data: existingCredits } = await serviceClient
       .from("ai_credits")
       .select("id, credits_remaining")
       .eq("account_id", accountId)
       .maybeSingle();
 
-    const needsSeeding = !existingCredits || Number(existingCredits.credits_remaining) === 0;
-
-    if (needsSeeding) {
-      // Get current plan
-      const { data: settings } = await serviceClient
-        .from("tenant_settings")
-        .select("plan")
-        .eq("account_id", accountId)
-        .maybeSingle();
-
-      const plan = settings?.plan ?? "starter";
-      const credits = PLAN_CREDITS[plan] ?? 100;
-
+    if (!existingCredits) {
+      // No row — create with plan allocation
       await serviceClient.rpc("add_ai_credits", {
         p_account_id: accountId,
-        p_credits: credits,
+        p_credits: planCredits,
+      });
+    } else if (Number(existingCredits.credits_remaining) !== planCredits && planCredits === 0) {
+      // Plan has 0 credits but row has leftover — reset to 0
+      await serviceClient.rpc("reset_ai_credits", {
+        p_account_id: accountId,
+        p_new_credits: 0,
       });
     }
 
