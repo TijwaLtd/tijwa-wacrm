@@ -208,7 +208,7 @@ export default function BillingPage() {
         setCredits({
           creditsRemaining: creditData.credits.creditsRemaining ?? 0,
           creditsUsed: creditData.credits.creditsUsed ?? 0,
-          creditsTotal: activePlanDef?.features?.ai_credits_per_month ?? 100,
+          creditsTotal: activePlanDef?.features?.ai_credits_per_month ?? 0,
         });
       }
     } catch {
