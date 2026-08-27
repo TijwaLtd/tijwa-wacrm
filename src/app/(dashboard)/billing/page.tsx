@@ -194,8 +194,10 @@ export default function BillingPage() {
         const ws = subData.workspaces?.find(
           (w: { account_id: string }) => w.account_id === activeWorkspace.account_id,
         );
+        console.log('[billing] ws found:', !!ws, 'ws keys:', ws ? Object.keys(ws) : 'N/A');
         if (ws) {
           const subDetails = subscriptionDetails?.subscription;
+          console.log('[billing] subDetails:', subDetails);
           setSubscription({
             plan: ws.plan ?? 'starter',
             status: ws.subscription_status ?? 'active',
