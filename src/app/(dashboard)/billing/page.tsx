@@ -11,6 +11,9 @@ import {
   AlertTriangle,
   XCircle,
   RotateCcw,
+  Zap,
+  Plus,
+  Coins,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -54,6 +57,17 @@ interface Subscription {
   cancel_at_period_end: boolean;
 }
 
+interface CreditBalance {
+  creditsRemaining: number;
+  creditsUsed: number;
+  creditsTotal: number;
+}
+
+interface TopupOption {
+  credits: number;
+  price: string;
+}
+
 const PLANS: Plan[] = [
   {
     id: 'starter',
@@ -93,11 +107,18 @@ const PLANS: Plan[] = [
   },
 ];
 
+const TOPUP_OPTIONS: TopupOption[] = [
+  { credits: 50, price: '$5' },
+  { credits: 100, price: '$10' },
+  { credits: 250, price: '$25' },
+  { credits: 500, price: '$50' },
+];
+
 function formatLimit(val: number | 'unlimited'): string {
   return val === 'unlimited' ? 'Unlimited' : val.toLocaleString();
 }
 
-function formatDate(dateStr: string | null): string {
+function formatDate(dateStr: string | null | undefined): string {
   if (!dateStr) return '—';
   return new Date(dateStr).toLocaleDateString('en-US', {
     year: 'numeric',
@@ -106,13 +127,19 @@ function formatDate(dateStr: string | null): string {
   });
 }
 
-function formatDateShort(dateStr: string | null): string {
+function formatDateShort(dateStr: string | null | undefined): string {
   if (!dateStr) return '—';
   return new Date(dateStr).toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
   });
+}
+
+function daysUntil(dateStr: string | null | undefined): number | null {
+  if (!dateStr) return null;
+  const diff = new Date(dateStr).getTime() - Date.now();
+  return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
 }
 
 export default function BillingPage() {
@@ -125,52 +152,59 @@ export default function BillingPage() {
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
 
-  const fetchSubscription = useCallback(async () => {
+  // Credit state
+  const [credits, setCredits] = useState<CreditBalance | null>(null);
+  const [topupLoading, setTopupLoading] = useState(false);
+  const [topupDialogOpen, setTopupDialogOpen] = useState(false);
+  const [selectedTopup, setSelectedTopup] = useState<TopupOption | null>(null);
+
+  const fetchData = useCallback(async () => {
+    if (!activeWorkspace?.account_id) return;
     setFetching(true);
     try {
-      const res = await fetch('/api/ai/config');
-      // We'll use a dedicated subscription endpoint instead
+      // Fetch subscription
+      let planFromWs = currentPlan;
+      const subRes = await fetch('/api/workspaces');
+      if (subRes.ok) {
+        const data = await subRes.json();
+        const ws = data.workspaces?.find(
+          (w: { account_id: string }) => w.account_id === activeWorkspace.account_id,
+        );
+        if (ws) {
+          planFromWs = (ws.plan ?? 'starter') as Plan['id'];
+          setSubscription({
+            plan: ws.plan ?? 'starter',
+            status: ws.subscription_status ?? 'active',
+            current_period_start: null,
+            current_period_end: null,
+            cancel_at_period_end: false,
+          });
+        }
+      }
+
+      // Fetch credit balance
+      const creditRes = await fetch('/api/ai/config');
+      if (creditRes.ok) {
+        const data = await creditRes.json();
+        if (data.credits) {
+          const planLimit = PLANS.find((p) => p.id === planFromWs)?.aiCredits ?? 100;
+          setCredits({
+            creditsRemaining: data.credits.creditsRemaining ?? 0,
+            creditsUsed: data.credits.creditsUsed ?? 0,
+            creditsTotal: typeof planLimit === 'number' ? planLimit : 999999,
+          });
+        }
+      }
     } catch {
       // non-critical
     } finally {
       setFetching(false);
     }
-  }, []);
-
-  // Fetch subscription from the subscriptions table
-  useEffect(() => {
-    if (!activeWorkspace?.account_id) return;
-
-    const fetchSub = async () => {
-      setFetching(true);
-      try {
-        // Use the subscription manage endpoint to get current state
-        // For now, derive from workspace data
-        const res = await fetch('/api/workspaces');
-        if (res.ok) {
-          const data = await res.json();
-          const ws = data.workspaces?.find(
-            (w: { account_id: string }) => w.account_id === activeWorkspace.account_id,
-          );
-          if (ws) {
-            setSubscription({
-              plan: ws.plan ?? 'starter',
-              status: ws.subscription_status ?? 'active',
-              current_period_start: null,
-              current_period_end: null,
-              cancel_at_period_end: false,
-            });
-          }
-        }
-      } catch {
-        // non-critical
-      } finally {
-        setFetching(false);
-      }
-    };
-
-    void fetchSub();
   }, [activeWorkspace?.account_id]);
+
+  useEffect(() => {
+    void fetchData();
+  }, [fetchData]);
 
   const handleUpgrade = async (planId: Plan['id']) => {
     if (planId === currentPlan) return;
@@ -193,7 +227,7 @@ export default function BillingPage() {
           cancel_at_period_end: false,
         } : prev);
       }
-      // Reload to refresh activeWorkspace
+      // Reload to refresh activeWorkspace credits
       window.location.reload();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to update plan');
@@ -241,9 +275,39 @@ export default function BillingPage() {
     }
   };
 
+  const handleTopup = async () => {
+    if (!selectedTopup) return;
+    setTopupLoading(true);
+    try {
+      const res = await fetch('/api/subscription/topup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: selectedTopup.credits }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to add credits');
+      toast.success(`Added ${selectedTopup.credits} credits`);
+      setCredits((prev) => prev ? {
+        ...prev,
+        creditsRemaining: data.credits_remaining,
+      } : prev);
+      setTopupDialogOpen(false);
+      setSelectedTopup(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to add credits');
+    } finally {
+      setTopupLoading(false);
+    }
+  };
+
   const isExpired = subscription?.status && !['active', 'trial'].includes(subscription.status);
   const activePlan = PLANS.find((p) => p.id === currentPlan) ?? PLANS[0];
   const isCancelling = subscription?.cancel_at_period_end ?? false;
+  const daysLeft = daysUntil(subscription?.current_period_end);
+  const creditPercent = credits
+    ? Math.min(100, Math.round((credits.creditsRemaining / credits.creditsTotal) * 100))
+    : 0;
+  const creditsExhausted = credits ? credits.creditsRemaining <= 0 : false;
 
   return (
     <div className="mx-auto max-w-3xl py-8">
@@ -254,7 +318,7 @@ export default function BillingPage() {
         </p>
       </div>
 
-      {/* Subscription status banner */}
+      {/* Subscription status banners */}
       {isExpired && (
         <div className="mb-6 flex items-center gap-3 rounded-lg border border-destructive/20 bg-destructive/10 px-4 py-3">
           <AlertTriangle className="h-5 w-5 shrink-0 text-destructive" />
@@ -311,7 +375,7 @@ export default function BillingPage() {
             </div>
           </div>
 
-          {/* Billing period info */}
+          {/* Billing period */}
           <div className="mt-6 grid gap-4 sm:grid-cols-2">
             <div className="rounded-md border border-border p-3">
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -330,6 +394,11 @@ export default function BillingPage() {
               <p className="mt-1 text-sm font-medium text-foreground">
                 {formatDate(subscription?.current_period_end)}
               </p>
+              {daysLeft !== null && !isExpired && (
+                <p className="text-xs text-muted-foreground">
+                  {daysLeft} {daysLeft === 1 ? 'day' : 'days'} remaining
+                </p>
+              )}
             </div>
           </div>
 
@@ -380,6 +449,126 @@ export default function BillingPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* AI Credits balance + top-up */}
+      <Card className="mb-8">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Coins className="h-4 w-4 text-primary" /> AI Credits
+          </CardTitle>
+          <CardDescription>
+            Credits are used for AI-powered replies and message analysis. They reset monthly with your plan.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {credits ? (
+            <>
+              <div className="flex items-end justify-between">
+                <div>
+                  <p className="text-3xl font-bold text-foreground">
+                    {credits.creditsRemaining.toLocaleString()}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    of {credits.creditsTotal.toLocaleString()} credits remaining
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm text-muted-foreground">
+                    {credits.creditsUsed.toLocaleString()} used this period
+                  </p>
+                </div>
+              </div>
+
+              {/* Usage bar */}
+              <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-secondary">
+                <div
+                  className={cn(
+                    'h-full rounded-full transition-all',
+                    creditsExhausted
+                      ? 'bg-destructive'
+                      : creditPercent < 20
+                        ? 'bg-amber-500'
+                        : 'bg-primary',
+                  )}
+                  style={{ width: `${100 - creditPercent}%` }}
+                />
+              </div>
+
+              {creditsExhausted && (
+                <p className="mt-2 text-xs text-destructive">
+                  No credits remaining. AI features are paused until you top up or your plan renews.
+                </p>
+              )}
+
+              {/* Top-up button */}
+              <div className="mt-6">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setTopupDialogOpen(true)}
+                >
+                  <Plus className="mr-1.5 h-4 w-4" />
+                  Top up credits
+                </Button>
+              </div>
+            </>
+          ) : (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading credit balance...
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Top-up dialog */}
+      <Dialog open={topupDialogOpen} onOpenChange={setTopupDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Top up AI credits</DialogTitle>
+            <DialogDescription>
+              Add credits to continue using AI features. Credits are one-time purchases that
+              don't expire until used. No monthly reset.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid grid-cols-2 gap-3 py-4">
+            {TOPUP_OPTIONS.map((opt) => (
+              <button
+                key={opt.credits}
+                onClick={() => setSelectedTopup(opt)}
+                className={cn(
+                  'flex flex-col items-center rounded-lg border p-4 transition-all hover:border-primary',
+                  selectedTopup?.credits === opt.credits
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border',
+                )}
+              >
+                <span className="text-2xl font-bold text-foreground">{opt.credits}</span>
+                <span className="text-sm text-muted-foreground">credits</span>
+                <span className="mt-1 text-lg font-semibold text-primary">{opt.price}</span>
+              </button>
+            ))}
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => { setTopupDialogOpen(false); setSelectedTopup(null); }}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleTopup}
+              disabled={!selectedTopup || topupLoading}
+            >
+              {topupLoading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Zap className="mr-2 h-4 w-4" />
+              )}
+              {selectedTopup ? `Add ${selectedTopup.credits} credits` : 'Select an amount'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Cancel confirmation dialog */}
       <Dialog open={cancelDialogOpen} onOpenChange={setCancelDialogOpen}>
