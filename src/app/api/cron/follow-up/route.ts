@@ -41,14 +41,14 @@ export async function POST(request: Request) {
       const timeoutMinutes = account.follow_up_timeout_minutes || 10
       const cutoffTime = new Date(Date.now() - timeoutMinutes * 60 * 1000).toISOString()
 
-      // Find conversations needing follow-up
+      // Find conversations needing follow-up (ONE-TIME ONLY, never repeat)
       const { data: conversations } = await db
         .from('conversations')
         .select('id, contact_id, assigned_agent_id, human_replied')
         .eq('account_id', account.account_id)
         .in('status', ['open', 'pending'])
         .lt('last_message_at', cutoffTime)
-        .or('last_follow_up_at.is.null,last_follow_up_at.lt.' + new Date(Date.now() - 60 * 60 * 1000).toISOString())
+        .is('last_follow_up_at', null)
 
       if (!conversations || conversations.length === 0) continue
 
@@ -66,18 +66,6 @@ export async function POST(request: Request) {
           .maybeSingle()
 
         if (!lastMessage || lastMessage.sender_type !== 'customer') continue
-
-        // Check if follow-up was already sent recently
-        const { data: recentFollowUp } = await db
-          .from('messages')
-          .select('id')
-          .eq('conversation_id', conv.id)
-          .like('content_text', '%Our team is working%')
-          .gt('created_at', new Date(Date.now() - 60 * 60 * 1000).toISOString())
-          .limit(1)
-          .maybeSingle()
-
-        if (recentFollowUp) continue
 
         // Pick message based on assignment status
         const message = conv.assigned_agent_id

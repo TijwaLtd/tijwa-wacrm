@@ -62,7 +62,7 @@ BEGIN
     -- 1. Open/pending status
     -- 2. Last message is from customer (not agent/bot)
     -- 3. No reply within timeout
-    -- 4. No follow-up sent in last hour (avoid spam)
+    -- 4. NEVER had a follow-up sent (one-time only, no spam)
     -- 5. Not assigned to a human who has replied
     FOR v_conv IN
       SELECT c.id, c.contact_id, c.assigned_agent_id, c.human_replied
@@ -71,18 +71,12 @@ BEGIN
         AND c.status IN ('open', 'pending')
         AND c.last_message_at IS NOT NULL
         AND c.last_message_at < NOW() - v_timeout
-        AND (c.last_follow_up_at IS NULL OR c.last_follow_up_at < NOW() - INTERVAL '1 hour')
+        AND c.last_follow_up_at IS NULL
         AND NOT EXISTS (
           SELECT 1 FROM messages m
           WHERE m.conversation_id = c.id
             AND m.sender_type IN ('agent', 'bot')
             AND m.created_at > c.last_message_at
-        )
-        AND NOT EXISTS (
-          SELECT 1 FROM messages m
-          WHERE m.conversation_id = c.id
-            AND m.content_text LIKE '%Our team is working on your request%'
-            AND m.created_at > NOW() - INTERVAL '1 hour'
         )
       LIMIT 50
     LOOP
