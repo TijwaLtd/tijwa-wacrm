@@ -677,6 +677,8 @@ export interface QuickReply {
   content_text?: string | null;
   /** Set when `kind === 'interactive'`. */
   interactive_payload?: InteractiveMessagePayload | null;
+  /** Optional flow linked to this quick reply. Button taps start this flow. */
+  flow_id?: string | null;
   created_at: string;
   updated_at: string;
 }

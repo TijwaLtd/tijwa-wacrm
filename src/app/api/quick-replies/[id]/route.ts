@@ -68,6 +68,11 @@ export async function PATCH(
     }
   }
 
+  // Allow updating the linked flow (null unlinks, UUID links)
+  if ('flow_id' in body) {
+    update.flow_id = body.flow_id || null
+  }
+
   if (Object.keys(update).length === 0) {
     return NextResponse.json({ ok: true })
   }

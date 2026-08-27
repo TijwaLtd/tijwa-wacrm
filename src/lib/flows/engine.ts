@@ -866,13 +866,32 @@ export async function dispatchInboundToFlows(
       return handleReplyForActiveRun(db, activeRun, input.message, nodes);
     }
 
-    // No active run → look for a flow whose entry trigger matches.
-    const flow = await findEntryFlow(
-      db,
-      input.accountId,
-      input.message,
-      input.isFirstInboundMessage,
-    );
+    // No active run → check for a quick-reply-linked flow first, then
+    // fall back to trigger-based matching.
+    let flow: FlowRow | null = null;
+
+    if (input.quickReplyFlowId) {
+      // The webhook looked up a quick reply whose buttons are linked to
+      // this flow. Start it directly — no trigger matching needed.
+      const { data } = await db
+        .from('flows')
+        .select('*')
+        .eq('id', input.quickReplyFlowId)
+        .eq('account_id', input.accountId)
+        .eq('status', 'active')
+        .maybeSingle();
+      flow = data;
+    }
+
+    if (!flow) {
+      flow = await findEntryFlow(
+        db,
+        input.accountId,
+        input.message,
+        input.isFirstInboundMessage,
+      );
+    }
+
     if (!flow || !flow.entry_node_id) {
       return { consumed: false, outcome: "no_match" };
     }

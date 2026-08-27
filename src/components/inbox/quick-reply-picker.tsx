@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, MessageSquare, Zap } from "lucide-react";
+import { Loader2, MessageSquare, Workflow, Zap } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 import {
@@ -105,8 +105,16 @@ export function QuickReplyPicker({
                       <MessageSquare className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                     )}
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium text-foreground">
-                        {qr.title}
+                      <span className="flex items-center gap-1.5">
+                        <span className="block truncate text-sm font-medium text-foreground">
+                          {qr.title}
+                        </span>
+                        {qr.flow_id && (
+                          <span className="inline-flex items-center gap-0.5 rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-medium text-primary">
+                            <Workflow className="h-2 w-2" />
+                            Flow
+                          </span>
+                        )}
                       </span>
                       <span className="block truncate text-xs text-muted-foreground">
                         {qr.kind === "interactive" && qr.interactive_payload

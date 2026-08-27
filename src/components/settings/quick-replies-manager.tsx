@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, MessageSquare, Pencil, Plus, Trash2, Zap } from "lucide-react";
+import { Loader2, MessageSquare, Pencil, Plus, Trash2, Zap, Workflow } from "lucide-react";
 import { toast } from "sonner";
+import { useTranslations } from "next-intl";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,6 +15,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { SettingsPanelHead } from "./settings-panel-head";
 import {
   InteractiveBuilder,
@@ -25,12 +33,19 @@ import {
 } from "@/lib/whatsapp/interactive";
 import type { QuickReply, QuickReplyKind } from "@/types";
 
+interface FlowSummary {
+  id: string;
+  name: string;
+  status: string;
+}
+
 interface DraftState {
   id?: string;
   title: string;
   kind: QuickReplyKind;
   content_text: string;
   interactive_payload: InteractiveMessagePayload;
+  flow_id: string | null;
 }
 
 function emptyDraft(): DraftState {
@@ -39,14 +54,17 @@ function emptyDraft(): DraftState {
     kind: "text",
     content_text: "",
     interactive_payload: blankButtonsPayload(),
+    flow_id: null,
   };
 }
 
 export function QuickRepliesManager() {
+  const t = useTranslations("Settings.quickReplies");
   const [items, setItems] = useState<QuickReply[]>([]);
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState<DraftState | null>(null);
   const [saving, setSaving] = useState(false);
+  const [flows, setFlows] = useState<FlowSummary[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -59,10 +77,26 @@ export function QuickRepliesManager() {
     }
   }, []);
 
+  const loadFlows = useCallback(async () => {
+    try {
+      const res = await fetch("/api/flows", { cache: "no-store" });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        const active = (data.flows ?? []).filter(
+          (f: FlowSummary) => f.status === "active" || f.status === "draft",
+        );
+        setFlows(active);
+      }
+    } catch {
+      // Flows list is best-effort
+    }
+  }, []);
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
-  }, [load]);
+    void loadFlows();
+  }, [load, loadFlows]);
 
   const openCreate = () => setDraft(emptyDraft());
   const openEdit = (qr: QuickReply) =>
@@ -73,18 +107,19 @@ export function QuickRepliesManager() {
       content_text: qr.content_text ?? "",
       interactive_payload:
         qr.interactive_payload ?? blankButtonsPayload(),
+      flow_id: qr.flow_id ?? null,
     });
 
   const save = useCallback(async () => {
     if (!draft) return;
     if (!draft.title.trim()) {
-      toast.error("Give the quick reply a name.");
+      toast.error(t("nameRequired"));
       return;
     }
     const payload =
       draft.kind === "interactive"
-        ? { title: draft.title, kind: "interactive", interactive_payload: draft.interactive_payload }
-        : { title: draft.title, kind: "text", content_text: draft.content_text };
+        ? { title: draft.title, kind: "interactive", interactive_payload: draft.interactive_payload, flow_id: draft.flow_id }
+        : { title: draft.title, kind: "text", content_text: draft.content_text, flow_id: draft.flow_id };
 
     setSaving(true);
     try {
@@ -98,41 +133,41 @@ export function QuickRepliesManager() {
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        toast.error(data.error ?? "Couldn't save the quick reply.");
+        toast.error(data.error ?? t("saveFailed"));
         return;
       }
-      toast.success(draft.id ? "Quick reply updated." : "Quick reply created.");
+      toast.success(t("saveSuccess"));
       setDraft(null);
       await load();
     } catch {
-      toast.error("Couldn't save the quick reply.");
+      toast.error(t("saveFailed"));
     } finally {
       setSaving(false);
     }
-  }, [draft, load]);
+  }, [draft, load, t]);
 
   const remove = useCallback(
     async (id: string) => {
-      if (!window.confirm("Delete this quick reply?")) return;
+      if (!window.confirm(t("deleteConfirm"))) return;
       const res = await fetch(`/api/quick-replies/${id}`, { method: "DELETE" });
       if (!res.ok) {
-        toast.error("Couldn't delete the quick reply.");
+        toast.error(t("deleteFailed"));
         return;
       }
       await load();
     },
-    [load],
+    [load, t],
   );
 
   return (
     <div>
       <SettingsPanelHead
-        title="Quick replies"
-        description="Reusable snippets — plain text or a saved interactive message — that agents can insert from the inbox composer."
+        title={t("title")}
+        description={t("description")}
         action={
           <Button onClick={openCreate}>
             <Plus className="mr-1 h-4 w-4" />
-            New quick reply
+            {t("newQuickReply")}
           </Button>
         }
       />
@@ -158,7 +193,15 @@ export function QuickRepliesManager() {
                 <MessageSquare className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
               )}
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-foreground">{qr.title}</p>
+                <div className="flex items-center gap-2">
+                  <p className="truncate text-sm font-medium text-foreground">{qr.title}</p>
+                  {qr.flow_id && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                      <Workflow className="h-2.5 w-2.5" />
+                      {t("flowLinked")}
+                    </span>
+                  )}
+                </div>
                 <p className="truncate text-xs text-muted-foreground">
                   {qr.kind === "interactive" && qr.interactive_payload
                     ? interactivePayloadPreviewText(qr.interactive_payload)
@@ -186,28 +229,28 @@ export function QuickRepliesManager() {
       <Dialog open={!!draft} onOpenChange={(o) => !o && setDraft(null)}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>{draft?.id ? "Edit quick reply" : "New quick reply"}</DialogTitle>
+            <DialogTitle>{draft?.id ? t("editQuickReply") : t("newQuickReply")}</DialogTitle>
           </DialogHeader>
           {draft && (
             <div className="max-h-[70vh] space-y-3 overflow-y-auto">
               <div>
-                <label className="mb-1 block text-xs text-muted-foreground">Name</label>
+                <label className="mb-1 block text-xs text-muted-foreground">{t("quickReplyName")}</label>
                 <Input
                   value={draft.title}
                   onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-                  placeholder="e.g. Business hours"
+                  placeholder={t("quickReplyNamePlaceholder")}
                   className="bg-muted text-foreground"
                 />
               </div>
               <div className="flex gap-2">
                 <KindTab
                   active={draft.kind === "text"}
-                  label="Text"
+                  label={t("text")}
                   onClick={() => setDraft({ ...draft, kind: "text" })}
                 />
                 <KindTab
                   active={draft.kind === "interactive"}
-                  label="Interactive"
+                  label={t("interactive")}
                   onClick={() => setDraft({ ...draft, kind: "interactive" })}
                 />
               </div>
@@ -215,14 +258,42 @@ export function QuickRepliesManager() {
                 <Textarea
                   value={draft.content_text}
                   onChange={(e) => setDraft({ ...draft, content_text: e.target.value })}
-                  placeholder="The message text to insert"
+                  placeholder={t("contentTextPlaceholder")}
                   className="min-h-28 bg-muted text-foreground"
                 />
               ) : (
-                <InteractiveBuilder
-                  value={draft.interactive_payload}
-                  onChange={(p) => setDraft({ ...draft, interactive_payload: p })}
-                />
+                <>
+                  <InteractiveBuilder
+                    value={draft.interactive_payload}
+                    onChange={(p) => setDraft({ ...draft, interactive_payload: p })}
+                  />
+                  <div>
+                    <label className="mb-1 block text-xs text-muted-foreground">
+                      {t("linkToFlow")}
+                    </label>
+                    <p className="mb-2 text-[11px] text-muted-foreground">
+                      {t("linkToFlowHint")}
+                    </p>
+                    <Select
+                      value={draft.flow_id ?? "__none__"}
+                      onValueChange={(v) =>
+                        setDraft({ ...draft, flow_id: v === "__none__" ? null : v })
+                      }
+                    >
+                      <SelectTrigger className="bg-muted text-foreground">
+                        <SelectValue placeholder={t("noFlowLinked")} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">{t("noFlowLinked")}</SelectItem>
+                        {flows.map((f) => (
+                          <SelectItem key={f.id} value={f.id}>
+                            {f.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </>
               )}
             </div>
           )}

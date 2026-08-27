@@ -69,6 +69,7 @@ export async function POST(request: Request) {
       kind,
       content_text,
       interactive_payload,
+      flow_id: body.flow_id || null,
     })
     .select()
     .single()

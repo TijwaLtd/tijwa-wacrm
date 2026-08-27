@@ -1845,6 +1845,26 @@
       "saving": "Saving...",
       "loading": "Loading schedule..."
     },
+    "quickReplies": {
+      "title": "Quick replies",
+      "description": "Reusable snippets — plain text or a saved interactive message — that agents can insert from the inbox composer.",
+      "newQuickReply": "New quick reply",
+      "editQuickReply": "Edit quick reply",
+      "quickReplyName": "Name",
+      "quickReplyNamePlaceholder": "e.g. Business hours",
+      "text": "Text",
+      "interactive": "Interactive",
+      "contentTextPlaceholder": "The message text to insert",
+      "linkToFlow": "Link to flow (optional)",
+      "linkToFlowHint": "When linked, button taps from this quick reply will start the selected flow automatically.",
+      "noFlowLinked": "No flow linked",
+      "flowLinked": "Flow linked",
+      "deleteConfirm": "Delete this quick reply?",
+      "saveSuccess": "Quick reply saved.",
+      "saveFailed": "Couldn't save the quick reply.",
+      "deleteFailed": "Couldn't delete the quick reply.",
+      "nameRequired": "Give the quick reply a name."
+    },
     "aiKnowledge": {
       "loadFailed": "Failed to load knowledge base",
       "openFailed": "Failed to open document",

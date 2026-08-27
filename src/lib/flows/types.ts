@@ -339,6 +339,9 @@ export interface DispatchInboundInput {
   contactId: string;
   conversationId: string;
   message: ParsedInbound;
+  /** When set, the webhook looked up a quick reply linked to this flow.
+   *  The engine starts this flow directly instead of searching by trigger. */
+  quickReplyFlowId?: string | null;
 }
 
 export interface DispatchInboundResult {

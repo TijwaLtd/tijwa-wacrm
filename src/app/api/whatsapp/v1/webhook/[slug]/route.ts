@@ -752,11 +752,70 @@ async function processMessage(
 
   await flagBroadcastReplyIfAny(accountId, contactRecord.id)
 
+  // When a customer taps a button/list row, look up the quick reply
+  // linked to that reply_id to find its flow. This lets interactive
+  // quick replies start a deterministic flow on tap.
+  let quickReplyFlowId: string | null = null
+  if (interactiveReplyId) {
+    const { data: qr } = await supabaseAdmin()
+      .from('quick_replies')
+      .select('flow_id')
+      .eq('account_id', accountId)
+      .eq('kind', 'interactive')
+      .not('flow_id', 'is', null)
+      .limit(50)
+      .maybeSingle()
+
+    // Find the QR whose interactive_payload contains a button/row
+    // with a matching reply_id
+    if (qr?.flow_id) {
+      // Broader search — check all interactive QRs with a linked flow
+      const { data: candidates } = await supabaseAdmin()
+        .from('quick_replies')
+        .select('flow_id, interactive_payload')
+        .eq('account_id', accountId)
+        .eq('kind', 'interactive')
+        .not('flow_id', 'is', null)
+        .limit(100)
+
+      if (candidates) {
+        for (const c of candidates) {
+          const payload = c.interactive_payload as Record<string, unknown> | null
+          if (!payload) continue
+
+          // Check buttons array
+          const buttons = payload.buttons as Array<{ id: string }> | undefined
+          if (buttons?.some((b) => b.id === interactiveReplyId)) {
+            quickReplyFlowId = c.flow_id
+            break
+          }
+
+          // Check list sections rows
+          const sections = payload.sections as Array<{ rows?: Array<{ id: string }> }> | undefined
+          if (sections) {
+            for (const s of sections) {
+              if (s.rows?.some((r) => r.id === interactiveReplyId)) {
+                quickReplyFlowId = c.flow_id
+                break
+              }
+            }
+            if (quickReplyFlowId) break
+          }
+        }
+      }
+    }
+
+    if (quickReplyFlowId) {
+      console.log('[processMessage] quick reply linked to flow:', quickReplyFlowId)
+    }
+  }
+
   const flowResult = await dispatchInboundToFlows({
     accountId,
     userId: configOwnerUserId,
     contactId: contactRecord.id,
     conversationId: conversation.id,
+    quickReplyFlowId,
     message:
       interactiveReplyId
         ? {
