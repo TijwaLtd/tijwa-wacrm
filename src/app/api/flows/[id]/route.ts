@@ -118,10 +118,12 @@ export async function PUT(
   if (body.nodes !== undefined) {
     // Delete-then-insert. Not transactional but the runner handles
     // mid-edit reads safely (a node_not_found ends the run cleanly).
+    // Explicit account_id filter for defense-in-depth.
     const { error: delErr } = await admin
       .from('flow_nodes')
       .delete()
       .eq('flow_id', id)
+      .eq('account_id', accountId)
     if (delErr) {
       return NextResponse.json({ error: delErr.message }, { status: 500 })
     }
