@@ -102,6 +102,13 @@ export async function GET() {
     ]
 
     if (!data) {
+      // Still load follow-up settings from tenant_settings
+      const { data: ts } = await supabase
+        .from('tenant_settings')
+        .select('follow_up_enabled, follow_up_timeout_minutes')
+        .eq('account_id', accountId)
+        .maybeSingle()
+
       return NextResponse.json({
         configured: false,
         has_openai_key: hasPlatformKey('openai'),
@@ -109,8 +116,17 @@ export async function GET() {
         has_embeddings_key: Boolean(getEmbeddingsApiKey()),
         credits: balance,
         available_models: availableModels,
+        follow_up_enabled: ts?.follow_up_enabled ?? true,
+        follow_up_timeout_minutes: ts?.follow_up_timeout_minutes ?? 10,
       })
     }
+
+    // Load follow-up settings from tenant_settings
+    const { data: ts } = await supabase
+      .from('tenant_settings')
+      .select('follow_up_enabled, follow_up_timeout_minutes')
+      .eq('account_id', accountId)
+      .maybeSingle()
 
     return NextResponse.json({
       configured: true,
@@ -120,6 +136,8 @@ export async function GET() {
       has_embeddings_key: Boolean(getEmbeddingsApiKey()),
       credits: balance,
       available_models: availableModels,
+      follow_up_enabled: ts?.follow_up_enabled ?? true,
+      follow_up_timeout_minutes: ts?.follow_up_timeout_minutes ?? 10,
     })
   } catch (err) {
     return toErrorResponse(err)
@@ -234,6 +252,20 @@ export async function POST(request: Request) {
         )
       }
     }
+
+    // Save follow-up settings to tenant_settings
+    const followUpEnabled = body.follow_up_enabled !== false
+    const followUpTimeout = typeof body.follow_up_timeout_minutes === 'number'
+      ? Math.min(60, Math.max(1, body.follow_up_timeout_minutes))
+      : 10
+
+    await supabase
+      .from('tenant_settings')
+      .update({
+        follow_up_enabled: followUpEnabled,
+        follow_up_timeout_minutes: followUpTimeout,
+      })
+      .eq('account_id', accountId)
 
     return NextResponse.json({ success: true })
   } catch (err) {

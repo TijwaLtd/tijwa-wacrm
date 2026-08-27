@@ -76,6 +76,10 @@ export function AiConfig() {
   const [handoffAgentId, setHandoffAgentId] = useState('');
   const [members, setMembers] = useState<AccountMember[]>([]);
 
+  // Follow-up settings
+  const [followUpEnabled, setFollowUpEnabled] = useState(true);
+  const [followUpTimeout, setFollowUpTimeout] = useState(10);
+
   // Platform key availability
   const [hasOpenaiKey, setHasOpenaiKey] = useState(false);
   const [hasAnthropicKey, setHasAnthropicKey] = useState(false);
@@ -107,6 +111,8 @@ export function AiConfig() {
         setAutoReplyEnabled(data.auto_reply_enabled);
         setMaxPerConversation(data.auto_reply_max_per_conversation ?? 3);
         setHandoffAgentId(data.handoff_agent_id ?? '');
+        setFollowUpEnabled(data.follow_up_enabled ?? true);
+        setFollowUpTimeout(data.follow_up_timeout_minutes ?? 10);
       }
       setHasOpenaiKey(Boolean(data.has_openai_key));
       setHasAnthropicKey(Boolean(data.has_anthropic_key));
@@ -147,6 +153,8 @@ export function AiConfig() {
     auto_reply_enabled: autoReplyEnabled,
     auto_reply_max_per_conversation: maxPerConversation,
     handoff_agent_id: handoffAgentId || null,
+    follow_up_enabled: followUpEnabled,
+    follow_up_timeout_minutes: followUpTimeout,
   });
 
   const handleSave = async () => {
@@ -463,6 +471,55 @@ export function AiConfig() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Follow-up settings */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">{t('followUpTitle')}</CardTitle>
+            <CardDescription>{t('followUpDesc')}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label>{t('followUpEnabled')}</Label>
+                <p className="text-xs text-muted-foreground">
+                  {t('followUpEnabledDesc')}
+                </p>
+              </div>
+              <Switch
+                checked={followUpEnabled}
+                onCheckedChange={setFollowUpEnabled}
+                disabled={disabled}
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div>
+                <Label htmlFor="follow-up-timeout">{t('followUpTimeout')}</Label>
+                <p className="text-xs text-muted-foreground">
+                  {t('followUpTimeoutDesc')}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  id="follow-up-timeout"
+                  type="number"
+                  min={1}
+                  max={60}
+                  value={followUpTimeout}
+                  onChange={(e) =>
+                    setFollowUpTimeout(
+                      Math.min(60, Math.max(1, Number(e.target.value) || 1)),
+                    )
+                  }
+                  disabled={disabled || !followUpEnabled}
+                  className="w-20 rounded-md border border-border bg-background px-3 py-1.5 text-sm"
+                />
+                <span className="text-sm text-muted-foreground">min</span>
+              </div>
             </div>
           </CardContent>
         </Card>

@@ -1756,7 +1756,13 @@
       "saveSuccess": "AI assistant saved.",
       "saveFailed": "Failed to save.",
       "removeSuccess": "AI configuration removed.",
-      "removeFailed": "Failed to remove."
+      "removeFailed": "Failed to remove.",
+      "followUpTitle": "Follow-up messages",
+      "followUpDesc": "Automatically send follow-up messages to customers waiting for a reply.",
+      "followUpEnabled": "Enable follow-ups",
+      "followUpEnabledDesc": "Send a follow-up message when no one replies within the timeout.",
+      "followUpTimeout": "Reply timeout",
+      "followUpTimeoutDesc": "How long to wait before sending a follow-up message."
     },
     "autoAssign": {
       "title": "Auto-assignment",
