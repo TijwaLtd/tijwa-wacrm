@@ -39,4 +39,5 @@ export type EmailTemplateName =
   | 'whatsapp-reset'
   | 'subscription-reminder'
   | 'subscription-expired'
-  | 'subscription-renewed';
+  | 'subscription-renewed'
+  | 'credit-purchase-receipt';

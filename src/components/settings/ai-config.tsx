@@ -30,7 +30,7 @@ import type { AccountMember } from '@/types';
 import { fetchAccountMembers, memberLabel } from '@/lib/account/members';
 import { useTranslations } from 'next-intl';
 
-const AI_ENABLED_PLANS = new Set(['pro', 'enterprise']);
+const AI_ENABLED_PLANS = new Set(['business', 'growth', 'enterprise']);
 
 // Radix Select can't use an empty-string item value, so the "leave
 // unassigned" choice gets a sentinel that maps to null in the payload.

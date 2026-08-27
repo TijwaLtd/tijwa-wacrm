@@ -45,7 +45,8 @@ export async function GET() {
     // so we need to seed when the row is missing OR has 0 remaining.
     const PLAN_CREDITS: Record<string, number> = {
       starter: 100,
-      pro: 1000,
+      business: 400,
+      growth: 1000,
       enterprise: 999999,
     };
 

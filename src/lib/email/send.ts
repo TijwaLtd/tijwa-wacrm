@@ -13,6 +13,7 @@ import whatsappReset from './templates/whatsapp-reset';
 import subscriptionReminder from './templates/subscription-reminder';
 import subscriptionExpired from './templates/subscription-expired';
 import subscriptionRenewed from './templates/subscription-renewed';
+import creditPurchaseReceipt from './templates/credit-purchase-receipt';
 
 const templates: Record<EmailTemplateName, EmailTemplate> = {
   welcome,
@@ -26,6 +27,7 @@ const templates: Record<EmailTemplateName, EmailTemplate> = {
   'subscription-reminder': subscriptionReminder,
   'subscription-expired': subscriptionExpired,
   'subscription-renewed': subscriptionRenewed,
+  'credit-purchase-receipt': creditPurchaseReceipt,
 };
 
 function isEnabled(): boolean {
@@ -139,4 +141,11 @@ export async function sendSubscriptionRenewedEmail(
   data: { name: string; workspaceName: string; plan: string },
 ): Promise<EmailResult> {
   return renderAndSend('subscription-renewed', to, data);
+}
+
+export async function sendCreditPurchaseReceiptEmail(
+  to: string,
+  data: { name: string; workspaceName: string; credits: string; amount_kes: string; new_balance: string; date: string },
+): Promise<EmailResult> {
+  return renderAndSend('credit-purchase-receipt', to, data);
 }

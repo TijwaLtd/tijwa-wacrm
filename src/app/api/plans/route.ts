@@ -12,17 +12,23 @@ import { getCurrentAccount, toErrorResponse } from '@/lib/auth/account'
 const PLAN_META = {
   starter: {
     name: 'Starter',
-    description: 'For small teams getting started with WhatsApp CRM.',
-    cta: 'Upgrade',
+    description: 'For small businesses getting organized on WhatsApp.',
+    cta: 'Get Started',
   },
-  pro: {
-    name: 'Pro',
-    description: 'For growing businesses that need more power.',
+  business: {
+    name: 'Business',
+    description: 'For businesses actively selling and supporting customers.',
+    cta: 'Upgrade',
+    recommended: true,
+  },
+  growth: {
+    name: 'Growth',
+    description: 'For teams with higher conversation volume.',
     cta: 'Upgrade',
   },
   enterprise: {
     name: 'Enterprise',
-    description: 'For large organizations with custom needs.',
+    description: 'Custom solutions for hotels, clinics, schools, and multi-branch businesses.',
     cta: 'Contact Sales',
   },
 } as const
@@ -31,7 +37,7 @@ export async function GET() {
   try {
     const { supabase } = await getCurrentAccount()
 
-    const PLAN_IDS = ['starter', 'pro', 'enterprise'] as const
+    const PLAN_IDS = ['starter', 'business', 'growth', 'enterprise'] as const
 
     const results = await Promise.all(
       PLAN_IDS.map(async (planId) => {

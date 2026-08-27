@@ -10,7 +10,7 @@ import { NextResponse } from "next/server";
 import { requireRole, toErrorResponse } from "@/lib/auth/account";
 import { sendPlanChangeEmail, sendSubscriptionRenewedEmail } from "@/lib/email/send";
 
-const VALID_PLANS = ['starter', 'pro', 'enterprise'] as const;
+const VALID_PLANS = ['starter', 'business', 'growth', 'enterprise'] as const;
 type Plan = typeof VALID_PLANS[number];
 
 export async function POST(request: Request) {
@@ -87,7 +87,8 @@ export async function POST(request: Request) {
     // Reset AI credits to plan allocation
     const PLAN_CREDITS: Record<string, number> = {
       starter: 100,
-      pro: 1000,
+      business: 400,
+      growth: 1000,
       enterprise: 999999,
     };
     const creditsToGrant = PLAN_CREDITS[plan] ?? 100;
