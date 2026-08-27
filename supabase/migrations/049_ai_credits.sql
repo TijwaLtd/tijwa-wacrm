@@ -124,17 +124,18 @@ CREATE OR REPLACE FUNCTION deduct_ai_credits(
   RETURNING true;
 $$ LANGUAGE sql;
 
--- 8. RPC: Monthly credit reset
+-- 8. RPC: Monthly credit reset (inserts if missing)
 CREATE OR REPLACE FUNCTION reset_ai_credits(
   p_account_id UUID,
   p_new_credits NUMERIC(12,6)
 ) RETURNS VOID AS $$
-  UPDATE ai_credits
+  INSERT INTO ai_credits (account_id, credits_remaining, credits_used, last_reset_at, updated_at)
+  VALUES (p_account_id, p_new_credits, 0, NOW(), NOW())
+  ON CONFLICT (account_id) DO UPDATE
   SET credits_remaining = p_new_credits,
       credits_used = 0,
       last_reset_at = NOW(),
-      updated_at = NOW()
-  WHERE account_id = p_account_id;
+      updated_at = NOW();
 $$ LANGUAGE sql;
 
 -- 9. RPC: Add credits (for purchases / plan upgrades)

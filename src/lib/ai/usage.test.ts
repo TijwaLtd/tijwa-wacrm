@@ -4,18 +4,14 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 function fakeDb() {
   const insert = vi.fn().mockResolvedValue({ error: null })
-  const maybeSingle = vi.fn().mockResolvedValue({ data: null, error: null })
-  const eq = vi.fn().mockReturnValue({ maybeSingle })
-  const select = vi.fn().mockReturnValue({ eq })
-  const from = vi.fn().mockReturnValue({ insert, select })
   const rpc = vi.fn().mockResolvedValue({ data: true, error: null })
-  const db = { from, rpc }
-  return { db: db as unknown as SupabaseClient, insert, from, rpc }
+  const db = { from: vi.fn(() => ({ insert })), rpc }
+  return { db: db as unknown as SupabaseClient, insert, rpc }
 }
 
 describe('logAiUsage', () => {
-  it('inserts a row mapping normalized usage to the log columns', async () => {
-    const { db, insert, from } = fakeDb()
+  it('inserts a row with pre-calculated creditsUsed', async () => {
+    const { db, insert } = fakeDb()
     await logAiUsage(db, {
       accountId: 'acct-1',
       conversationId: 'conv-1',
@@ -23,8 +19,8 @@ describe('logAiUsage', () => {
       provider: 'anthropic',
       model: 'claude-x',
       usage: { promptTokens: 30, completionTokens: 6, totalTokens: 36 },
+      creditsUsed: 0.5,
     })
-    expect(from).toHaveBeenCalledWith('ai_usage_log')
     expect(insert).toHaveBeenCalledWith({
       account_id: 'acct-1',
       conversation_id: 'conv-1',
@@ -34,12 +30,29 @@ describe('logAiUsage', () => {
       prompt_tokens: 30,
       completion_tokens: 6,
       total_tokens: 36,
-      credits_used: 0,
+      credits_used: 0.5,
     })
   })
 
-  it('is a no-op when the provider reported no usage', async () => {
-    const { db, from } = fakeDb()
+  it('deducts credits when creditsUsed > 0', async () => {
+    const { db, rpc } = fakeDb()
+    await logAiUsage(db, {
+      accountId: 'acct-1',
+      conversationId: 'conv-1',
+      mode: 'auto_reply',
+      provider: 'openai',
+      model: 'gpt-x',
+      usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+      creditsUsed: 0.2,
+    })
+    expect(rpc).toHaveBeenCalledWith('deduct_ai_credits', {
+      p_account_id: 'acct-1',
+      p_credits: 0.2,
+    })
+  })
+
+  it('is a no-op when usage is null (no insert, no deduct)', async () => {
+    const { db, insert, rpc } = fakeDb()
     await logAiUsage(db, {
       accountId: 'acct-1',
       conversationId: null,
@@ -47,13 +60,16 @@ describe('logAiUsage', () => {
       provider: 'openai',
       model: 'gpt-x',
       usage: null,
+      creditsUsed: 0,
     })
-    expect(from).not.toHaveBeenCalled()
+    expect(insert).not.toHaveBeenCalled()
+    expect(rpc).not.toHaveBeenCalled()
   })
 
   it('never throws when the insert errors', async () => {
     const insert = vi.fn().mockResolvedValue({ error: { message: 'boom' } })
-    const db = { from: vi.fn(() => ({ insert })) } as unknown as SupabaseClient
+    const rpc = vi.fn().mockResolvedValue({ data: true, error: null })
+    const db = { from: vi.fn(() => ({ insert })), rpc } as unknown as SupabaseClient
     await expect(
       logAiUsage(db, {
         accountId: 'acct-1',
@@ -62,6 +78,7 @@ describe('logAiUsage', () => {
         provider: 'openai',
         model: 'gpt-x',
         usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+        creditsUsed: 0.2,
       }),
     ).resolves.toBeUndefined()
   })

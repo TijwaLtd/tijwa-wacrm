@@ -40,21 +40,24 @@ export async function GET() {
       )
     }
 
-    // Ensure ai_credits row exists — seed with plan allocation if missing
+    // Ensure ai_credits row exists with proper allocation.
+    // The on_account_created_ai_credits trigger creates a row with 0 credits,
+    // so we need to seed when the row is missing OR has 0 remaining.
     const PLAN_CREDITS: Record<string, number> = {
       starter: 100,
       pro: 1000,
       enterprise: 999999,
     };
 
-    // Check if row exists first
     const { data: existingCredits } = await serviceClient
       .from("ai_credits")
-      .select("id")
+      .select("id, credits_remaining")
       .eq("account_id", accountId)
       .maybeSingle();
 
-    if (!existingCredits) {
+    const needsSeeding = !existingCredits || Number(existingCredits.credits_remaining) === 0;
+
+    if (needsSeeding) {
       // Get current plan
       const { data: settings } = await serviceClient
         .from("tenant_settings")

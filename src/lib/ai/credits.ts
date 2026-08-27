@@ -2,12 +2,51 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { AiProvider, AiUsage } from './types'
 
 // ============================================================
-// AI Credits — platform-provided billing layer.
+// AI Credits — tiered consumption model.
 //
-// Credits are denominated in whole units (1 credit ≈ $1 USD).
-// Each model has input/output costs per million tokens with a
-// 3x markup over provider cost. Deductions are atomic via RPC.
+// Credits are consumed per-operation, not per-token. This gives
+// users predictable costs and the platform reliable revenue.
+//
+// Base rate: 1 credit = 5 AI replies
+//
+// Tiers:
+//   simple   — short context (<10 msgs), text only → 0.2 credits/reply
+//   standard — long context (>10 msgs) OR knowledge-grounded → 0.5 credits/reply
+//   complex  — file/image analysis OR premium model → 2 credits/reply
+//   handoff  — LLM called but couldn't answer → 0.2 credits (tokens consumed)
+//
+// The actual credit cost is calculated BEFORE the LLM call based on
+// message complexity, not after based on tokens. This makes costs
+// predictable for users.
 // ============================================================
+
+/** Credit cost tiers — credits consumed per AI operation. */
+export const CREDIT_TIERS = {
+  /** Short text reply, no files, basic model */
+  simple: 0.2,
+  /** Long conversation context (>10 msgs) or knowledge retrieval */
+  standard: 0.5,
+  /** File/image analysis or premium model (GPT-4o, Claude Sonnet) */
+  complex: 2,
+  /** Handoff — LLM was called but couldn't answer */
+  handoff: 0.2,
+} as const
+
+/** Premium models that cost 2x credits */
+const PREMIUM_MODELS = new Set([
+  'gpt-4o',
+  'claude-sonnet-4-5-20250929',
+  'claude-sonnet-4-20250514',
+])
+
+/** Models that cost 1x credits (cheap/fast) */
+const CHEAP_MODELS = new Set([
+  'gpt-4o-mini',
+  'gpt-4.1-mini',
+  'gpt-4.1-nano',
+  'claude-haiku-4-5-20251001',
+  'claude-3-5-haiku-20241022',
+])
 
 export interface AiCreditRate {
   provider: AiProvider
@@ -22,6 +61,62 @@ export interface AiCreditBalance {
   creditsRemaining: number
   creditsUsed: number
   lastResetAt: string | null
+}
+
+export interface CreditCalculationInput {
+  /** Number of messages in the conversation context */
+  contextLength: number
+  /** Whether knowledge retrieval was used */
+  hasKnowledge: boolean
+  /** Whether the message contains a file/image attachment */
+  hasAttachment: boolean
+  /** The AI model being used */
+  model: string
+  /** Whether this is a handoff (LLM called but couldn't answer) */
+  isHandoff: boolean
+}
+
+/**
+ * Calculate credit cost based on operation complexity.
+ *
+ * Rules:
+ *   1. Handoff = 0.2 credits (tokens consumed but no useful reply)
+ *   2. File attachment = 2 credits (vision processing)
+ *   3. Premium model = 2x base cost
+ *   4. Long context (>10 msgs) = standard tier
+ *   5. Knowledge retrieval = standard tier
+ *   6. Everything else = simple tier (0.2 credits = 1 credit per 5 replies)
+ */
+export function calculateCreditCost(input: CreditCalculationInput): number {
+  const { contextLength, hasKnowledge, hasAttachment, model, isHandoff } = input
+
+  // Handoff — cheapest tier, tokens consumed but no reply sent
+  if (isHandoff) {
+    return CREDIT_TIERS.handoff
+  }
+
+  // File/image analysis — most expensive, vision model usage
+  if (hasAttachment) {
+    return CREDIT_TIERS.complex
+  }
+
+  // Determine base tier
+  let baseCost: number
+
+  if (contextLength > 10 || hasKnowledge) {
+    // Long context or knowledge retrieval = standard tier
+    baseCost = CREDIT_TIERS.standard
+  } else {
+    // Short text reply = simple tier (1 credit per 5 replies)
+    baseCost = CREDIT_TIERS.simple
+  }
+
+  // Premium model multiplier (GPT-4o, Claude Sonnet cost 10x more at provider)
+  if (PREMIUM_MODELS.has(model)) {
+    baseCost *= 2
+  }
+
+  return baseCost
 }
 
 /**
@@ -110,27 +205,6 @@ export async function getCreditRateForModel(
 }
 
 /**
- * Calculate the credit cost for an LLM call.
- *
- * Formula:
- *   credits = (prompt_tokens × input_credits_per_MTok / 1_000_000)
- *           + (completion_tokens × output_credits_per_MTok / 1_000_000)
- */
-export function calculateCreditsUsed(
-  rate: AiCreditRate,
-  usage: AiUsage | null,
-): number {
-  if (!usage) return 0
-
-  const inputCredits =
-    (usage.promptTokens * rate.inputCreditsPerMtok) / 1_000_000
-  const outputCredits =
-    (usage.completionTokens * rate.outputCreditsPerMtok) / 1_000_000
-
-  return Math.round((inputCredits + outputCredits) * 1_000_000) / 1_000_000
-}
-
-/**
  * Check if the tenant has any AI credits remaining.
  */
 export async function checkAiCredits(
@@ -149,18 +223,21 @@ export async function checkAiCredits(
 
 /**
  * Get the tenant's current credit balance.
+ * Returns a default zero-balance if no row exists (before first seeding).
  */
 export async function getAiCreditBalance(
   db: SupabaseClient,
   accountId: string,
-): Promise<AiCreditBalance | null> {
+): Promise<AiCreditBalance> {
   const { data, error } = await db
     .from('ai_credits')
     .select('credits_remaining, credits_used, last_reset_at')
     .eq('account_id', accountId)
     .maybeSingle()
 
-  if (error || !data) return null
+  if (error || !data) {
+    return { creditsRemaining: 0, creditsUsed: 0, lastResetAt: null }
+  }
 
   return {
     creditsRemaining: Number(data.credits_remaining),

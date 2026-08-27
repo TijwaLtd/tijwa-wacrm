@@ -10,7 +10,7 @@ import { latestUserMessage } from '@/lib/ai/query'
 import { logAiUsage } from '@/lib/ai/usage'
 import { supabaseAdmin } from '@/lib/ai/admin-client'
 import { AiError } from '@/lib/ai/types'
-import { checkAiCredits } from '@/lib/ai/credits'
+import { checkAiCredits, calculateCreditCost } from '@/lib/ai/credits'
 
 /**
  * POST /api/ai/draft  (agent+)
@@ -82,10 +82,10 @@ export async function POST(request: Request) {
       )
     }
 
-    const messages = await buildConversationContext(supabase, conversationId)
+    const ctx = await buildConversationContext(supabase, conversationId)
     // Nothing to draft from — a brand-new thread with no customer text
     // would otherwise produce a nonsensical reply-to-nothing.
-    if (messages.length === 0) {
+    if (ctx.messages.length === 0) {
       return NextResponse.json(
         {
           error: 'No messages to draft from yet.',
@@ -101,7 +101,7 @@ export async function POST(request: Request) {
       supabase,
       accountId,
       config,
-      latestUserMessage(messages),
+      latestUserMessage(ctx.messages),
     )
 
     const systemPrompt = buildSystemPrompt({
@@ -110,7 +110,20 @@ export async function POST(request: Request) {
       knowledge,
     })
 
-    const { text, usage } = await generateReply({ config, systemPrompt, messages })
+    const { text, handoff, usage } = await generateReply({
+      config,
+      systemPrompt,
+      messages: ctx.messages,
+    })
+
+    // Calculate credit cost based on complexity
+    const creditsUsed = calculateCreditCost({
+      contextLength: ctx.messageCount,
+      hasKnowledge: !!knowledge,
+      hasAttachment: ctx.hasAttachment,
+      model: config.model,
+      isHandoff: handoff,
+    })
 
     // Validate and normalize the output. In draft mode, handoff means
     // "I'll check and follow up" — we pass the text through for the
@@ -133,6 +146,7 @@ export async function POST(request: Request) {
         provider: config.provider,
         model: config.model,
         usage,
+        creditsUsed,
       })
     } catch (logErr) {
       console.error('[ai/draft] usage log skipped:', logErr)

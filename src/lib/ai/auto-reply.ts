@@ -9,7 +9,7 @@ import { logAiUsage } from './usage'
 import { latestUserMessage } from './query'
 import { engineSendText } from '@/lib/flows/meta-send'
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
-import { checkAiCredits } from './credits'
+import { checkAiCredits, calculateCreditCost } from './credits'
 import { AiError } from './types'
 
 interface DispatchArgs {
@@ -90,8 +90,8 @@ export async function dispatchInboundToAiReply(
     // below (this read can race a concurrent inbound).
     if (conv.ai_reply_count >= config.autoReplyMaxPerConversation) return
 
-    const messages = await buildConversationContext(db, conversationId)
-    if (messages.length === 0) return
+    const ctx = await buildConversationContext(db, conversationId)
+    if (ctx.messages.length === 0) return
 
     // Account-wide throttle on the shared BYO key. The per-conversation
     // cap bounds one thread; this bounds a burst across many threads (a
@@ -114,7 +114,7 @@ export async function dispatchInboundToAiReply(
       db,
       accountId,
       config,
-      latestUserMessage(messages),
+      latestUserMessage(ctx.messages),
     )
 
     const systemPrompt = buildSystemPrompt({
@@ -126,7 +126,16 @@ export async function dispatchInboundToAiReply(
     const { text, handoff, usage } = await generateReply({
       config,
       systemPrompt,
-      messages,
+      messages: ctx.messages,
+    })
+
+    // Calculate credit cost BEFORE the LLM call based on complexity
+    const creditsUsed = calculateCreditCost({
+      contextLength: ctx.messageCount,
+      hasKnowledge: !!knowledge,
+      hasAttachment: ctx.hasAttachment,
+      model: config.model,
+      isHandoff: handoff,
     })
 
     // Record token spend on the account's BYO key. Fire-and-forget so it
@@ -141,6 +150,7 @@ export async function dispatchInboundToAiReply(
       provider: config.provider,
       model: config.model,
       usage,
+      creditsUsed,
     })
 
     // Validate and normalize the model output. This is the application-
@@ -168,7 +178,7 @@ export async function dispatchInboundToAiReply(
       // context. Assigning fires the `on_conversation_assigned` trigger,
       // which notifies the agent.
       const summary = buildHandoffSummary({
-        messages,
+        messages: ctx.messages,
         replyCount: conv.ai_reply_count ?? 0,
       })
       const update: Record<string, unknown> = {
