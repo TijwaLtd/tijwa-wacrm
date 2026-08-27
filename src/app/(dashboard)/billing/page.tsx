@@ -180,9 +180,6 @@ export default function BillingPage() {
       const creditData = creditRes.ok ? await creditRes.json() : null;
       const subscriptionDetails = subscriptionRes.ok ? await subscriptionRes.json() : null;
 
-      console.log('[billing] subscriptionDetails:', JSON.stringify(subscriptionDetails));
-      console.log('[billing] subData workspaces:', JSON.stringify(subData?.workspaces?.map((w: { account_id: string; plan: string; subscription_status: string }) => ({ account_id: w.account_id, plan: w.plan, subscription_status: w.subscription_status }))));
-
       const dbPlans: Plan[] = plansData?.plans ?? [];
       if (dbPlans.length) {
         setPlans(dbPlans);
@@ -190,23 +187,17 @@ export default function BillingPage() {
         setPlansError(true);
       }
 
-      if (subData) {
-        const ws = subData.workspaces?.find(
-          (w: { account_id: string }) => w.account_id === activeWorkspace.account_id,
-        );
-        console.log('[billing] ws found:', !!ws, 'ws keys:', ws ? Object.keys(ws) : 'N/A');
-        if (ws) {
-          const subDetails = subscriptionDetails?.subscription;
-          console.log('[billing] subDetails:', subDetails);
-          setSubscription({
-            plan: ws.plan ?? 'starter',
-            status: ws.subscription_status ?? 'active',
-            current_period_start: subDetails?.current_period_start ?? null,
-            current_period_end: subDetails?.current_period_end ?? null,
-            cancel_at_period_end: subDetails?.cancel_at_period_end ?? false,
-          });
-        }
-      }
+      const subDetails = subscriptionDetails?.subscription;
+      const ws = subData?.workspaces?.[0];
+      const nestedSettings = ws?.accounts?.tenant_settings;
+
+      setSubscription({
+        plan: nestedSettings?.plan ?? subDetails?.plan ?? 'starter',
+        status: nestedSettings?.subscription_status ?? subDetails?.status ?? 'active',
+        current_period_start: subDetails?.current_period_start ?? null,
+        current_period_end: subDetails?.current_period_end ?? null,
+        cancel_at_period_end: subDetails?.cancel_at_period_end ?? false,
+      });
 
       if (creditData?.credits) {
         const activePlanDef = dbPlans.find((p) => p.id === currentPlan);
