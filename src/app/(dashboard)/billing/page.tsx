@@ -46,10 +46,11 @@ interface PlanFeatures {
 }
 
 interface Plan {
-  id: 'starter' | 'pro' | 'enterprise';
+  id: string;
   name: string;
   price: string;
   description: string;
+  cta: string;
   features: PlanFeatures;
 }
 
@@ -72,55 +73,6 @@ interface TopupOption {
   price: string;
 }
 
-// Fallback plans if DB fetch fails
-const FALLBACK_PLANS: Plan[] = [
-  {
-    id: 'starter',
-    name: 'Starter',
-    price: 'Free',
-    description: 'For small teams getting started with WhatsApp CRM.',
-    features: {
-      max_contacts: 1000,
-      max_team_members: 5,
-      max_broadcasts_per_month: 50,
-      max_automations: 20,
-      max_flows: 10,
-      ai_replies_per_month: 100,
-      ai_credits_per_month: 100,
-    },
-  },
-  {
-    id: 'pro',
-    name: 'Pro',
-    price: '$29/mo',
-    description: 'For growing businesses that need more power.',
-    features: {
-      max_contacts: 25000,
-      max_team_members: 25,
-      max_broadcasts_per_month: 500,
-      max_automations: 100,
-      max_flows: 50,
-      ai_replies_per_month: 1000,
-      ai_credits_per_month: 1000,
-    },
-  },
-  {
-    id: 'enterprise',
-    name: 'Enterprise',
-    price: 'Custom',
-    description: 'For large organizations with custom needs.',
-    features: {
-      max_contacts: 999999,
-      max_team_members: 999,
-      max_broadcasts_per_month: 999999,
-      max_automations: 9999,
-      max_flows: 9999,
-      ai_replies_per_month: 999999,
-      ai_credits_per_month: 999999,
-    },
-  },
-];
-
 const TOPUP_OPTIONS: TopupOption[] = [
   { credits: 50, price: '$5' },
   { credits: 100, price: '$10' },
@@ -128,8 +80,8 @@ const TOPUP_OPTIONS: TopupOption[] = [
   { credits: 500, price: '$50' },
 ];
 
-function formatLimit(val: number): string {
-  if (val >= 999999) return 'Unlimited';
+function formatLimit(val: number | undefined | null): string {
+  if (val == null || val >= 999999) return 'Unlimited';
   return val.toLocaleString();
 }
 
@@ -159,16 +111,16 @@ function daysUntil(dateStr: string | null | undefined): number | null {
 
 export default function BillingPage() {
   const { activeWorkspace } = useAuth();
-  const currentPlan = (activeWorkspace?.plan ?? 'starter') as Plan['id'];
+  const currentPlan = (activeWorkspace?.plan ?? 'starter') as string;
 
-  const [plans, setPlans] = useState<Plan[]>(FALLBACK_PLANS);
+  const [plans, setPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(false);
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [fetching, setFetching] = useState(true);
+  const [plansError, setPlansError] = useState(false);
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
 
-  // Credit state
   const [credits, setCredits] = useState<CreditBalance | null>(null);
   const [topupLoading, setTopupLoading] = useState(false);
   const [topupDialogOpen, setTopupDialogOpen] = useState(false);
@@ -177,49 +129,33 @@ export default function BillingPage() {
   const fetchData = useCallback(async () => {
     if (!activeWorkspace?.account_id) return;
     setFetching(true);
+    setPlansError(false);
     try {
-      // Fetch plans from DB
-      const plansRes = await fetch('/api/plans');
+      const [plansRes, subRes, creditRes] = await Promise.all([
+        fetch('/api/plans'),
+        fetch('/api/workspaces'),
+        fetch('/api/ai/config'),
+      ]);
+
+      // Plans from DB
       if (plansRes.ok) {
         const data = await plansRes.json();
-        if (data.plans) {
-          const dbPlans: Plan[] = [
-            {
-              id: 'starter',
-              name: 'Starter',
-              price: 'Free',
-              description: 'For small teams getting started with WhatsApp CRM.',
-              features: data.plans.starter ?? FALLBACK_PLANS[0].features,
-            },
-            {
-              id: 'pro',
-              name: 'Pro',
-              price: '$29/mo',
-              description: 'For growing businesses that need more power.',
-              features: data.plans.pro ?? FALLBACK_PLANS[1].features,
-            },
-            {
-              id: 'enterprise',
-              name: 'Enterprise',
-              price: 'Custom',
-              description: 'For large organizations with custom needs.',
-              features: data.plans.enterprise ?? FALLBACK_PLANS[2].features,
-            },
-          ];
-          setPlans(dbPlans);
+        if (data.plans?.length) {
+          setPlans(data.plans);
+        } else {
+          setPlansError(true);
         }
+      } else {
+        setPlansError(true);
       }
 
-      // Fetch subscription
-      let planFromWs = currentPlan;
-      const subRes = await fetch('/api/workspaces');
+      // Subscription
       if (subRes.ok) {
         const data = await subRes.json();
         const ws = data.workspaces?.find(
           (w: { account_id: string }) => w.account_id === activeWorkspace.account_id,
         );
         if (ws) {
-          planFromWs = (ws.plan ?? 'starter') as Plan['id'];
           setSubscription({
             plan: ws.plan ?? 'starter',
             status: ws.subscription_status ?? 'active',
@@ -230,21 +166,20 @@ export default function BillingPage() {
         }
       }
 
-      // Fetch credit balance
-      const creditRes = await fetch('/api/ai/config');
+      // Credits
       if (creditRes.ok) {
         const data = await creditRes.json();
         if (data.credits) {
-          const planDef = plans.find((p) => p.id === planFromWs) ?? FALLBACK_PLANS[0];
+          const activePlanDef = plans.find((p) => p.id === currentPlan);
           setCredits({
             creditsRemaining: data.credits.creditsRemaining ?? 0,
             creditsUsed: data.credits.creditsUsed ?? 0,
-            creditsTotal: planDef.features.ai_credits_per_month,
+            creditsTotal: activePlanDef?.features?.ai_credits_per_month ?? 100,
           });
         }
       }
     } catch {
-      // non-critical
+      setPlansError(true);
     } finally {
       setFetching(false);
     }
@@ -254,7 +189,7 @@ export default function BillingPage() {
     void fetchData();
   }, [fetchData]);
 
-  const handleUpgrade = async (planId: Plan['id']) => {
+  const handleUpgrade = async (planId: string) => {
     if (planId === currentPlan) return;
     setLoading(true);
     try {
@@ -351,10 +286,41 @@ export default function BillingPage() {
   const activePlan = plans.find((p) => p.id === currentPlan) ?? plans[0];
   const isCancelling = subscription?.cancel_at_period_end ?? false;
   const daysLeft = daysUntil(subscription?.current_period_end);
-  const creditPercent = credits
+  const creditPercent = credits && credits.creditsTotal > 0
     ? Math.min(100, Math.round((credits.creditsRemaining / credits.creditsTotal) * 100))
     : 0;
   const creditsExhausted = credits ? credits.creditsRemaining <= 0 : false;
+
+  if (fetching) {
+    return (
+      <div className="mx-auto max-w-3xl py-8">
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      </div>
+    );
+  }
+
+  if (plansError) {
+    return (
+      <div className="mx-auto max-w-3xl py-8">
+        <div className="mb-8">
+          <h1 className="text-2xl font-semibold text-foreground">Billing & Plan</h1>
+        </div>
+        <Card>
+          <CardContent className="py-10 text-center">
+            <AlertTriangle className="mx-auto mb-4 h-8 w-8 text-amber-500" />
+            <p className="text-sm text-muted-foreground">
+              Unable to load plan information. Please try again later.
+            </p>
+            <Button variant="outline" size="sm" className="mt-4" onClick={() => void fetchData()}>
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-3xl py-8">
@@ -365,7 +331,6 @@ export default function BillingPage() {
         </p>
       </div>
 
-      {/* Subscription status banners */}
       {isExpired && (
         <div className="mb-6 flex items-center gap-3 rounded-lg border border-destructive/20 bg-destructive/10 px-4 py-3">
           <AlertTriangle className="h-5 w-5 shrink-0 text-destructive" />
@@ -408,8 +373,8 @@ export default function BillingPage() {
         <CardContent>
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-2xl font-bold text-foreground">{activePlan.name}</p>
-              <p className="text-sm text-muted-foreground">{activePlan.price}</p>
+              <p className="text-2xl font-bold text-foreground">{activePlan?.name ?? currentPlan}</p>
+              <p className="text-sm text-muted-foreground">{activePlan?.price}</p>
             </div>
             <div className="text-right">
               <p className="text-sm text-muted-foreground">Status</p>
@@ -422,7 +387,6 @@ export default function BillingPage() {
             </div>
           </div>
 
-          {/* Billing period */}
           <div className="mt-6 grid gap-4 sm:grid-cols-2">
             <div className="rounded-md border border-border p-3">
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -449,31 +413,26 @@ export default function BillingPage() {
             </div>
           </div>
 
-          {/* Plan limits */}
-          <div className="mt-6 grid gap-4 sm:grid-cols-3">
-            <div className="rounded-md border border-border p-3">
-              <p className="text-xs text-muted-foreground">Contacts</p>
-              <p className="text-lg font-bold text-foreground">{formatLimit(activePlan.features.max_contacts)}</p>
+          {activePlan?.features && (
+            <div className="mt-6 grid gap-4 sm:grid-cols-3">
+              <div className="rounded-md border border-border p-3">
+                <p className="text-xs text-muted-foreground">Contacts</p>
+                <p className="text-lg font-bold text-foreground">{formatLimit(activePlan.features.max_contacts)}</p>
+              </div>
+              <div className="rounded-md border border-border p-3">
+                <p className="text-xs text-muted-foreground">Team members</p>
+                <p className="text-lg font-bold text-foreground">{formatLimit(activePlan.features.max_team_members)}</p>
+              </div>
+              <div className="rounded-md border border-border p-3">
+                <p className="text-xs text-muted-foreground">AI credits/mo</p>
+                <p className="text-lg font-bold text-foreground">{formatLimit(activePlan.features.ai_credits_per_month)}</p>
+              </div>
             </div>
-            <div className="rounded-md border border-border p-3">
-              <p className="text-xs text-muted-foreground">Team members</p>
-              <p className="text-lg font-bold text-foreground">{formatLimit(activePlan.features.max_team_members)}</p>
-            </div>
-            <div className="rounded-md border border-border p-3">
-              <p className="text-xs text-muted-foreground">AI credits/mo</p>
-              <p className="text-lg font-bold text-foreground">{formatLimit(activePlan.features.ai_credits_per_month)}</p>
-            </div>
-          </div>
+          )}
 
-          {/* Manage subscription */}
           <div className="mt-6 flex items-center gap-3">
             {isCancelling ? (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleReactivate}
-                disabled={actionLoading}
-              >
+              <Button variant="outline" size="sm" onClick={handleReactivate} disabled={actionLoading}>
                 {actionLoading ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
@@ -497,7 +456,7 @@ export default function BillingPage() {
         </CardContent>
       </Card>
 
-      {/* AI Credits balance + top-up */}
+      {/* AI Credits */}
       <Card className="mb-8">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
@@ -526,16 +485,11 @@ export default function BillingPage() {
                 </div>
               </div>
 
-              {/* Usage bar */}
               <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-secondary">
                 <div
                   className={cn(
                     'h-full rounded-full transition-all',
-                    creditsExhausted
-                      ? 'bg-destructive'
-                      : creditPercent < 20
-                        ? 'bg-amber-500'
-                        : 'bg-primary',
+                    creditsExhausted ? 'bg-destructive' : creditPercent < 20 ? 'bg-amber-500' : 'bg-primary',
                   )}
                   style={{ width: `${100 - creditPercent}%` }}
                 />
@@ -547,13 +501,8 @@ export default function BillingPage() {
                 </p>
               )}
 
-              {/* Top-up button */}
               <div className="mt-6">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setTopupDialogOpen(true)}
-                >
+                <Button variant="outline" size="sm" onClick={() => setTopupDialogOpen(true)}>
                   <Plus className="mr-1.5 h-4 w-4" />
                   Top up credits
                 </Button>
@@ -575,10 +524,9 @@ export default function BillingPage() {
             <DialogTitle>Top up AI credits</DialogTitle>
             <DialogDescription>
               Add credits to continue using AI features. Credits are one-time purchases that
-              don't expire until used. No monthly reset.
+              don't expire until used.
             </DialogDescription>
           </DialogHeader>
-
           <div className="grid grid-cols-2 gap-3 py-4">
             {TOPUP_OPTIONS.map((opt) => (
               <button
@@ -586,9 +534,7 @@ export default function BillingPage() {
                 onClick={() => setSelectedTopup(opt)}
                 className={cn(
                   'flex flex-col items-center rounded-lg border p-4 transition-all hover:border-primary',
-                  selectedTopup?.credits === opt.credits
-                    ? 'border-primary bg-primary/5'
-                    : 'border-border',
+                  selectedTopup?.credits === opt.credits ? 'border-primary bg-primary/5' : 'border-border',
                 )}
               >
                 <span className="text-2xl font-bold text-foreground">{opt.credits}</span>
@@ -597,46 +543,31 @@ export default function BillingPage() {
               </button>
             ))}
           </div>
-
           <DialogFooter>
             <Button variant="ghost" onClick={() => { setTopupDialogOpen(false); setSelectedTopup(null); }}>
               Cancel
             </Button>
-            <Button
-              onClick={handleTopup}
-              disabled={!selectedTopup || topupLoading}
-            >
-              {topupLoading ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Zap className="mr-2 h-4 w-4" />
-              )}
+            <Button onClick={handleTopup} disabled={!selectedTopup || topupLoading}>
+              {topupLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Zap className="mr-2 h-4 w-4" />}
               {selectedTopup ? `Add ${selectedTopup.credits} credits` : 'Select an amount'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Cancel confirmation dialog */}
+      {/* Cancel dialog */}
       <Dialog open={cancelDialogOpen} onOpenChange={setCancelDialogOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Cancel subscription?</DialogTitle>
             <DialogDescription>
               Your subscription will remain active until {formatDateShort(subscription?.current_period_end)}.
-              After that, your workspace will be downgraded to the Starter plan and
-              sending features will be disabled.
+              After that, your workspace will be downgraded to Starter and sending features will be disabled.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setCancelDialogOpen(false)}>
-              Keep subscription
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleCancel}
-              disabled={actionLoading}
-            >
+            <Button variant="ghost" onClick={() => setCancelDialogOpen(false)}>Keep subscription</Button>
+            <Button variant="destructive" onClick={handleCancel} disabled={actionLoading}>
               {actionLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Cancel subscription
             </Button>
@@ -644,7 +575,7 @@ export default function BillingPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Upgrade section */}
+      {/* Plan cards — all from DB */}
       <h2 className="mb-4 text-lg font-semibold text-foreground">
         {currentPlan === 'starter' ? 'Upgrade Plan' : 'Change Plan'}
       </h2>
@@ -678,27 +609,26 @@ export default function BillingPage() {
                 <p className="mb-4 text-center text-sm text-muted-foreground">
                   {plan.description}
                 </p>
-
                 <ul className="flex flex-col gap-2 text-sm">
                   <li className="flex items-center gap-2">
                     <Check className="h-4 w-4 shrink-0 text-primary" />
-                    <span>{formatLimit(plan.features.max_contacts)} contacts</span>
+                    <span>{formatLimit(plan.features?.max_contacts)} contacts</span>
                   </li>
                   <li className="flex items-center gap-2">
                     <Check className="h-4 w-4 shrink-0 text-primary" />
-                    <span>{formatLimit(plan.features.max_team_members)} team members</span>
+                    <span>{formatLimit(plan.features?.max_team_members)} team members</span>
                   </li>
                   <li className="flex items-center gap-2">
                     <Check className="h-4 w-4 shrink-0 text-primary" />
-                    <span>{formatLimit(plan.features.max_broadcasts_per_month)} broadcasts/mo</span>
+                    <span>{formatLimit(plan.features?.max_broadcasts_per_month)} broadcasts/mo</span>
                   </li>
                   <li className="flex items-center gap-2">
                     <Check className="h-4 w-4 shrink-0 text-primary" />
-                    <span>{formatLimit(plan.features.max_automations)} automations</span>
+                    <span>{formatLimit(plan.features?.max_automations)} automations</span>
                   </li>
                   <li className="flex items-center gap-2">
                     <Check className="h-4 w-4 shrink-0 text-primary" />
-                    <span>{formatLimit(plan.features.ai_credits_per_month)} AI credits/mo</span>
+                    <span>{formatLimit(plan.features?.ai_credits_per_month)} AI credits/mo</span>
                   </li>
                 </ul>
               </CardContent>
@@ -714,7 +644,7 @@ export default function BillingPage() {
                     className="w-full"
                     onClick={() => window.location.href = 'mailto:sales@wacrm.com'}
                   >
-                    Contact Sales
+                    {plan.cta}
                     <ArrowUpRight className="ml-1.5 h-4 w-4" />
                   </Button>
                 ) : (
@@ -725,7 +655,7 @@ export default function BillingPage() {
                     className="w-full"
                   >
                     {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    {currentPlan === 'starter' ? 'Upgrade' : plan.id === 'starter' ? 'Downgrade' : 'Switch'}
+                    {plan.cta}
                   </Button>
                 )}
               </CardFooter>

@@ -1,39 +1,59 @@
 // ============================================================
 // GET /api/plans
 //
-// Returns plan features from the database (get_plan_features RPC).
-// Used by billing page and any plan-gating UI.
+// Returns all plans with features from the DB (get_plan_features
+// RPC) and display metadata. Single source of truth — client
+// has zero hardcoded plan data.
 // ============================================================
 
 import { NextResponse } from 'next/server'
 import { getCurrentAccount, toErrorResponse } from '@/lib/auth/account'
 
+const PLAN_META = {
+  starter: {
+    name: 'Starter',
+    price: 'Free',
+    description: 'For small teams getting started with WhatsApp CRM.',
+    cta: 'Upgrade',
+  },
+  pro: {
+    name: 'Pro',
+    price: '$29/mo',
+    description: 'For growing businesses that need more power.',
+    cta: 'Upgrade',
+  },
+  enterprise: {
+    name: 'Enterprise',
+    price: 'Custom',
+    description: 'For large organizations with custom needs.',
+    cta: 'Contact Sales',
+  },
+} as const
+
 export async function GET() {
   try {
     const { supabase } = await getCurrentAccount()
 
-    const PLANS = ['starter', 'pro', 'enterprise'] as const
+    const PLAN_IDS = ['starter', 'pro', 'enterprise'] as const
 
     const results = await Promise.all(
-      PLANS.map(async (plan) => {
+      PLAN_IDS.map(async (planId) => {
         const { data, error } = await supabase.rpc('get_plan_features', {
-          p_plan: plan,
+          p_plan: planId,
         })
         if (error) {
-          console.error(`[plans] failed to fetch features for ${plan}:`, error)
-          return { plan, features: null }
+          console.error(`[plans] rpc failed for ${planId}:`, error)
+          return null
         }
-        return { plan, features: data }
+        return {
+          id: planId,
+          ...PLAN_META[planId],
+          features: data,
+        }
       }),
     )
 
-    const plans = results.reduce(
-      (acc, { plan, features }) => {
-        acc[plan] = features
-        return acc
-      },
-      {} as Record<string, unknown>,
-    )
+    const plans = results.filter(Boolean)
 
     return NextResponse.json({ plans })
   } catch (err) {
