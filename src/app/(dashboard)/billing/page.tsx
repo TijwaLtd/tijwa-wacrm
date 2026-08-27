@@ -137,22 +137,22 @@ export default function BillingPage() {
         fetch('/api/ai/config'),
       ]);
 
+      // Parse all responses at once
+      const plansData = plansRes.ok ? await plansRes.json() : null;
+      const subData = subRes.ok ? await subRes.json() : null;
+      const creditData = creditRes.ok ? await creditRes.json() : null;
+
       // Plans from DB
-      if (plansRes.ok) {
-        const data = await plansRes.json();
-        if (data.plans?.length) {
-          setPlans(data.plans);
-        } else {
-          setPlansError(true);
-        }
+      const dbPlans: Plan[] = plansData?.plans ?? [];
+      if (dbPlans.length) {
+        setPlans(dbPlans);
       } else {
         setPlansError(true);
       }
 
       // Subscription
-      if (subRes.ok) {
-        const data = await subRes.json();
-        const ws = data.workspaces?.find(
+      if (subData) {
+        const ws = subData.workspaces?.find(
           (w: { account_id: string }) => w.account_id === activeWorkspace.account_id,
         );
         if (ws) {
@@ -166,17 +166,14 @@ export default function BillingPage() {
         }
       }
 
-      // Credits
-      if (creditRes.ok) {
-        const data = await creditRes.json();
-        if (data.credits) {
-          const activePlanDef = plans.find((p) => p.id === currentPlan);
-          setCredits({
-            creditsRemaining: data.credits.creditsRemaining ?? 0,
-            creditsUsed: data.credits.creditsUsed ?? 0,
-            creditsTotal: activePlanDef?.features?.ai_credits_per_month ?? 100,
-          });
-        }
+      // Credits — use plans from this response, not stale state
+      if (creditData?.credits) {
+        const activePlanDef = dbPlans.find((p) => p.id === currentPlan);
+        setCredits({
+          creditsRemaining: creditData.credits.creditsRemaining ?? 0,
+          creditsUsed: creditData.credits.creditsUsed ?? 0,
+          creditsTotal: activePlanDef?.features?.ai_credits_per_month ?? 100,
+        });
       }
     } catch {
       setPlansError(true);
@@ -509,10 +506,7 @@ export default function BillingPage() {
               </div>
             </>
           ) : (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Loading credit balance...
-            </div>
+            <p className="text-sm text-muted-foreground">Credit data unavailable</p>
           )}
         </CardContent>
       </Card>
