@@ -75,17 +75,24 @@ export async function autoAssignConversation(
     return null;
   }
 
-  // 5. Apply filters
-  const filtered = candidates.filter((c) => {
-    // Skip offline agents if configured
-    if (config.skip_offline && !c.is_online) return false;
-    // Skip agents at max capacity
+  // 5. Apply filters — prefer online agents, but assign even if all offline
+  // First try with skip_offline to prefer online agents
+  let filtered = candidates.filter((c) => {
     if (c.active_conversations >= config.max_active_per_agent) return false;
+    if (config.skip_offline && !c.is_online) return false;
     return true;
   });
 
+  // If skip_offline filtered everyone out, fall back to all candidates
+  // (assign even when offline — conversation gets assigned, agent sees it when online)
   if (filtered.length === 0) {
-    console.log('[auto-assign] all agents filtered out (offline or at capacity)');
+    filtered = candidates.filter((c) => {
+      return c.active_conversations < config.max_active_per_agent;
+    });
+  }
+
+  if (filtered.length === 0) {
+    console.log('[auto-assign] all agents at max capacity');
     return null;
   }
 
