@@ -37,16 +37,11 @@ export async function DELETE(
 
     const { id } = await params;
 
-    // No `eq('account_id', ctx.accountId)` — the RLS policy
-    // (`is_account_member(account_id, 'admin')`) already scopes
-    // the DELETE to invites in the caller's account. Adding the
-    // filter would be redundant; omitting it surfaces a
-    // cross-account attempt as a silent 0-row delete (which is
-    // exactly what we want for a revocation endpoint).
-    const { error, count } = await ctx.supabase
+    const { error, count } = await ctx.serviceClient
       .from("account_invitations")
       .delete({ count: "exact" })
-      .eq("id", id);
+      .eq("id", id)
+      .eq("account_id", ctx.accountId);
 
     if (error) {
       console.error("[DELETE /api/account/invitations/[id]] error:", error);
