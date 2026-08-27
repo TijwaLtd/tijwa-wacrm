@@ -90,8 +90,12 @@ interface CreditBalance {
   creditsTotal: number;
 }
 
-function formatPrice(plan: Plan): string {
-  if (plan.price_kes === 0) return 'Free';
+function formatPrice(plan: Plan, period: 'monthly' | 'annual' = 'monthly'): string {
+  if (plan.price_kes === 0) return 'Custom';
+  if (period === 'annual') {
+    const annual = Math.round(plan.price_kes * 12 * (1 - 0.18));
+    return `KES ${annual.toLocaleString()}/yr`;
+  }
   return `KES ${plan.price_kes.toLocaleString()}/mo`;
 }
 
@@ -121,7 +125,7 @@ function formatDateShort(dateStr: string | null | undefined): string {
 function daysUntil(dateStr: string | null | undefined): number | null {
   if (!dateStr) return null;
   const diff = new Date(dateStr).getTime() - Date.now();
-  return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
+  return Math.ceil(diff / (1000 * 60 * 60 * 24));
 }
 
 const KES_PER_CREDIT = 10;
@@ -162,23 +166,37 @@ export default function BillingPage() {
   const [topupDialogOpen, setTopupDialogOpen] = useState(false);
   const [customAmount, setCustomAmount] = useState('');
   const [selectedCredits, setSelectedCredits] = useState<number | null>(null);
+  const [downgradeDialogOpen, setDowngradeDialogOpen] = useState(false);
+  const [downgradeTarget, setDowngradeTarget] = useState<string | null>(null);
+  const [billingHistory, setBillingHistory] = useState<Array<{
+    id: string;
+    event_type: string;
+    description: string;
+    amount_kes: number;
+    credits_delta: number;
+    created_at: string;
+  }>>([]);
+  const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'annual'>('monthly');
+  const ANNUAL_DISCOUNT = 0.18;
 
   const fetchData = useCallback(async () => {
     if (!activeWorkspace?.account_id) return;
     setFetching(true);
     setPlansError(false);
     try {
-      const [plansRes, subRes, creditRes, subscriptionRes] = await Promise.all([
+      const [plansRes, subRes, creditRes, subscriptionRes, historyRes] = await Promise.all([
         fetch('/api/plans'),
         fetch('/api/workspaces'),
         fetch('/api/ai/config'),
         fetch('/api/subscription/manage'),
+        fetch('/api/subscription/history'),
       ]);
 
       const plansData = plansRes.ok ? await plansRes.json() : null;
       const subData = subRes.ok ? await subRes.json() : null;
       const creditData = creditRes.ok ? await creditRes.json() : null;
       const subscriptionDetails = subscriptionRes.ok ? await subscriptionRes.json() : null;
+      const historyData = historyRes.ok ? await historyRes.json() : null;
 
       const dbPlans: Plan[] = plansData?.plans ?? [];
       if (dbPlans.length) {
@@ -207,6 +225,10 @@ export default function BillingPage() {
           creditsTotal: activePlanDef?.features?.ai_credits_per_month ?? 0,
         });
       }
+
+      if (historyData?.history) {
+        setBillingHistory(historyData.history);
+      }
     } catch {
       setPlansError(true);
     } finally {
@@ -230,16 +252,16 @@ export default function BillingPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to update plan');
       toast.success(`Plan updated to ${planId}`);
-      if (data.current_period_end) {
-        setSubscription((prev) => prev ? {
-          ...prev,
-          plan: planId,
-          status: 'active',
-          current_period_end: data.current_period_end,
-          cancel_at_period_end: false,
-        } : prev);
-      }
-      window.location.reload();
+      // Optimistic state update — no page reload
+      setSubscription((prev) => prev ? {
+        ...prev,
+        plan: planId,
+        status: 'active',
+        current_period_end: data.current_period_end ?? prev.current_period_end,
+        cancel_at_period_end: false,
+      } : prev);
+      // Refetch to get fresh plan features + credit allocation
+      void fetchData();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to update plan');
     } finally {
@@ -295,7 +317,7 @@ export default function BillingPage() {
       const res = await fetch('/api/subscription/topup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount: creditsToBuy }),
+        body: JSON.stringify({ credits: creditsToBuy }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to add credits');
@@ -325,6 +347,26 @@ export default function BillingPage() {
     ? Math.min(100, Math.round((credits.creditsRemaining / credits.creditsTotal) * 100))
     : 0;
   const creditsExhausted = credits ? credits.creditsRemaining <= 0 : false;
+
+  // Plan tier order for downgrade detection
+  const PLAN_ORDER = ['starter', 'business', 'growth', 'enterprise'];
+  const currentTier = PLAN_ORDER.indexOf(currentPlan);
+  function getFeaturesLost(targetPlan: string): string[] {
+    const target = plans.find((p) => p.id === targetPlan);
+    if (!target?.features || !activePlan?.features) return [];
+    const lost: string[] = [];
+    const tf = target.features;
+    const af = activePlan.features;
+    if (af.has_ai_assistant && !tf.has_ai_assistant) lost.push('AI assistant');
+    if (af.has_knowledge_base && !tf.has_knowledge_base) lost.push('Knowledge base');
+    if (af.has_analytics && !tf.has_analytics) lost.push('Analytics');
+    if (af.has_priority_support && !tf.has_priority_support) lost.push('Priority support');
+    if (af.max_team_members > tf.max_team_members) lost.push(`Team members (${af.max_team_members} → ${tf.max_team_members})`);
+    if (af.max_contacts > tf.max_contacts) lost.push(`Contacts (${af.max_contacts.toLocaleString()} → ${tf.max_contacts.toLocaleString()})`);
+    if (af.ai_credits_per_month > tf.ai_credits_per_month) lost.push(`AI credits (${af.ai_credits_per_month.toLocaleString()} → ${tf.ai_credits_per_month.toLocaleString()}/mo)`);
+    if (af.max_broadcasts_per_month > tf.max_broadcasts_per_month) lost.push(`Broadcasts (${af.max_broadcasts_per_month.toLocaleString()} → ${tf.max_broadcasts_per_month.toLocaleString()}/mo)`);
+    return lost;
+  }
 
   if (fetching) {
     return (
@@ -424,7 +466,11 @@ export default function BillingPage() {
               </div>
               <p className="mt-1 text-sm font-medium text-foreground">{formatDate(subscription?.current_period_end)}</p>
               {daysLeft !== null && !isExpired && (
-                <p className="text-xs text-muted-foreground">{daysLeft} {daysLeft === 1 ? 'day' : 'days'} remaining</p>
+                <p className="text-xs text-muted-foreground">
+                  {daysLeft <= 0
+                    ? 'Expired today'
+                    : `${daysLeft} ${daysLeft === 1 ? 'day' : 'days'} remaining`}
+                </p>
               )}
             </div>
           </div>
@@ -465,6 +511,16 @@ export default function BillingPage() {
         </CardContent>
       </Card>
 
+      {/* Extra seat pricing */}
+      {activePlan?.features && activePlan.features.max_team_members < 999 && (
+        <div className="mb-6 rounded-lg border border-border bg-muted/50 px-4 py-3">
+          <p className="text-sm text-muted-foreground">
+            Need more seats? Additional team members are KES 750/mo each.
+            Current plan includes {activePlan.features.max_team_members} seat{activePlan.features.max_team_members !== 1 ? 's' : ''}.
+          </p>
+        </div>
+      )}
+
       {/* AI Credits */}
       <Card className="mb-8">
         <CardHeader>
@@ -494,13 +550,19 @@ export default function BillingPage() {
                     'h-full rounded-full transition-all',
                     creditsExhausted ? 'bg-destructive' : creditPercent < 20 ? 'bg-amber-500' : 'bg-primary',
                   )}
-                  style={{ width: `${100 - creditPercent}%` }}
+                  style={{ width: `${creditPercent}%` }}
                 />
               </div>
 
               {creditsExhausted && (
                 <p className="mt-2 text-xs text-destructive">
                   No credits remaining. AI features are paused until you top up or your plan renews.
+                </p>
+              )}
+
+              {!creditsExhausted && creditPercent < 20 && credits.creditsTotal > 0 && (
+                <p className="mt-2 text-xs text-amber-600">
+                  Low on credits — {credits.creditsRemaining.toLocaleString()} remaining. Top up to avoid AI interruptions.
                 </p>
               )}
 
@@ -596,10 +658,60 @@ export default function BillingPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Downgrade confirmation dialog */}
+      <Dialog open={downgradeDialogOpen} onOpenChange={setDowngradeDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Downgrade to {plans.find((p) => p.id === downgradeTarget)?.name}?</DialogTitle>
+            <DialogDescription>
+              You will lose access to the following features immediately:
+            </DialogDescription>
+          </DialogHeader>
+          {downgradeTarget && (
+            <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground">
+              {getFeaturesLost(downgradeTarget).map((f) => (
+                <li key={f}>{f}</li>
+              ))}
+            </ul>
+          )}
+          <p className="text-sm text-muted-foreground">
+            Your purchased AI credits will be preserved but your monthly allocation will change.
+          </p>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => { setDowngradeDialogOpen(false); setDowngradeTarget(null); }}>Keep current plan</Button>
+            <Button variant="destructive" onClick={() => { setDowngradeDialogOpen(false); if (downgradeTarget) void handleUpgrade(downgradeTarget); setDowngradeTarget(null); }} disabled={loading}>
+              {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Confirm downgrade
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Plan cards */}
-      <h2 className="mb-4 text-lg font-semibold text-foreground">
-        {currentPlan === 'starter' ? 'Upgrade Plan' : 'Change Plan'}
-      </h2>
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-foreground">
+          {currentPlan === 'starter' ? 'Upgrade Plan' : 'Change Plan'}
+        </h2>
+        <div className="flex items-center gap-2 text-sm">
+          <span className={billingPeriod === 'monthly' ? 'font-medium text-foreground' : 'text-muted-foreground'}>Monthly</span>
+          <button
+            onClick={() => setBillingPeriod((p) => p === 'monthly' ? 'annual' : 'monthly')}
+            className={cn(
+              'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border border-transparent transition-colors',
+              billingPeriod === 'annual' ? 'bg-primary' : 'bg-muted',
+            )}
+          >
+            <span
+              className={cn(
+                'pointer-events-none inline-block h-4 w-4 rounded-full bg-background shadow-sm transition-transform',
+                billingPeriod === 'annual' ? 'translate-x-4' : 'translate-x-0',
+              )}
+            />
+          </button>
+          <span className={billingPeriod === 'annual' ? 'font-medium text-foreground' : 'text-muted-foreground'}>
+            Annual <span className="text-xs text-primary font-medium">-18%</span>
+          </span>
+        </div>
+      </div>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {plans.map((plan) => {
           const isCurrent = plan.id === currentPlan;
@@ -619,7 +731,10 @@ export default function BillingPage() {
               )}
               <CardHeader className="items-center text-center">
                 <CardTitle className="text-foreground">{plan.name}</CardTitle>
-                <CardDescription className="text-2xl font-bold text-foreground">{formatPrice(plan)}</CardDescription>
+                <CardDescription className="text-2xl font-bold text-foreground">{formatPrice(plan, billingPeriod)}</CardDescription>
+                {billingPeriod === 'annual' && plan.price_kes > 0 && (
+                  <p className="text-xs text-primary">Save {Math.round(plan.price_kes * 12 * 0.18).toLocaleString()}/yr</p>
+                )}
               </CardHeader>
               <CardContent className="flex-1">
                 <p className="mb-4 text-center text-sm text-muted-foreground">{plan.description}</p>
@@ -685,6 +800,15 @@ export default function BillingPage() {
                   <Button variant="outline" className="w-full" onClick={() => window.location.href = 'mailto:sales@wacrm.com'}>
                     {plan.cta} <ArrowUpRight className="ml-1.5 h-4 w-4" />
                   </Button>
+                ) : PLAN_ORDER.indexOf(plan.id) < currentTier ? (
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => { setDowngradeTarget(plan.id); setDowngradeDialogOpen(true); }}
+                    disabled={loading}
+                  >
+                    Downgrade to {plan.name}
+                  </Button>
                 ) : (
                   <Button onClick={() => void handleUpgrade(plan.id)} disabled={loading} variant={plan.recommended ? 'default' : 'outline'} className="w-full">
                     {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} {plan.cta}
@@ -695,6 +819,39 @@ export default function BillingPage() {
           );
         })}
       </div>
+
+      {/* Billing History */}
+      {billingHistory.length > 0 && (
+        <>
+          <h2 className="mb-4 mt-8 text-lg font-semibold text-foreground">Billing History</h2>
+          <Card>
+            <CardContent className="p-0">
+              <div className="divide-y divide-border">
+                {billingHistory.map((entry) => (
+                  <div key={entry.id} className="flex items-center justify-between px-4 py-3">
+                    <div>
+                      <p className="text-sm font-medium text-foreground">{entry.description}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {new Date(entry.created_at).toLocaleDateString('en-US', {
+                          year: 'numeric', month: 'short', day: 'numeric',
+                        })}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      {entry.amount_kes > 0 && (
+                        <p className="text-sm font-medium text-foreground">KES {Number(entry.amount_kes).toLocaleString()}</p>
+                      )}
+                      {entry.credits_delta > 0 && (
+                        <p className="text-xs text-primary">+{Number(entry.credits_delta).toLocaleString()} credits</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      )}
     </div>
   );
 }

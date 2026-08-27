@@ -5,27 +5,30 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://crm.example.com';
 
 const planLabels: Record<string, string> = {
   starter: 'Starter',
-  pro: 'Pro',
+  business: 'Business',
+  growth: 'Growth',
   enterprise: 'Enterprise',
 };
 
 const subscriptionRenewed: EmailTemplate = {
   name: 'subscription-renewed',
-  subject: 'Welcome back — your subscription is active',
+  subject: 'Your subscription is active',
   render: (data) => {
     const name = data.name || 'there';
     const workspaceName = data.workspaceName || 'your workspace';
     const plan = planLabels[data.plan] || data.plan || 'your';
+    const action = data.action || 'renewed';
 
     const content = `
 <h1 style="margin:0 0 16px 0;font-size:28px;line-height:36px;font-weight:700;color:#111827">
-  Welcome back!
+  ${action === 'activated' ? 'Welcome!' : 'Welcome back!'}
 </h1>
 <p style="margin:0 0 24px 0;font-size:16px;line-height:26px;color:#374151">
   Hi ${name},
 </p>
 <p style="margin:0 0 24px 0;font-size:16px;line-height:26px;color:#374151">
-  Your <strong>${plan}</strong> plan for <strong>${workspaceName}</strong> is now active. All features have been restored.
+  Your <strong>${plan}</strong> plan for <strong>${workspaceName}</strong> is now active.
+  ${action === 'activated' ? 'You can start using all features included in your plan.' : 'All features have been restored.'}
 </p>
 
 <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;margin:0 0 24px 0;background-color:#f0fdf4;border-radius:8px;border:1px solid #bbf7d0">

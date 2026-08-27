@@ -84,19 +84,23 @@ export async function POST(request: Request) {
       });
     }
 
-    // Reset AI credits to plan allocation
+    // Add plan allocation credits (don't wipe purchased credits).
+    // The monthly allocation is additive — purchased credits are preserved.
+    // A monthly cron resets credits_remaining to plan allocation on the 1st.
     const PLAN_CREDITS: Record<string, number> = {
       starter: 0,
       business: 400,
       growth: 1000,
       enterprise: 999999,
     };
-    const creditsToGrant = PLAN_CREDITS[plan] ?? 100;
+    const creditsToGrant = PLAN_CREDITS[plan] ?? 0;
 
-    await serviceClient.rpc("reset_ai_credits", {
-      p_account_id: accountId,
-      p_new_credits: creditsToGrant,
-    });
+    if (creditsToGrant > 0) {
+      await serviceClient.rpc("add_ai_credits", {
+        p_account_id: accountId,
+        p_credits: creditsToGrant,
+      });
+    }
 
     // Send email notification (fire-and-forget, don't block the response)
     const { data: profile } = await supabase
@@ -127,8 +131,21 @@ export async function POST(request: Request) {
         name: profile?.full_name || 'there',
         workspaceName: account?.name || 'your workspace',
         plan,
+        action: oldPlan ? 'renewed' : 'activated',
       }).catch((err) => console.error("[workspaces/plan] renewed email failed:", err));
     }
+
+    // Log billing history
+    const planLabel = plan.charAt(0).toUpperCase() + plan.slice(1);
+    const oldLabel = oldPlan ? oldPlan.charAt(0).toUpperCase() + oldPlan.slice(1) : null;
+    await serviceClient.from("billing_history").insert({
+      account_id: accountId,
+      event_type: 'plan_changed',
+      description: oldLabel
+        ? `Plan changed from ${oldLabel} to ${planLabel}`
+        : `Subscription started on ${planLabel}`,
+      metadata: { old_plan: oldPlan, new_plan: plan },
+    });
 
     return NextResponse.json({
       ok: true,

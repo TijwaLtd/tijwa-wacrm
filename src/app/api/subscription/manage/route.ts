@@ -32,7 +32,7 @@ export async function GET() {
       });
     }
 
-    // No subscription row — create one starting today
+    // No subscription row — upsert from tenant_settings (race-safe)
     const { data: settings } = await serviceClient
       .from("tenant_settings")
       .select("plan, subscription_status")
@@ -46,14 +46,15 @@ export async function GET() {
     const periodStart = now.toISOString();
     const periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
-    // Insert subscription row
-    await serviceClient.from("subscriptions").insert({
+    // Upsert: insert only if missing, safe for concurrent requests
+    await serviceClient.from("subscriptions").upsert({
       account_id: accountId,
       plan,
       status,
       current_period_start: periodStart,
       current_period_end: periodEnd,
-    });
+      cancel_at_period_end: false,
+    }, { onConflict: 'account_id' });
 
     return NextResponse.json({
       subscription: {
@@ -110,6 +111,14 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Failed to cancel" }, { status: 500 });
       }
 
+      // Log billing history
+      await serviceClient.from("billing_history").insert({
+        account_id: accountId,
+        event_type: 'subscription_cancelled',
+        description: `Subscription cancelled, access until ${new Date(sub.current_period_end).toLocaleDateString()}`,
+        metadata: { cancel_at: sub.current_period_end },
+      });
+
       return NextResponse.json({
         ok: true,
         message: "Subscription will cancel at the end of the billing period",
@@ -136,6 +145,13 @@ export async function POST(request: Request) {
     if (error) {
       return NextResponse.json({ error: "Failed to reactivate" }, { status: 500 });
     }
+
+    // Log billing history
+    await serviceClient.from("billing_history").insert({
+      account_id: accountId,
+      event_type: 'subscription_reactivated',
+      description: 'Subscription reactivated',
+    });
 
     return NextResponse.json({
       ok: true,

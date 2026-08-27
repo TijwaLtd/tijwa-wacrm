@@ -101,6 +101,7 @@ export function SubscriptionGate({ children }: SubscriptionGateProps) {
         body: JSON.stringify({ plan: selectedPlan }),
       });
       if (res.ok) {
+        // Optimistic: reload to re-check subscription status
         window.location.reload();
       }
     } finally {
@@ -123,80 +124,77 @@ export function SubscriptionGate({ children }: SubscriptionGateProps) {
   // WhatsApp configured but subscription not active — forced modal
   if (whatsappConfigured && !isActive) {
     return (
-      <>
-        {children}
-        <Dialog open={true} onOpenChange={() => {}}>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle className="text-xl">Subscribe to continue</DialogTitle>
-              <DialogDescription>
-                Your WhatsApp is connected. Choose a plan to start sending and receiving messages.
-              </DialogDescription>
-            </DialogHeader>
+      <Dialog open={true} onOpenChange={() => {}}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl">Subscribe to continue</DialogTitle>
+            <DialogDescription>
+              Your WhatsApp is connected. Choose a plan to start sending and receiving messages.
+            </DialogDescription>
+          </DialogHeader>
 
-            <div className="grid gap-3 sm:grid-cols-2 py-2">
-              {plans
-                .filter((p) => p.id !== "enterprise")
-                .map((p) => (
-                  <button
-                    key={p.id}
-                    onClick={() => setSelectedPlan(p.id)}
-                    className={cn(
-                      "relative flex flex-col items-start rounded-lg border p-4 text-left transition-all hover:border-primary",
-                      selectedPlan === p.id
-                        ? "border-primary bg-primary/5"
-                        : "border-border",
-                      p.recommended && "border-primary/50",
-                    )}
-                  >
-                    {p.recommended && (
-                      <span className="absolute -top-2.5 right-3 rounded-full bg-primary px-2 py-0.5 text-[10px] font-medium text-primary-foreground flex items-center gap-0.5">
-                        <Star className="h-2.5 w-2.5" /> Best value
-                      </span>
-                    )}
-                    <p className="font-semibold text-foreground">{p.name}</p>
-                    <p className="text-lg font-bold text-primary">
-                      KES {p.price_kes.toLocaleString()}/mo
-                    </p>
-                    <ul className="mt-2 flex flex-col gap-1 text-xs text-muted-foreground">
-                      <li className="flex items-center gap-1.5">
-                        <Check className="h-3 w-3 text-primary" />
-                        {p.features?.max_team_members} seat{p.features?.max_team_members !== 1 ? "s" : ""}
-                      </li>
-                      <li className="flex items-center gap-1.5">
-                        <Check className="h-3 w-3 text-primary" />
-                        {p.features?.max_contacts?.toLocaleString()} contacts
-                      </li>
-                      <li className="flex items-center gap-1.5">
-                        <Check className="h-3 w-3 text-primary" />
-                        {p.features?.max_automations} automations
-                      </li>
-                      <li className="flex items-center gap-1.5">
-                        <Check className="h-3 w-3 text-primary" />
-                        {p.features?.ai_credits_per_month} AI credits/mo
-                      </li>
-                    </ul>
-                  </button>
-                ))}
-            </div>
+          <div className="grid gap-3 sm:grid-cols-2 py-2">
+            {plans
+              .filter((p) => p.id !== "enterprise")
+              .map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => setSelectedPlan(p.id)}
+                  className={cn(
+                    "relative flex flex-col items-start rounded-lg border p-4 text-left transition-all hover:border-primary",
+                    selectedPlan === p.id
+                      ? "border-primary bg-primary/5"
+                      : "border-border",
+                    p.recommended && "border-primary/50",
+                  )}
+                >
+                  {p.recommended && (
+                    <span className="absolute -top-2.5 right-3 rounded-full bg-primary px-2 py-0.5 text-[10px] font-medium text-primary-foreground flex items-center gap-0.5">
+                      <Star className="h-2.5 w-2.5" /> Best value
+                    </span>
+                  )}
+                  <p className="font-semibold text-foreground">{p.name}</p>
+                  <p className="text-lg font-bold text-primary">
+                    KES {p.price_kes.toLocaleString()}/mo
+                  </p>
+                  <ul className="mt-2 flex flex-col gap-1 text-xs text-muted-foreground">
+                    <li className="flex items-center gap-1.5">
+                      <Check className="h-3 w-3 text-primary" />
+                      {p.features?.max_team_members} seat{p.features?.max_team_members !== 1 ? "s" : ""}
+                    </li>
+                    <li className="flex items-center gap-1.5">
+                      <Check className="h-3 w-3 text-primary" />
+                      {p.features?.max_contacts?.toLocaleString()} contacts
+                    </li>
+                    <li className="flex items-center gap-1.5">
+                      <Check className="h-3 w-3 text-primary" />
+                      {p.features?.max_automations} automations
+                    </li>
+                    <li className="flex items-center gap-1.5">
+                      <Check className="h-3 w-3 text-primary" />
+                      {p.features?.ai_credits_per_month} AI credits/mo
+                    </li>
+                  </ul>
+                </button>
+              ))}
+          </div>
 
-            <DialogFooter>
-              <Button
-                onClick={handleUpgrade}
-                disabled={!selectedPlan || upgrading}
-                className="w-full"
-              >
-                {upgrading ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : null}
-                {selectedPlan
-                  ? `Subscribe to ${plans.find((p) => p.id === selectedPlan)?.name}`
-                  : "Select a plan"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </>
+          <DialogFooter>
+            <Button
+              onClick={handleUpgrade}
+              disabled={!selectedPlan || upgrading}
+              className="w-full"
+            >
+              {upgrading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : null}
+              {selectedPlan
+                ? `Subscribe to ${plans.find((p) => p.id === selectedPlan)?.name}`
+                : "Select a plan"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     );
   }
 

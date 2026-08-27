@@ -5,7 +5,8 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://crm.example.com';
 
 const planLabels: Record<string, string> = {
   starter: 'Starter',
-  pro: 'Pro',
+  business: 'Business',
+  growth: 'Growth',
   enterprise: 'Enterprise',
 };
 

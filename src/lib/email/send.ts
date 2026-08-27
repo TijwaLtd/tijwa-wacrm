@@ -138,7 +138,7 @@ export async function sendSubscriptionExpiredEmail(
 
 export async function sendSubscriptionRenewedEmail(
   to: string,
-  data: { name: string; workspaceName: string; plan: string },
+  data: { name: string; workspaceName: string; plan: string; action?: string },
 ): Promise<EmailResult> {
   return renderAndSend('subscription-renewed', to, data);
 }

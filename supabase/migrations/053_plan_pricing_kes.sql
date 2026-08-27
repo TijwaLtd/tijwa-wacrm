@@ -18,7 +18,7 @@ RETURNS JSONB AS $$
     WHEN 'starter' THEN '{
       "max_contacts": 2000,
       "max_team_members": 1,
-      "max_broadcasts_per_month": 100,
+      "max_broadcasts_per_month": 0,
       "max_automations": 10,
       "max_flows": 5,
       "max_pipelines": 1,
@@ -98,7 +98,7 @@ RETURNS JSONB AS $$
     ELSE '{
       "max_contacts": 2000,
       "max_team_members": 1,
-      "max_broadcasts_per_month": 100,
+      "max_broadcasts_per_month": 0,
       "max_automations": 10,
       "max_flows": 5,
       "max_pipelines": 1,
