@@ -137,7 +137,7 @@ export async function POST(request: Request) {
       await serviceClient.from("billing_history").insert({
         account_id: accountId,
         event_type: 'seat_removed',
-        description: `Extra seats removed — ${newPlan} plan covers ${newPlanSeats} seats`,
+        description: `Extra seats removed — ${plan} plan covers ${newPlanSeats} seats`,
         metadata: { seats_removed: currentExtra, reason: 'plan_upgrade' },
       });
     }

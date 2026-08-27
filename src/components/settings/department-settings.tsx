@@ -51,7 +51,7 @@ const DEFAULT_FORM: DepartmentFormData = {
 
 export function DepartmentSettings() {
   const t = useTranslations('Settings.departments');
-  const { account } = useAuth();
+  const { account, accountRole } = useAuth();
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -59,7 +59,7 @@ export function DepartmentSettings() {
   const [form, setForm] = useState<DepartmentFormData>(DEFAULT_FORM);
   const [saving, setSaving] = useState(false);
 
-  const canEdit = canEditSettings(account?.role);
+  const canEdit = canEditSettings(accountRole ?? 'viewer');
 
   const loadDepartments = useCallback(async () => {
     try {

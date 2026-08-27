@@ -46,7 +46,7 @@ const SKILL_LEVELS = [
 
 export function SkillSettings() {
   const t = useTranslations('Settings.skills');
-  const { account } = useAuth();
+  const { account, accountRole } = useAuth();
   const [members, setMembers] = useState<Member[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string>('');
   const [skills, setSkills] = useState<AgentSkill[]>([]);
@@ -55,7 +55,7 @@ export function SkillSettings() {
   const [newSkill, setNewSkill] = useState({ skill: '', level: 3 });
   const [saving, setSaving] = useState(false);
 
-  const canEdit = canEditSettings(account?.role);
+  const canEdit = canEditSettings(accountRole ?? 'viewer');
 
   const loadMembers = useCallback(async () => {
     try {
@@ -156,7 +156,7 @@ export function SkillSettings() {
           <CardTitle className="text-base">{t('selectAgent')}</CardTitle>
         </CardHeader>
         <CardContent>
-          <Select value={selectedUserId} onValueChange={setSelectedUserId}>
+          <Select value={selectedUserId} onValueChange={(v) => v && setSelectedUserId(v)}>
             <SelectTrigger>
               <SelectValue placeholder={t('chooseAgent')} />
             </SelectTrigger>
@@ -240,7 +240,7 @@ export function SkillSettings() {
               <Label>{t('skillLevel')}</Label>
               <Select
                 value={String(newSkill.level)}
-                onValueChange={(v) => setNewSkill({ ...newSkill, level: parseInt(v) })}
+                onValueChange={(v) => v && setNewSkill({ ...newSkill, level: parseInt(v) })}
               >
                 <SelectTrigger>
                   <SelectValue />

@@ -161,7 +161,14 @@ Message: "${messageText.slice(0, 200)}"`;
  * Call AI for classification. Uses the existing AI infrastructure
  * but with a minimal prompt for fast, cheap classification.
  */
-async function classifyWithAI(prompt: string): Promise<Record<string, unknown> | null> {
+interface TopicClassification {
+  department: string;
+  language: string;
+  topic: string;
+  confidence: number;
+}
+
+async function classifyWithAI(prompt: string): Promise<TopicClassification | null> {
   // Use the configured AI provider
   const apiKey = process.env.AI_API_KEY || process.env.OPENAI_API_KEY;
   const baseUrl = process.env.AI_BASE_URL || 'https://api.openai.com/v1';

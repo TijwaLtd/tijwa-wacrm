@@ -606,6 +606,11 @@ async function processMessage(
   const conversation = convResult.conversation
   console.log('[processMessage] conversation resolved — id:', conversation.id, 'created:', convResult.created)
 
+  // Parse message content early — needed below for auto-assign topic detection
+  const { contentText, mediaUrl, mediaType, interactiveReplyId } =
+    await parseMessageContent(message, accessToken)
+  console.log('[processMessage] content parsed — type:', message.type, 'contentText:', contentText?.slice(0, 100) ?? 'null', 'hasMedia:', !!mediaUrl, 'interactiveReplyId:', interactiveReplyId ?? 'null')
+
   if (convResult.created) {
     await dispatchWebhookEvent(supabaseAdmin(), accountId, 'conversation.created', {
       conversation_id: conversation.id,
@@ -640,10 +645,6 @@ async function processMessage(
     await handleReaction(message, conversation.id, contactRecord.id)
     return
   }
-
-  const { contentText, mediaUrl, mediaType, interactiveReplyId } =
-    await parseMessageContent(message, accessToken)
-  console.log('[processMessage] content parsed — type:', message.type, 'contentText:', contentText?.slice(0, 100) ?? 'null', 'hasMedia:', !!mediaUrl, 'interactiveReplyId:', interactiveReplyId ?? 'null')
 
   // Persist inbound media to public storage so we don't depend on
   // the auth-gated proxy. If persistence fails, fall back to the

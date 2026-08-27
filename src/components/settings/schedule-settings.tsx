@@ -60,12 +60,12 @@ function getDefaultSchedule(): ScheduleEntry[] {
 
 export function ScheduleSettings() {
   const t = useTranslations('Settings.schedule');
-  const { account } = useAuth();
+  const { account, accountRole } = useAuth();
   const [schedules, setSchedules] = useState<ScheduleEntry[]>(getDefaultSchedule());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const canEdit = canEditSettings(account?.role);
+  const canEdit = canEditSettings(accountRole ?? 'viewer');
 
   const loadSchedule = useCallback(async () => {
     try {
