@@ -288,7 +288,7 @@ export default function BillingPage() {
   };
 
   const handleTopup = async () => {
-    const creditsToBuy = selectedCredits ?? (parseInt(customAmount) || 0);
+    const creditsToBuy = selectedCredits ?? Math.floor((parseInt(customAmount) || 0) / KES_PER_CREDIT);
     if (creditsToBuy <= 0) return;
 
     setTopupLoading(true);
@@ -315,8 +315,8 @@ export default function BillingPage() {
     }
   };
 
-  const topupCredits = selectedCredits ?? (parseInt(customAmount) || 0);
-  const topupKes = topupCredits * KES_PER_CREDIT;
+  const topupCredits = selectedCredits ?? Math.floor((parseInt(customAmount) || 0) / KES_PER_CREDIT);
+  const topupKes = selectedCredits ? selectedCredits * KES_PER_CREDIT : (parseInt(customAmount) || 0);
 
   const isExpired = subscription?.status && !['active', 'trial'].includes(subscription.status);
   const activePlan = plans.find((p) => p.id === currentPlan) ?? plans[0];
@@ -550,26 +550,29 @@ export default function BillingPage() {
           <div className="border-t pt-4">
             <p className="mb-2 text-sm font-medium text-foreground">Or enter custom amount</p>
             <div className="flex gap-2">
-              <input
-                type="number"
-                min="1"
-                step="1"
-                placeholder="Credits"
-                value={customAmount}
-                onChange={(e) => { setCustomAmount(e.target.value); setSelectedCredits(null); }}
-                className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-              />
+              <div className="relative flex-1">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">KES</span>
+                <input
+                  type="number"
+                  min={KES_PER_CREDIT}
+                  step={KES_PER_CREDIT}
+                  placeholder="0"
+                  value={customAmount}
+                  onChange={(e) => { setCustomAmount(e.target.value); setSelectedCredits(null); }}
+                  className="w-full rounded-md border border-border bg-background pl-10 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
               <div className="flex items-center rounded-md border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">
-                KES {topupKes.toLocaleString()}
+                {topupCredits} credits
               </div>
             </div>
-            <p className="mt-1 text-xs text-muted-foreground">Minimum 1 credit (KES {KES_PER_CREDIT})</p>
+            <p className="mt-1 text-xs text-muted-foreground">Minimum KES {KES_PER_CREDIT} (1 credit)</p>
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => { setTopupDialogOpen(false); setSelectedCredits(null); setCustomAmount(''); }}>Cancel</Button>
-            <Button onClick={handleTopup} disabled={topupCredits <= 0 || topupLoading}>
+            <Button onClick={handleTopup} disabled={topupKes <= 0 || topupLoading}>
               {topupLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Zap className="mr-2 h-4 w-4" />}
-              {topupCredits > 0 ? `Add ${topupCredits} credits (KES ${topupKes.toLocaleString()})` : 'Enter amount'}
+              {topupKes > 0 ? `Pay KES ${topupKes.toLocaleString()} (${topupCredits} credits)` : 'Enter amount'}
             </Button>
           </DialogFooter>
         </DialogContent>
