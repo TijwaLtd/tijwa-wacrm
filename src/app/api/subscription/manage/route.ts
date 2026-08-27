@@ -13,12 +13,17 @@ export async function GET() {
   try {
     const { serviceClient, accountId } = await requireRole('viewer');
 
+    console.log("[subscription/manage GET] accountId:", accountId);
+
     // Try to get existing subscription
     const { data: sub, error } = await serviceClient
       .from("subscriptions")
       .select("plan, status, current_period_start, current_period_end, cancel_at_period_end")
       .eq("account_id", accountId)
       .maybeSingle();
+
+    console.log("[subscription/manage GET] query error:", error);
+    console.log("[subscription/manage GET] subscription row:", sub);
 
     if (sub) {
       return NextResponse.json({
@@ -47,13 +52,16 @@ export async function GET() {
     const periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
     // Insert subscription row
-    await serviceClient.from("subscriptions").insert({
+    const { error: insertErr } = await serviceClient.from("subscriptions").insert({
       account_id: accountId,
       plan,
       status,
       current_period_start: periodStart,
       current_period_end: periodEnd,
     });
+
+    console.log("[subscription/manage GET] insert error:", insertErr);
+    console.log("[subscription/manage GET] created subscription:", { plan, status, periodStart, periodEnd });
 
     return NextResponse.json({
       subscription: {

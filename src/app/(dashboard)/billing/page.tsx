@@ -180,6 +180,9 @@ export default function BillingPage() {
       const creditData = creditRes.ok ? await creditRes.json() : null;
       const subscriptionDetails = subscriptionRes.ok ? await subscriptionRes.json() : null;
 
+      console.log('[billing] subscriptionDetails:', JSON.stringify(subscriptionDetails));
+      console.log('[billing] subData workspaces:', JSON.stringify(subData?.workspaces?.map((w: { account_id: string; plan: string; subscription_status: string }) => ({ account_id: w.account_id, plan: w.plan, subscription_status: w.subscription_status }))));
+
       const dbPlans: Plan[] = plansData?.plans ?? [];
       if (dbPlans.length) {
         setPlans(dbPlans);
