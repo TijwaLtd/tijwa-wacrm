@@ -14,6 +14,7 @@ import subscriptionReminder from './templates/subscription-reminder';
 import subscriptionExpired from './templates/subscription-expired';
 import subscriptionRenewed from './templates/subscription-renewed';
 import creditPurchaseReceipt from './templates/credit-purchase-receipt';
+import seatLimitExceeded from './templates/seat-limit-exceeded';
 
 const templates: Record<EmailTemplateName, EmailTemplate> = {
   welcome,
@@ -28,6 +29,7 @@ const templates: Record<EmailTemplateName, EmailTemplate> = {
   'subscription-expired': subscriptionExpired,
   'subscription-renewed': subscriptionRenewed,
   'credit-purchase-receipt': creditPurchaseReceipt,
+  'seat-limit-exceeded': seatLimitExceeded,
 };
 
 function isEnabled(): boolean {
@@ -148,4 +150,11 @@ export async function sendCreditPurchaseReceiptEmail(
   data: { name: string; workspaceName: string; credits: string; amount_kes: string; new_balance: string; date: string },
 ): Promise<EmailResult> {
   return renderAndSend('credit-purchase-receipt', to, data);
+}
+
+export async function sendSeatLimitExceededEmail(
+  to: string,
+  data: { adminName: string; attempterName: string; workspaceName: string; plan: string; totalSeats: string; currentMembers: string },
+): Promise<EmailResult> {
+  return renderAndSend('seat-limit-exceeded', to, data);
 }

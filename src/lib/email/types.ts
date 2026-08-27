@@ -40,4 +40,5 @@ export type EmailTemplateName =
   | 'subscription-reminder'
   | 'subscription-expired'
   | 'subscription-renewed'
-  | 'credit-purchase-receipt';
+  | 'credit-purchase-receipt'
+  | 'seat-limit-exceeded';

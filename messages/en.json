@@ -1835,6 +1835,7 @@
       "joined": "Joined workspace!",
       "createError": "Failed to create workspace",
       "joinError": "Failed to join workspace",
+      "seatLimitReached": "This workspace has reached its team member limit ({plan} plan allows {seats} seat{seats, plural, one {} other {s}}). The workspace admin has been notified. Please ask them to upgrade the plan or purchase extra seats.",
       "duplicateError": "A workspace with this name already exists. Try a different name.",
       "subdomainInfo": "Your workspace will be available at {subdomain}",
       "stepDetailsTitle": "Name & logo",

@@ -3,7 +3,7 @@
 //
 // Authenticated. Caller joins the inviter's account with the
 // invite's role. Heavy lifting lives in the SECURITY DEFINER
-// `redeem_invitation` RPC from migration 047.
+// `redeem_invitation` RPC.
 //
 // M:N flow: user keeps existing workspaces AND gets access to
 // the invited workspace. No data is lost, no accounts deleted.
@@ -11,6 +11,7 @@
 // Refusal contract (from the RPC)
 //   - SQLSTATE 42501 → 401 (caller not authenticated)
 //   - SQLSTATE 22023 → 400 (invitation not_found / used / expired)
+//   - SQLSTATE P0001 → 403 (seat limit reached)
 //
 // Rate limit (per IP) is the same shape as peek but tighter —
 // a successful redeem changes data.
@@ -26,6 +27,8 @@ import {
   RATE_LIMITS,
 } from "@/lib/rate-limit";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { sendSeatLimitExceededEmail } from "@/lib/email/send";
 
 function getClientIp(request: Request): string {
   const xff = request.headers.get("x-forwarded-for");
@@ -67,9 +70,6 @@ export async function POST(
 
   const supabase = await createClient();
 
-  // The RPC checks `auth.uid()` itself, but failing fast here
-  // gives a cleaner 401 without a Supabase round trip on the
-  // common "user clicked the link before logging in" path.
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -77,11 +77,61 @@ export async function POST(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data: accountId, error } = await supabase.rpc("redeem_invitation", {
+  const { data: rpcResult, error } = await supabase.rpc("redeem_invitation", {
     p_token_hash: hashInviteToken(token),
   });
 
-  if (error) return rpcErrorToResponse(error);
+  if (error) {
+    // Seat limit error
+    if (error.code === "P0001" && error.details) {
+      try {
+        const seatInfo = JSON.parse(error.details);
+        if (seatInfo.seat_limit_reached) {
+          notifyAdminSeatLimit(seatInfo, user.id).catch(console.error);
+          return NextResponse.json({
+            error: error.message,
+            seat_limit_reached: true,
+            seat_info: seatInfo,
+          }, { status: 403 });
+        }
+      } catch { /* fall through */ }
+    }
+    return rpcErrorToResponse(error);
+  }
 
-  return NextResponse.json({ ok: true, accountId });
+  if (typeof rpcResult === 'object' && rpcResult !== null) {
+    return NextResponse.json({ ok: true, accountId: rpcResult.account_id, role: rpcResult.role });
+  }
+
+  return NextResponse.json({ ok: true, accountId: rpcResult });
+}
+
+async function notifyAdminSeatLimit(
+  seatInfo: { account_id: string; plan: string; total_seats: number; current_members: number },
+  attempterUserId: string,
+) {
+  const adminClient = createAdminClient();
+  const { data: account } = await adminClient
+    .from("accounts")
+    .select("name, owner_user_id")
+    .eq("id", seatInfo.account_id)
+    .single();
+
+  if (!account?.owner_user_id) return;
+
+  const [{ data: ownerProfile }, { data: attempterProfile }] = await Promise.all([
+    adminClient.from("profiles").select("full_name, email").eq("user_id", account.owner_user_id).single(),
+    adminClient.from("profiles").select("full_name, email").eq("user_id", attempterUserId).single(),
+  ]);
+
+  if (!ownerProfile?.email) return;
+
+  await sendSeatLimitExceededEmail(ownerProfile.email, {
+    adminName: ownerProfile.full_name || "Admin",
+    attempterName: attempterProfile?.full_name || attempterProfile?.email || "A user",
+    workspaceName: account.name || "your workspace",
+    plan: seatInfo.plan || "starter",
+    totalSeats: String(seatInfo.total_seats || 1),
+    currentMembers: String(seatInfo.current_members || 0),
+  });
 }

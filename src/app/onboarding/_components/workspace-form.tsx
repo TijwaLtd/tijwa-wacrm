@@ -151,6 +151,14 @@ export function WorkspaceForm({ mode, onModeSwitch }: WorkspaceFormProps) {
       const data = await res.json();
 
       if (!res.ok) {
+        if (data.seat_limit_reached) {
+          throw new Error(
+            t('seatLimitReached', {
+              plan: data.seat_info?.plan || 'your current',
+              seats: data.seat_info?.total_seats || 1,
+            })
+          );
+        }
         throw new Error(data.error || t('joinError'));
       }
 
