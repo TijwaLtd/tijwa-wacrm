@@ -32,35 +32,28 @@ export async function GET() {
       });
     }
 
-    // No subscription row — create one backdated from account creation
+    // No subscription row — create one starting today
     const { data: settings } = await serviceClient
       .from("tenant_settings")
       .select("plan, subscription_status")
       .eq("account_id", accountId)
       .maybeSingle();
 
-    const { data: account } = await serviceClient
-      .from("accounts")
-      .select("created_at")
-      .eq("id", accountId)
-      .maybeSingle();
-
     const plan = settings?.plan ?? "starter";
     const status = settings?.subscription_status ?? "active";
 
-    // Use account creation date as period start, +30 days as end
-    const accountCreated = account?.created_at ? new Date(account.created_at) : new Date();
-    const periodStart = accountCreated.toISOString();
-    const periodEnd = new Date(accountCreated.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    const now = new Date();
+    const periodStart = now.toISOString();
+    const periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
-    // Upsert subscription row
+    // Insert subscription row
     await serviceClient.from("subscriptions").insert({
       account_id: accountId,
       plan,
       status,
       current_period_start: periodStart,
       current_period_end: periodEnd,
-    }).select();
+    });
 
     return NextResponse.json({
       subscription: {
