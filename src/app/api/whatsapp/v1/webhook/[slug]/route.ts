@@ -11,6 +11,7 @@ import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
 import { autoAssignConversation } from '@/lib/assignments/auto-assign'
+import { detectConversationTopic } from '@/lib/assignments/topic-detection'
 import {
   handleTemplateWebhookChange,
   isTemplateWebhookField,
@@ -611,12 +612,25 @@ async function processMessage(
       contact_id: contactRecord.id,
     })
 
-    // Auto-assign newly created conversations (fire-and-forget)
+    // Detect topic + auto-assign newly created conversations (fire-and-forget)
+    after(async () => {
+      try {
+        // Detect language and department from first message
+        if (contentText) {
+          await detectConversationTopic(supabaseAdmin(), accountId, conversation.id, contentText)
+        }
+        await autoAssignConversation(supabaseAdmin(), accountId, conversation.id)
+      } catch (err) {
+        console.error('[processMessage] auto-assign failed:', err)
+      }
+    })
+  } else if (!conversation.assigned_agent_id && contentText) {
+    // Existing unassigned conversation received a new message — try to assign
     after(async () => {
       try {
         await autoAssignConversation(supabaseAdmin(), accountId, conversation.id)
       } catch (err) {
-        console.error('[processMessage] auto-assign failed:', err)
+        console.error('[processMessage] re-assign failed:', err)
       }
     })
   }

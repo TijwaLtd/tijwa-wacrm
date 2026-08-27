@@ -177,6 +177,16 @@ export interface Conversation {
   team_name?: string | null;
   /** User IDs of team conversation participants */
   team_participant_ids?: string[];
+  /** Department this conversation is routed to */
+  department_id?: string | null;
+  /** AI-detected priority (0=normal, 1=high, 2=urgent) */
+  priority?: number;
+  /** AI-detected language of the conversation */
+  detected_language?: string | null;
+  /** Department name (joined from departments table) */
+  department_name?: string | null;
+  /** Department color (joined from departments table) */
+  department_color?: string | null;
   /**
    * AI auto-reply state for this thread (migration 029 + 033):
    *  - `ai_autoreply_disabled` — the bot is paused here (a human took

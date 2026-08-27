@@ -648,6 +648,22 @@ function ConversationItem({
             ) : conversation.account_id ? (
               <WorkspaceBadge accountId={conversation.account_id} size="sm" />
             ) : null}
+            {conversation.department_name && (
+              <span
+                className="shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-medium"
+                style={{
+                  backgroundColor: (conversation.department_color || '#6366f1') + '20',
+                  color: conversation.department_color || '#6366f1',
+                }}
+              >
+                {conversation.department_name}
+              </span>
+            )}
+            {conversation.priority != null && conversation.priority > 0 && (
+              <span className="shrink-0 rounded-md bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-600">
+                {conversation.priority >= 2 ? 'Urgent' : 'High'}
+              </span>
+            )}
           </div>
           <span className="shrink-0 text-[10px] text-muted-foreground">{timeAgo}</span>
         </div>

@@ -18,6 +18,9 @@ import { FieldsAndTagsPanel } from '@/components/settings/fields-and-tags-panel'
 import { DealsSettings } from '@/components/settings/deals-settings';
 import { AiConfig } from '@/components/settings/ai-config';
 import { AutoAssignSettings } from '@/components/settings/auto-assign-settings';
+import { DepartmentSettings } from '@/components/settings/department-settings';
+import { SkillSettings } from '@/components/settings/skill-settings';
+import { ScheduleSettings } from '@/components/settings/schedule-settings';
 import { MembersTab } from '@/components/settings/members-tab';
 import { ApiKeysSettings } from '@/components/settings/api-keys-settings';
 import { WorkspaceSettings } from '@/components/settings/workspace-settings';
@@ -84,6 +87,9 @@ function SettingsPageInner() {
     deals: <DealsSettings />,
     ai: <AiConfig />,
     'auto-assign': <AutoAssignSettings />,
+    departments: <DepartmentSettings />,
+    skills: <SkillSettings />,
+    schedule: <ScheduleSettings />,
     members: <MembersTab />,
     workspace: <WorkspaceSettings />,
     api: <ApiKeysSettings />,
