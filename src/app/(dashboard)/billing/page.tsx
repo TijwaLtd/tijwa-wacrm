@@ -32,21 +32,25 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { useTranslations } from 'next-intl';
 import { useAuth } from '@/hooks/use-auth';
 import { cn } from '@/lib/utils';
+
+interface PlanFeatures {
+  max_contacts: number;
+  max_team_members: number;
+  max_broadcasts_per_month: number;
+  max_automations: number;
+  max_flows: number;
+  ai_replies_per_month: number;
+  ai_credits_per_month: number;
+}
 
 interface Plan {
   id: 'starter' | 'pro' | 'enterprise';
   name: string;
   price: string;
   description: string;
-  maxContacts: number | 'unlimited';
-  maxTeam: number | 'unlimited';
-  maxBroadcasts: number | 'unlimited';
-  maxAutomations: number | 'unlimited';
-  maxFlows: number | 'unlimited';
-  aiCredits: number | 'unlimited';
+  features: PlanFeatures;
 }
 
 interface Subscription {
@@ -68,42 +72,52 @@ interface TopupOption {
   price: string;
 }
 
-const PLANS: Plan[] = [
+// Fallback plans if DB fetch fails
+const FALLBACK_PLANS: Plan[] = [
   {
     id: 'starter',
     name: 'Starter',
     price: 'Free',
     description: 'For small teams getting started with WhatsApp CRM.',
-    maxContacts: 1000,
-    maxTeam: 5,
-    maxBroadcasts: 50,
-    maxAutomations: 20,
-    maxFlows: 10,
-    aiCredits: 100,
+    features: {
+      max_contacts: 1000,
+      max_team_members: 5,
+      max_broadcasts_per_month: 50,
+      max_automations: 20,
+      max_flows: 10,
+      ai_replies_per_month: 100,
+      ai_credits_per_month: 100,
+    },
   },
   {
     id: 'pro',
     name: 'Pro',
     price: '$29/mo',
     description: 'For growing businesses that need more power.',
-    maxContacts: 25000,
-    maxTeam: 25,
-    maxBroadcasts: 500,
-    maxAutomations: 100,
-    maxFlows: 50,
-    aiCredits: 1000,
+    features: {
+      max_contacts: 25000,
+      max_team_members: 25,
+      max_broadcasts_per_month: 500,
+      max_automations: 100,
+      max_flows: 50,
+      ai_replies_per_month: 1000,
+      ai_credits_per_month: 1000,
+    },
   },
   {
     id: 'enterprise',
     name: 'Enterprise',
     price: 'Custom',
     description: 'For large organizations with custom needs.',
-    maxContacts: 'unlimited',
-    maxTeam: 'unlimited',
-    maxBroadcasts: 'unlimited',
-    maxAutomations: 'unlimited',
-    maxFlows: 'unlimited',
-    aiCredits: 'unlimited',
+    features: {
+      max_contacts: 999999,
+      max_team_members: 999,
+      max_broadcasts_per_month: 999999,
+      max_automations: 9999,
+      max_flows: 9999,
+      ai_replies_per_month: 999999,
+      ai_credits_per_month: 999999,
+    },
   },
 ];
 
@@ -114,8 +128,9 @@ const TOPUP_OPTIONS: TopupOption[] = [
   { credits: 500, price: '$50' },
 ];
 
-function formatLimit(val: number | 'unlimited'): string {
-  return val === 'unlimited' ? 'Unlimited' : val.toLocaleString();
+function formatLimit(val: number): string {
+  if (val >= 999999) return 'Unlimited';
+  return val.toLocaleString();
 }
 
 function formatDate(dateStr: string | null | undefined): string {
@@ -146,6 +161,7 @@ export default function BillingPage() {
   const { activeWorkspace } = useAuth();
   const currentPlan = (activeWorkspace?.plan ?? 'starter') as Plan['id'];
 
+  const [plans, setPlans] = useState<Plan[]>(FALLBACK_PLANS);
   const [loading, setLoading] = useState(false);
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [fetching, setFetching] = useState(true);
@@ -162,6 +178,38 @@ export default function BillingPage() {
     if (!activeWorkspace?.account_id) return;
     setFetching(true);
     try {
+      // Fetch plans from DB
+      const plansRes = await fetch('/api/plans');
+      if (plansRes.ok) {
+        const data = await plansRes.json();
+        if (data.plans) {
+          const dbPlans: Plan[] = [
+            {
+              id: 'starter',
+              name: 'Starter',
+              price: 'Free',
+              description: 'For small teams getting started with WhatsApp CRM.',
+              features: data.plans.starter ?? FALLBACK_PLANS[0].features,
+            },
+            {
+              id: 'pro',
+              name: 'Pro',
+              price: '$29/mo',
+              description: 'For growing businesses that need more power.',
+              features: data.plans.pro ?? FALLBACK_PLANS[1].features,
+            },
+            {
+              id: 'enterprise',
+              name: 'Enterprise',
+              price: 'Custom',
+              description: 'For large organizations with custom needs.',
+              features: data.plans.enterprise ?? FALLBACK_PLANS[2].features,
+            },
+          ];
+          setPlans(dbPlans);
+        }
+      }
+
       // Fetch subscription
       let planFromWs = currentPlan;
       const subRes = await fetch('/api/workspaces');
@@ -187,11 +235,11 @@ export default function BillingPage() {
       if (creditRes.ok) {
         const data = await creditRes.json();
         if (data.credits) {
-          const planLimit = PLANS.find((p) => p.id === planFromWs)?.aiCredits ?? 100;
+          const planDef = plans.find((p) => p.id === planFromWs) ?? FALLBACK_PLANS[0];
           setCredits({
             creditsRemaining: data.credits.creditsRemaining ?? 0,
             creditsUsed: data.credits.creditsUsed ?? 0,
-            creditsTotal: typeof planLimit === 'number' ? planLimit : 999999,
+            creditsTotal: planDef.features.ai_credits_per_month,
           });
         }
       }
@@ -200,7 +248,7 @@ export default function BillingPage() {
     } finally {
       setFetching(false);
     }
-  }, [activeWorkspace?.account_id]);
+  }, [activeWorkspace?.account_id, currentPlan]);
 
   useEffect(() => {
     void fetchData();
@@ -227,7 +275,6 @@ export default function BillingPage() {
           cancel_at_period_end: false,
         } : prev);
       }
-      // Reload to refresh activeWorkspace credits
       window.location.reload();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to update plan');
@@ -301,7 +348,7 @@ export default function BillingPage() {
   };
 
   const isExpired = subscription?.status && !['active', 'trial'].includes(subscription.status);
-  const activePlan = PLANS.find((p) => p.id === currentPlan) ?? PLANS[0];
+  const activePlan = plans.find((p) => p.id === currentPlan) ?? plans[0];
   const isCancelling = subscription?.cancel_at_period_end ?? false;
   const daysLeft = daysUntil(subscription?.current_period_end);
   const creditPercent = credits
@@ -406,15 +453,15 @@ export default function BillingPage() {
           <div className="mt-6 grid gap-4 sm:grid-cols-3">
             <div className="rounded-md border border-border p-3">
               <p className="text-xs text-muted-foreground">Contacts</p>
-              <p className="text-lg font-bold text-foreground">{formatLimit(activePlan.maxContacts)}</p>
+              <p className="text-lg font-bold text-foreground">{formatLimit(activePlan.features.max_contacts)}</p>
             </div>
             <div className="rounded-md border border-border p-3">
               <p className="text-xs text-muted-foreground">Team members</p>
-              <p className="text-lg font-bold text-foreground">{formatLimit(activePlan.maxTeam)}</p>
+              <p className="text-lg font-bold text-foreground">{formatLimit(activePlan.features.max_team_members)}</p>
             </div>
             <div className="rounded-md border border-border p-3">
               <p className="text-xs text-muted-foreground">AI credits/mo</p>
-              <p className="text-lg font-bold text-foreground">{formatLimit(activePlan.aiCredits)}</p>
+              <p className="text-lg font-bold text-foreground">{formatLimit(activePlan.features.ai_credits_per_month)}</p>
             </div>
           </div>
 
@@ -602,7 +649,7 @@ export default function BillingPage() {
         {currentPlan === 'starter' ? 'Upgrade Plan' : 'Change Plan'}
       </h2>
       <div className="grid gap-4 sm:grid-cols-3">
-        {PLANS.map((plan) => {
+        {plans.map((plan) => {
           const isCurrent = plan.id === currentPlan;
           const isPro = plan.id === 'pro';
 
@@ -635,23 +682,23 @@ export default function BillingPage() {
                 <ul className="flex flex-col gap-2 text-sm">
                   <li className="flex items-center gap-2">
                     <Check className="h-4 w-4 shrink-0 text-primary" />
-                    <span>{formatLimit(plan.maxContacts)} contacts</span>
+                    <span>{formatLimit(plan.features.max_contacts)} contacts</span>
                   </li>
                   <li className="flex items-center gap-2">
                     <Check className="h-4 w-4 shrink-0 text-primary" />
-                    <span>{formatLimit(plan.maxTeam)} team members</span>
+                    <span>{formatLimit(plan.features.max_team_members)} team members</span>
                   </li>
                   <li className="flex items-center gap-2">
                     <Check className="h-4 w-4 shrink-0 text-primary" />
-                    <span>{formatLimit(plan.maxBroadcasts)} broadcasts/mo</span>
+                    <span>{formatLimit(plan.features.max_broadcasts_per_month)} broadcasts/mo</span>
                   </li>
                   <li className="flex items-center gap-2">
                     <Check className="h-4 w-4 shrink-0 text-primary" />
-                    <span>{formatLimit(plan.maxAutomations)} automations</span>
+                    <span>{formatLimit(plan.features.max_automations)} automations</span>
                   </li>
                   <li className="flex items-center gap-2">
                     <Check className="h-4 w-4 shrink-0 text-primary" />
-                    <span>{formatLimit(plan.aiCredits)} AI credits/mo</span>
+                    <span>{formatLimit(plan.features.ai_credits_per_month)} AI credits/mo</span>
                   </li>
                 </ul>
               </CardContent>

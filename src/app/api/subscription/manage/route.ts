@@ -6,106 +6,81 @@
 // ============================================================
 
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { requireRole, toErrorResponse } from "@/lib/auth/account";
 
 export async function POST(request: Request) {
-  const supabase = await createClient();
+  try {
+    const { serviceClient, accountId } = await requireRole('admin');
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+    const body = await request.json().catch(() => null);
+    const action = body?.action as string;
 
-  const body = await request.json().catch(() => null);
-  const action = body?.action as string;
+    if (action !== "cancel" && action !== "reactivate") {
+      return NextResponse.json(
+        { error: "action must be 'cancel' or 'reactivate'" },
+        { status: 400 },
+      );
+    }
 
-  if (action !== "cancel" && action !== "reactivate") {
-    return NextResponse.json(
-      { error: "action must be 'cancel' or 'reactivate'" },
-      { status: 400 },
-    );
-  }
+    // Load current subscription
+    const { data: sub, error: subErr } = await serviceClient
+      .from("subscriptions")
+      .select("id, plan, status, current_period_end, cancel_at_period_end")
+      .eq("account_id", accountId)
+      .maybeSingle();
 
-  // Get active account from cookie
-  const cookieHeader = request.headers.get("cookie") ?? "";
-  const match = cookieHeader.match(/wacrm_active_account=([^;]+)/);
-  const accountId = match?.[1];
+    if (subErr || !sub) {
+      return NextResponse.json(
+        { error: "No active subscription found" },
+        { status: 404 },
+      );
+    }
 
-  if (!accountId) {
-    return NextResponse.json({ error: "No active workspace" }, { status: 400 });
-  }
+    if (action === "cancel") {
+      const { error } = await serviceClient
+        .from("subscriptions")
+        .update({
+          cancel_at_period_end: true,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", sub.id);
 
-  // Verify caller is owner/admin
-  const { data: membership } = await supabase
-    .from("account_memberships")
-    .select("role")
-    .eq("user_id", user.id)
-    .eq("account_id", accountId)
-    .single();
+      if (error) {
+        return NextResponse.json({ error: "Failed to cancel" }, { status: 500 });
+      }
 
-  if (!membership || !["owner", "admin"].includes(membership.role)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+      return NextResponse.json({
+        ok: true,
+        message: "Subscription will cancel at the end of the billing period",
+        cancel_at: sub.current_period_end,
+      });
+    }
 
-  // Load current subscription
-  const { data: sub, error: subErr } = await supabase
-    .from("subscriptions")
-    .select("id, plan, status, current_period_end, cancel_at_period_end")
-    .eq("account_id", accountId)
-    .maybeSingle();
+    // action === "reactivate"
+    if (!sub.cancel_at_period_end) {
+      return NextResponse.json({
+        ok: true,
+        message: "Subscription is already active",
+      });
+    }
 
-  if (subErr || !sub) {
-    return NextResponse.json(
-      { error: "No active subscription found" },
-      { status: 404 },
-    );
-  }
-
-  if (action === "cancel") {
-    // Mark for cancellation at period end (user keeps access until then)
-    const { error } = await supabase
+    const { error } = await serviceClient
       .from("subscriptions")
       .update({
-        cancel_at_period_end: true,
+        cancel_at_period_end: false,
         updated_at: new Date().toISOString(),
       })
       .eq("id", sub.id);
 
     if (error) {
-      return NextResponse.json({ error: "Failed to cancel" }, { status: 500 });
+      return NextResponse.json({ error: "Failed to reactivate" }, { status: 500 });
     }
 
     return NextResponse.json({
       ok: true,
-      message: "Subscription will cancel at the end of the billing period",
-      cancel_at: sub.current_period_end,
+      message: "Subscription reactivated",
     });
+  } catch (err) {
+    return toErrorResponse(err);
   }
-
-  // action === "reactivate"
-  if (!sub.cancel_at_period_end) {
-    return NextResponse.json({
-      ok: true,
-      message: "Subscription is already active",
-    });
-  }
-
-  const { error } = await supabase
-    .from("subscriptions")
-    .update({
-      cancel_at_period_end: false,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", sub.id);
-
-  if (error) {
-    return NextResponse.json({ error: "Failed to reactivate" }, { status: 500 });
-  }
-
-  return NextResponse.json({
-    ok: true,
-    message: "Subscription reactivated",
-  });
 }
