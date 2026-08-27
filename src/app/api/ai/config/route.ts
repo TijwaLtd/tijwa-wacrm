@@ -71,7 +71,7 @@ export async function GET() {
       });
     }
 
-    const balance = await getAiCreditBalance(supabase, accountId)
+    const balance = await getAiCreditBalance(serviceClient, accountId)
 
     const openaiRates = await getCreditRatesForProvider(supabase, 'openai')
     const anthropicRates = await getCreditRatesForProvider(supabase, 'anthropic')

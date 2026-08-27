@@ -33,8 +33,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Failed to add credits" }, { status: 500 });
     }
 
-    // Fetch new balance
-    const { data: credits } = await supabase
+    // Fetch new balance (use serviceClient to bypass ai_credits RLS recursion)
+    const { data: credits } = await serviceClient
       .from("ai_credits")
       .select("credits_remaining")
       .eq("account_id", accountId)
