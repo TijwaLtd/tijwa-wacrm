@@ -111,7 +111,11 @@ export async function autoAssignConversation(
   if (!assignedUserId) return null;
 
   // 7. Assign the conversation
-  const updatePayload: Record<string, unknown> = { assigned_agent_id: assignedUserId };
+  const updatePayload: Record<string, unknown> = {
+    assigned_agent_id: assignedUserId,
+    human_assigned_at: new Date().toISOString(),
+    human_replied: false,
+  };
   if (detectedDeptId) {
     updatePayload.department_id = detectedDeptId;
   }

@@ -65,7 +65,11 @@ export async function POST(request: Request, { params }: Params) {
     const update: Record<string, unknown> = { ai_autoreply_disabled: paused }
 
     if (paused) {
-      if (assignToMe) update.assigned_agent_id = userId
+      if (assignToMe) {
+        update.assigned_agent_id = userId
+        update.human_assigned_at = new Date().toISOString()
+        update.human_replied = false
+      }
     } else {
       // Resuming hands the thread *back to the bot*. Clear the pause and
       // the handoff note, and — crucially — release ANY assignment, not
@@ -75,6 +79,8 @@ export async function POST(request: Request, { params }: Params) {
       // the bot muted and make "Resume AI" a no-op. This is the explicit
       // choice to let the bot own the thread again.
       update.assigned_agent_id = null
+      update.human_assigned_at = null
+      update.human_replied = false
       // Give the bot a fresh reply budget on this thread. This is a
       // deliberate, manual, rate-limited action (not automatable), so it
       // can't be used to bypass the per-conversation cap at scale — it's

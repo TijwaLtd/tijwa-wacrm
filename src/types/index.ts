@@ -187,6 +187,10 @@ export interface Conversation {
   department_name?: string | null;
   /** Department color (joined from departments table) */
   department_color?: string | null;
+  /** When human agent was assigned (for timeout tracking) */
+  human_assigned_at?: string | null;
+  /** Whether human has replied since being assigned */
+  human_replied?: boolean;
   /**
    * AI auto-reply state for this thread (migration 029 + 033):
    *  - `ai_autoreply_disabled` — the bot is paused here (a human took

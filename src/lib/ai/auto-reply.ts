@@ -157,7 +157,7 @@ export async function dispatchInboundToAiReply(
     // AI handles all non-matching messages.
     const { data: conv } = await db
       .from('conversations')
-      .select('assigned_agent_id, ai_autoreply_disabled, ai_reply_count, last_message_text')
+      .select('assigned_agent_id, ai_autoreply_disabled, ai_reply_count, last_message_text, human_assigned_at, human_replied')
       .eq('id', conversationId)
       .maybeSingle()
     if (!conv) return
@@ -165,17 +165,52 @@ export async function dispatchInboundToAiReply(
     // Check if message matches a keyword automation
     const lastMessage = conv.last_message_text || ''
     if (await messageMatchesAutoResponder(db, accountId, lastMessage)) {
-      // Message matches an automation — let it handle it
       return
+    }
+
+    // ── CHECK HUMAN TIMEOUT ───────────────────────────────────
+    // If human is assigned but hasn't replied, check if timeout elapsed.
+    // If timeout → re-enable AI and let it handle.
+    if (conv.assigned_agent_id && conv.human_assigned_at && !conv.human_replied) {
+      const { data: settings } = await db
+        .from('tenant_settings')
+        .select('ai_human_timeout_minutes')
+        .eq('account_id', accountId)
+        .maybeSingle()
+
+      const timeoutMinutes = settings?.ai_human_timeout_minutes ?? 5
+      const assignedAt = new Date(conv.human_assigned_at)
+      const now = new Date()
+      const minutesSinceAssigned = (now.getTime() - assignedAt.getTime()) / (1000 * 60)
+
+      if (minutesSinceAssigned >= timeoutMinutes) {
+        // Timeout elapsed — human hasn't replied, re-enable AI
+        console.log(`[ai auto-reply] human timeout (${timeoutMinutes}min) elapsed for conversation ${conversationId} — re-enabling AI`)
+        await db
+          .from('conversations')
+          .update({
+            ai_autoreply_disabled: false,
+            human_replied: false,
+            human_assigned_at: null,
+          })
+          .eq('id', conversationId)
+
+        // Clear assigned agent so AI can handle
+        conv.assigned_agent_id = null
+        conv.ai_autoreply_disabled = false
+      } else {
+        // Human is assigned, hasn't replied yet, but timeout hasn't elapsed
+        // Stay quiet — give human more time
+        return
+      }
     }
 
     // ── CHECK CONVERSATION STATE ──────────────────────────────
     if (conv.assigned_agent_id) {
-      // Human assigned — send notification and step back
-      await sendDefaultMessage(db, accountId, conversationId, contactId, configOwnerUserId, 'humanAssigned')
+      // Human assigned and has replied (or just assigned, within timeout)
       return
     }
-    if (conv.ai_autoreply_disabled) return // handed off / turned off here
+    if (conv.ai_autoreply_disabled) return
     if (conv.ai_reply_count >= config.autoReplyMaxPerConversation) {
       await sendDefaultMessage(db, accountId, conversationId, contactId, configOwnerUserId, 'replyCapReached')
       return
