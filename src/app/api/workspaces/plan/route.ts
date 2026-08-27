@@ -102,6 +102,46 @@ export async function POST(request: Request) {
       });
     }
 
+    // Auto-remove extra seats if new plan covers all members
+    const { data: planFeatures } = await serviceClient.rpc("get_plan_features", {
+      p_plan: plan,
+    });
+    const features = typeof planFeatures === 'string' ? JSON.parse(planFeatures) : planFeatures;
+    const newPlanSeats = features?.max_team_members ?? 1;
+
+    // Count current members
+    const { count: memberCount } = await serviceClient
+      .from("account_memberships")
+      .select("id", { count: "exact", head: true })
+      .eq("account_id", accountId);
+
+    const currentMembers = memberCount ?? 0;
+
+    // Get current extra seats
+    const { data: currentSub } = await serviceClient
+      .from("subscriptions")
+      .select("id, extra_seats")
+      .eq("account_id", accountId)
+      .maybeSingle();
+
+    const currentExtra = currentSub?.extra_seats ?? 0;
+
+    // If new plan covers all members, remove extra seats
+    if (currentExtra > 0 && newPlanSeats >= currentMembers) {
+      await serviceClient
+        .from("subscriptions")
+        .update({ extra_seats: 0, updated_at: now.toISOString() })
+        .eq("account_id", accountId);
+
+      // Log billing history
+      await serviceClient.from("billing_history").insert({
+        account_id: accountId,
+        event_type: 'seat_removed',
+        description: `Extra seats removed — ${newPlan} plan covers ${newPlanSeats} seats`,
+        metadata: { seats_removed: currentExtra, reason: 'plan_upgrade' },
+      });
+    }
+
     // Send email notification (fire-and-forget, don't block the response)
     const { data: profile } = await supabase
       .from("profiles")

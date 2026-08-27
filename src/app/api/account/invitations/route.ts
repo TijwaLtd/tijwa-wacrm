@@ -172,11 +172,22 @@ export async function POST(request: Request) {
     // Require active subscription before inviting
     await requireActiveSubscription(ctx.serviceClient, ctx.accountId);
 
-    // Check team member limit
+    // Check team member limit (plan seats + extra seats)
     const memberCheck = await checkUsageLimit(ctx.serviceClient, ctx.accountId, 'max_team_members');
-    if (!memberCheck.allowed) {
+
+    // Get extra seats from subscription
+    const { data: sub } = await ctx.serviceClient
+      .from("subscriptions")
+      .select("extra_seats")
+      .eq("account_id", ctx.accountId)
+      .maybeSingle();
+
+    const extraSeats = sub?.extra_seats ?? 0;
+    const effectiveMax = memberCheck.max + extraSeats;
+
+    if (memberCheck.current >= effectiveMax) {
       return NextResponse.json(
-        { error: `Team member limit reached (${memberCheck.max}). Upgrade your plan to add more members.` },
+        { error: `Team member limit reached (${memberCheck.max} included + ${extraSeats} extra). Upgrade your plan or purchase extra seats.`, seat_limit_reached: true },
         { status: 403 },
       );
     }

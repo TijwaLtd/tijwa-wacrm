@@ -47,6 +47,8 @@ interface InviteMemberDialogProps {
   /** Called after a successful create so the parent re-fetches the
    *  pending-invitations list. */
   onCreated: () => void;
+  /** Called when seat limit is reached so parent can show upgrade dialog */
+  onSeatLimitReached?: () => void;
 }
 
 const EXPIRY_OPTIONS = [
@@ -73,6 +75,7 @@ export function InviteMemberDialog({
   open,
   onOpenChange,
   onCreated,
+  onSeatLimitReached,
 }: InviteMemberDialogProps) {
   const t = useTranslations('Settings.invite');
   const tRoles = useTranslations('Settings.roles');
@@ -117,6 +120,12 @@ export function InviteMemberDialog({
 
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
+        // If seat limit reached, notify parent to show upgrade dialog
+        if (payload.seat_limit_reached && onSeatLimitReached) {
+          onOpenChange(false);
+          onSeatLimitReached();
+          return;
+        }
         toast.error(payload.error || 'Failed to create invitation');
         return;
       }

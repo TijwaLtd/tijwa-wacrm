@@ -73,8 +73,18 @@ import {
   PresenceDot,
 } from '@/components/presence/presence-dot';
 import { InviteMemberDialog } from './invite-member-dialog';
+import { SeatPurchaseDialog } from './seat-purchase-dialog';
 import { SettingsPanelHead } from './settings-panel-head';
 import { ROLE_META } from './role-meta';
+
+interface SeatInfo {
+  included_seats: number;
+  extra_seats: number;
+  total_seats: number;
+  seat_price_kes: number;
+  current_members: number;
+  plan: string;
+}
 
 interface Member {
   user_id: string;
@@ -139,14 +149,19 @@ export function MembersTab() {
   const [pendingMemberAction, setPendingMemberAction] = useState<string | null>(
     null,
   );
+  const [seatInfo, setSeatInfo] = useState<SeatInfo | null>(null);
+  const [seatDialogOpen, setSeatDialogOpen] = useState(false);
+  const [plans, setPlans] = useState<Array<{ id: string; name: string; price_kes: number; features?: { max_team_members: number } }>>([]);
 
   const loadEverything = useCallback(async () => {
     try {
-      const [mres, ires] = await Promise.all([
+      const [mres, ires, seatsRes, plansRes] = await Promise.all([
         fetch('/api/account/members', { cache: 'no-store' }),
         canManageMembers
           ? fetch('/api/account/invitations', { cache: 'no-store' })
           : Promise.resolve(null),
+        fetch('/api/subscription/seats', { cache: 'no-store' }),
+        fetch('/api/plans', { cache: 'no-store' }),
       ]);
 
       if (!mres.ok) {
@@ -167,6 +182,16 @@ export function MembersTab() {
         setInvitations(idata.invitations);
       } else {
         setInvitations([]);
+      }
+
+      if (seatsRes.ok) {
+        const sdata = (await seatsRes.json()) as SeatInfo;
+        setSeatInfo(sdata);
+      }
+
+      if (plansRes.ok) {
+        const pdata = (await plansRes.json()) as { plans: Array<{ id: string; name: string; price_kes: number; features?: { max_team_members: number } }> };
+        setPlans(pdata.plans ?? []);
       }
     } catch (err) {
       console.error('[MembersTab] load error:', err);
@@ -288,7 +313,14 @@ export function MembersTab() {
         description={t('description')}
         action={
           <RequireRole min="admin">
-            <Button onClick={() => setInviteOpen(true)}>
+            <Button onClick={() => {
+              // Check if at seat limit
+              if (seatInfo && seatInfo.current_members >= seatInfo.total_seats) {
+                setSeatDialogOpen(true);
+              } else {
+                setInviteOpen(true);
+              }
+            }}>
               <Plus className="size-4" />
               {t('inviteMember')}
             </Button>
@@ -565,7 +597,27 @@ export function MembersTab() {
         open={inviteOpen}
         onOpenChange={setInviteOpen}
         onCreated={loadEverything}
+        onSeatLimitReached={() => setSeatDialogOpen(true)}
       />
+
+      {seatInfo && (
+        <SeatPurchaseDialog
+          open={seatDialogOpen}
+          onOpenChange={setSeatDialogOpen}
+          onSeatPurchased={loadEverything}
+          onUpgrade={(planId) => {
+            setSeatDialogOpen(false);
+            window.location.href = `/billing?upgrade=${planId}`;
+          }}
+          currentPlan={seatInfo.plan}
+          plans={plans}
+          currentMembers={seatInfo.current_members}
+          includedSeats={seatInfo.included_seats}
+          seatPrice={seatInfo.seat_price_kes}
+          proratedCharge={Math.round(seatInfo.seat_price_kes * 0.5)}
+          daysRemaining={15}
+        />
+      )}
 
       <Dialog
         open={removingMember !== null}

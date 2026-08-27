@@ -23,6 +23,7 @@ import {
   BarChart3,
   Headphones,
   Plug,
+  Users,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -178,18 +179,26 @@ export default function BillingPage() {
   }>>([]);
   const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'annual'>('monthly');
   const ANNUAL_DISCOUNT = 0.18;
+  const [seatData, setSeatData] = useState<{
+    included_seats: number;
+    extra_seats: number;
+    total_seats: number;
+    seat_price_kes: number;
+    current_members: number;
+  } | null>(null);
 
   const fetchData = useCallback(async () => {
     if (!activeWorkspace?.account_id) return;
     setFetching(true);
     setPlansError(false);
     try {
-      const [plansRes, subRes, creditRes, subscriptionRes, historyRes] = await Promise.all([
+      const [plansRes, subRes, creditRes, subscriptionRes, historyRes, seatsRes] = await Promise.all([
         fetch('/api/plans'),
         fetch('/api/workspaces'),
         fetch('/api/ai/config'),
         fetch('/api/subscription/manage'),
         fetch('/api/subscription/history'),
+        fetch('/api/subscription/seats'),
       ]);
 
       const plansData = plansRes.ok ? await plansRes.json() : null;
@@ -197,6 +206,7 @@ export default function BillingPage() {
       const creditData = creditRes.ok ? await creditRes.json() : null;
       const subscriptionDetails = subscriptionRes.ok ? await subscriptionRes.json() : null;
       const historyData = historyRes.ok ? await historyRes.json() : null;
+      const seatsData = seatsRes.ok ? await seatsRes.json() : null;
 
       const dbPlans: Plan[] = plansData?.plans ?? [];
       if (dbPlans.length) {
@@ -228,6 +238,16 @@ export default function BillingPage() {
 
       if (historyData?.history) {
         setBillingHistory(historyData.history);
+      }
+
+      if (seatsData) {
+        setSeatData({
+          included_seats: seatsData.included_seats ?? 1,
+          extra_seats: seatsData.extra_seats ?? 0,
+          total_seats: seatsData.total_seats ?? 1,
+          seat_price_kes: seatsData.seat_price_kes ?? 750,
+          current_members: seatsData.current_members ?? 0,
+        });
       }
     } catch {
       setPlansError(true);
@@ -577,6 +597,38 @@ export default function BillingPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Extra seats */}
+      {seatData && seatData.extra_seats > 0 && (
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Users className="h-4 w-4 text-primary" /> Extra Team Seats
+            </CardTitle>
+            <CardDescription>
+              Additional team member seats beyond your plan limit.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-end justify-between">
+              <div>
+                <p className="text-3xl font-bold text-foreground">{seatData.extra_seats}</p>
+                <p className="text-sm text-muted-foreground">
+                  extra seat{seatData.extra_seats !== 1 ? 's' : ''} at KES {seatData.seat_price_kes.toLocaleString()}/mo each
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-sm font-medium text-foreground">
+                  KES {(seatData.extra_seats * seatData.seat_price_kes).toLocaleString()}/mo
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {seatData.current_members} of {seatData.total_seats} total seats used
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Top-up dialog */}
       <Dialog open={topupDialogOpen} onOpenChange={setTopupDialogOpen}>
