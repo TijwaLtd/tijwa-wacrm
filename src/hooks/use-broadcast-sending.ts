@@ -408,14 +408,26 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
       // ── Step 3: Insert recipient rows ─────────────────────────────
       setProgress(20);
 
-      // Deduplicate contacts GLOBALLY before creating recipient rows.
-      // Per-batch seen sets in the loop below would let the same
-      // contact_id slip through two batches and violate the unique
-      // constraint on (broadcast_id, contact_id).
-      const uniqueContacts = contacts.reduce<Contact[]>((acc, c) => {
-        if (!acc.some((existing) => existing.id === c.id)) acc.push(c);
-        return acc;
-      }, []);
+      // Guard: account must be resolved before any DB operation.
+      if (!accountId) {
+        throw new Error('Account not resolved — cannot send broadcast.');
+      }
+
+      // Deduplicate contacts GLOBALLY using a Map (last-write wins for
+      // any accidental duplicates). Also filter out any contacts with
+      // missing/invalid ids — these would cause FK violations or UUID
+      // generation failures.
+      const uniqueById = new Map<string, Contact>();
+      for (const c of contacts) {
+        if (typeof c?.id === 'string' && c.id.length > 0) {
+          uniqueById.set(c.id, c);
+        }
+      }
+      const uniqueContacts = [...uniqueById.values()];
+
+      if (uniqueContacts.length === 0) {
+        throw new Error('No valid contacts in audience.');
+      }
 
       const recipientRows = uniqueContacts.map((contact) => ({
         broadcast_id: broadcast.id,
@@ -423,30 +435,27 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
         status: 'pending' as const,
       }));
 
+      // Delete any existing recipients for this broadcast first. This
+      // handles a prior partial/failed attempt that left rows behind.
+      // Safe for new broadcasts — there are no prior sends to lose.
+      await supabase
+        .from('broadcast_recipients')
+        .delete()
+        .eq('broadcast_id', broadcast.id);
+
       for (let i = 0; i < recipientRows.length; i += INSERT_BATCH_SIZE) {
         const batch = recipientRows.slice(i, i + INSERT_BATCH_SIZE);
         const { error: recipientError } = await supabase
           .from('broadcast_recipients')
           .insert(batch);
         if (recipientError) {
-          // Broadcast_recipients has a UNIQUE constraint on (broadcast_id, contact_id).
-          // ON CONFLICT DO NOTHING silently skips any duplicate contact_id for this
-          // broadcast without failing or deleting prior batches.
-          const { error: upsertError } = await supabase
-            .from('broadcast_recipients')
-            .upsert(batch, {
-              onConflict: 'broadcast_id,contact_id',
-              ignoreDuplicates: true,
-            });
-          if (upsertError) {
-            await supabase
-              .from('broadcasts')
-              .update({ status: 'failed', failed_count: uniqueContacts.length })
-              .eq('id', broadcast.id);
-            throw new Error(
-              `Failed to insert recipient batch ${i / INSERT_BATCH_SIZE + 1}: ${upsertError.message}`,
-            );
-          }
+          await supabase
+            .from('broadcasts')
+            .update({ status: 'failed', failed_count: uniqueContacts.length })
+            .eq('id', broadcast.id);
+          throw new Error(
+            `Failed to insert recipient batch ${Math.floor(i / INSERT_BATCH_SIZE) + 1}: ${recipientError.message}`,
+          );
         }
       }
 
