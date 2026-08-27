@@ -1596,7 +1596,10 @@
       "members": "Team members",
       "workspace": "Workspace",
       "plans": "Plans & billing",
-      "api": "API keys"
+      "api": "API keys",
+      "departments": "Departments",
+      "skills": "Agent skills",
+      "schedule": "Working hours"
     },
     "groups": {
       "account": "Account",
