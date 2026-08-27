@@ -86,7 +86,7 @@ export async function POST(request: Request) {
 
     // Reset AI credits to plan allocation
     const PLAN_CREDITS: Record<string, number> = {
-      starter: 100,
+      starter: 0,
       business: 400,
       growth: 1000,
       enterprise: 999999,

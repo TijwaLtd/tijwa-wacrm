@@ -44,7 +44,7 @@ export async function GET() {
     // The on_account_created_ai_credits trigger creates a row with 0 credits,
     // so we need to seed when the row is missing OR has 0 remaining.
     const PLAN_CREDITS: Record<string, number> = {
-      starter: 100,
+      starter: 0,
       business: 400,
       growth: 1000,
       enterprise: 999999,
