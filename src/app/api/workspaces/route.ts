@@ -12,8 +12,10 @@
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createClient as createServiceClient } from "@supabase/supabase-js";
 
 // GET /api/workspaces - List all workspaces for current user
+// Uses serviceClient to bypass RLS (avoids infinite recursion on account_memberships)
 export async function GET() {
   const supabase = await createClient();
 
@@ -24,7 +26,12 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data: memberships, error } = await supabase
+  const serviceClient = createServiceClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  );
+
+  const { data: memberships, error } = await serviceClient
     .from("account_memberships")
     .select(`
       role,
@@ -144,6 +151,10 @@ export async function POST(request: Request) {
 // PATCH /api/workspaces - Update workspace settings
 export async function PATCH(request: Request) {
   const supabase = await createClient();
+  const serviceClient = createServiceClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  );
 
   const {
     data: { user },
@@ -160,8 +171,8 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "account_id is required" }, { status: 400 });
   }
 
-  // Verify caller has admin+ role
-  const { data: membership } = await supabase
+  // Verify caller has admin+ role (use serviceClient to avoid RLS recursion)
+  const { data: membership } = await serviceClient
     .from("account_memberships")
     .select("role")
     .eq("user_id", user.id)
@@ -273,6 +284,10 @@ export async function PATCH(request: Request) {
 // DELETE /api/workspaces - Leave or delete workspace
 export async function DELETE(request: Request) {
   const supabase = await createClient();
+  const serviceClient = createServiceClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  );
 
   const {
     data: { user },
@@ -288,8 +303,8 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "account_id is required" }, { status: 400 });
   }
 
-  // Get membership
-  const { data: membership } = await supabase
+  // Get membership (use serviceClient to avoid RLS recursion)
+  const { data: membership } = await serviceClient
     .from("account_memberships")
     .select("role")
     .eq("user_id", user.id)
@@ -303,7 +318,7 @@ export async function DELETE(request: Request) {
   // Owners can delete the workspace; others just leave
   if (membership.role === "owner") {
     // Check if there are other members
-    const { data: otherMembers } = await supabase
+    const { data: otherMembers } = await serviceClient
       .from("account_memberships")
       .select("user_id")
       .eq("account_id", accountId)
