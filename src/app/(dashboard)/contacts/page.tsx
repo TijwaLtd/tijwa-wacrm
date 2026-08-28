@@ -54,6 +54,8 @@ import {
   SlidersHorizontal,
   Filter,
   X,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { ContactForm } from '@/components/contacts/contact-form';
 import { ContactDetailView } from '@/components/contacts/contact-detail-view';
@@ -66,6 +68,8 @@ import { useAuth } from '@/hooks/use-auth';
 import { WorkspaceBadge } from '@/components/shared/workspace-badge';
 import { Building2, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { maskPhoneNumber } from '@/lib/audit/masking';
+import { getContactsByTenant } from '@/lib/db';
 
 const PAGE_SIZE = 25;
 
@@ -85,6 +89,7 @@ export default function ContactsPage() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
+  const [revealedPhones, setRevealedPhones] = useState<Set<string>>(new Set());
   // Tag filter — contacts shown must have ANY of these tags (OR).
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
 
@@ -206,13 +211,39 @@ export default function ContactsPage() {
 
       const { data, count: exactCount, error } = await query;
       if (seq !== fetchSeq.current) return; // superseded by a newer fetch
+
       if (error) {
-        console.error('[contacts] direct query failed:', error);
-        toast.error(t('toastFailedLoad'));
-        setLoading(false);
-        return;
+        // Fallback to IndexedDB when offline
+        console.warn('[contacts] Supabase query failed, falling back to IndexedDB:', error.message);
+        try {
+          const offlineContacts = await getContactsByTenant(workspaceFilter);
+          let filtered = offlineContacts;
+          if (term) {
+            const lower = term.toLowerCase();
+            filtered = filtered.filter(c =>
+              c.name?.toLowerCase().includes(lower) ||
+              c.phone?.toLowerCase().includes(lower) ||
+              c.email?.toLowerCase().includes(lower)
+            );
+          }
+          count = filtered.length;
+          contactRows = filtered.slice(from, to + 1);
+          if (contactRows.length === 0) {
+            setContacts([]);
+            setTotalCount(0);
+            setLoading(false);
+            return;
+          }
+        } catch (dbError) {
+          console.error('[contacts] IndexedDB fallback also failed:', dbError);
+          toast.error(t('toastFailedLoad'));
+          setLoading(false);
+          return;
+        }
+      } else {
+        contactRows = data ?? [];
+        count = exactCount ?? 0;
       }
-      contactRows = data ?? [];
       count = exactCount ?? 0;
     }
 
@@ -691,7 +722,32 @@ export default function ContactsPage() {
                     </div>
                   </TableCell>
                   <TableCell className="text-muted-foreground font-mono text-xs">
-                    {contact.phone}
+                    <div className="flex items-center gap-1.5">
+                      <span>
+                        {revealedPhones.has(contact.id) ? contact.phone : maskPhoneNumber(contact.phone)}
+                      </span>
+                      <button
+                        onClick={() => {
+                          setRevealedPhones((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(contact.id)) {
+                              next.delete(contact.id);
+                            } else {
+                              next.add(contact.id);
+                            }
+                            return next;
+                          });
+                        }}
+                        className="flex items-center justify-center p-1 text-muted-foreground hover:text-primary transition-colors cursor-pointer"
+                        title={revealedPhones.has(contact.id) ? "Hide number" : "Reveal number"}
+                      >
+                        {revealedPhones.has(contact.id) ? (
+                          <EyeOff className="size-3" />
+                        ) : (
+                          <Eye className="size-3" />
+                        )}
+                      </button>
+                    </div>
                   </TableCell>
                   <TableCell className="text-muted-foreground hidden md:table-cell text-sm">
                     {contact.email || <span className="text-muted-foreground">-</span>}

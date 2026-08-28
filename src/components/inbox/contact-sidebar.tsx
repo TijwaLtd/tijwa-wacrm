@@ -16,6 +16,8 @@ import {
   Plus,
   PhoneCall,
   MessageCircle,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
@@ -24,6 +26,7 @@ import { format } from "date-fns";
 import { useTranslations } from "next-intl";
 import { useAuditLogger } from "@/hooks/use-audit-logger";
 import { AuditEventType } from "@/lib/audit/events";
+import { maskPhoneNumber, getFullPhone, getPhoneDigits } from "@/lib/audit/masking";
 
 interface ContactSidebarProps {
   contact: Contact | null;
@@ -36,18 +39,25 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
   const { accountId } = useAuth();
   const { log: auditLog } = useAuditLogger();
   const [copied, setCopied] = useState(false);
+  const [showPhone, setShowPhone] = useState(false);
   const [deals, setDeals] = useState<Deal[]>([]);
   const [notes, setNotes] = useState<ContactNote[]>([]);
   const [tags, setTags] = useState<(Tag & { contact_tag_id: string })[]>([]);
   const [newNote, setNewNote] = useState("");
   const [addingNote, setAddingNote] = useState(false);
 
+  // Reset reveal state when contact changes
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setShowPhone(false);
+    setCopied(false);
+  }, [contact?.id]);
+
   const fetchContactData = useCallback(async () => {
     if (!contact) return;
 
     const supabase = createClient();
 
-    // Fetch deals, notes, and tags in parallel
     const [dealsRes, notesRes, tagsRes] = await Promise.all([
       supabase
         .from("deals")
@@ -78,8 +88,6 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
     }
   }, [contact]);
 
-  // Load on contact change. setContactData/setTags run inside async
-  // Supabase callbacks, not synchronously in the effect body.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchContactData();
@@ -87,7 +95,8 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
 
   const handleCopyPhone = useCallback(async () => {
     if (!contact?.phone) return;
-    await navigator.clipboard.writeText(contact.phone);
+    // Always copy the full number with + prefix
+    await navigator.clipboard.writeText(getFullPhone(contact.phone));
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
     auditLog(AuditEventType.CONTACT_PHONE_COPIED, { contactId: contact.id });
@@ -125,14 +134,14 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
   const handleCallClick = useCallback(() => {
     if (!contact?.phone) return;
     auditLog(AuditEventType.CONTACT_CALL_CLICKED, { contactId: contact.id });
-    window.open(`tel:${contact.phone}`, '_self');
+    // Use full number with + for tel: link
+    window.open(`tel:${getFullPhone(contact.phone)}`, '_self');
   }, [contact, auditLog]);
 
   const handleWhatsAppClick = useCallback(() => {
     if (!contact?.phone) return;
     auditLog(AuditEventType.CONTACT_WHATSAPP_CLICKED, { contactId: contact.id });
-    const phone = contact.phone.replace(/[^0-9]/g, '');
-    window.open(`https://wa.me/${phone}`, '_blank');
+    window.open(`https://wa.me/${getPhoneDigits(contact.phone)}`, '_blank');
   }, [contact, auditLog]);
 
   if (!contact) {
@@ -143,8 +152,9 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
     );
   }
 
-  const displayName = contact.name || contact.phone;
-  const initials = displayName.charAt(0).toUpperCase();
+  const displayName = contact.name || maskPhoneNumber(contact.phone);
+  const initials = (contact.name || contact.phone || '?').charAt(0).toUpperCase();
+  const displayPhone = showPhone ? contact.phone : maskPhoneNumber(contact.phone);
 
   return (
     <div className="flex h-full w-70 flex-col border-l border-border bg-card">
@@ -176,18 +186,32 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
 
           {/* Phone */}
           <div className="mt-4 space-y-2">
-            <button
-              onClick={handleCopyPhone}
-              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted"
-            >
-              <Phone className="h-4 w-4 text-muted-foreground" />
-              <span className="flex-1 text-left">{contact.phone}</span>
-              {copied ? (
-                <Check className="h-3 w-3 text-primary" />
-              ) : (
-                <Copy className="h-3 w-3 text-muted-foreground" />
-              )}
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={handleCopyPhone}
+                className="flex flex-1 items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted"
+              >
+                <Phone className="h-4 w-4 text-muted-foreground" />
+                <span className="flex-1 text-left font-mono text-xs">{displayPhone}</span>
+                {copied ? (
+                  <Check className="h-3 w-3 text-primary" />
+                ) : (
+                  <Copy className="h-3 w-3 text-muted-foreground" />
+                )}
+              </button>
+              <button
+                onClick={() => {
+                  setShowPhone(!showPhone);
+                  if (!showPhone) {
+                    auditLog(AuditEventType.CONTACT_PHONE_REVEALED, { contactId: contact.id });
+                  }
+                }}
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted"
+                title={showPhone ? "Hide number" : "Reveal number"}
+              >
+                {showPhone ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+              </button>
+            </div>
 
             {/* Call & WhatsApp actions */}
             <div className="flex gap-2">

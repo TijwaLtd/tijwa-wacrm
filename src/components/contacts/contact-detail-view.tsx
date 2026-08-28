@@ -39,10 +39,13 @@ import {
   LayoutTemplate,
   PhoneCall,
   MessageCircle,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useAuditLogger } from '@/hooks/use-audit-logger';
 import { AuditEventType } from '@/lib/audit/events';
+import { maskPhoneNumber, getFullPhone, getPhoneDigits } from '@/lib/audit/masking';
 
 interface ContactDetailViewProps {
   open: boolean;
@@ -65,6 +68,7 @@ export function ContactDetailView({
   const [contact, setContact] = useState<Contact | null>(null);
   const [loading, setLoading] = useState(false);
   const [copiedPhone, setCopiedPhone] = useState(false);
+  const [showPhone, setShowPhone] = useState(false);
 
   // Send template — lets the business initiate (or re-open) a conversation
   // with this contact by sending an approved template. The send route
@@ -191,12 +195,15 @@ export function ContactDetailView({
       fetchNotes();
       fetchCustomFields();
       fetchDeals();
+      setShowPhone(false);
+      setCopiedPhone(false);
     }
   }, [open, contactId, fetchContact, fetchTags, fetchNotes, fetchCustomFields, fetchDeals]);
 
   async function copyPhone() {
     if (!contact) return;
-    await navigator.clipboard.writeText(contact.phone);
+    // Always copy the full number with + prefix
+    await navigator.clipboard.writeText(getFullPhone(contact.phone));
     setCopiedPhone(true);
     setTimeout(() => setCopiedPhone(false), 2000);
     auditLog(AuditEventType.CONTACT_PHONE_COPIED, { contactId: contact.id });
@@ -205,14 +212,14 @@ export function ContactDetailView({
   function handleCallClick() {
     if (!contact) return;
     auditLog(AuditEventType.CONTACT_CALL_CLICKED, { contactId: contact.id });
-    window.open(`tel:${contact.phone}`, '_self');
+    // Use full number with + for tel: link
+    window.open(`tel:${getFullPhone(contact.phone)}`, '_self');
   }
 
   function handleWhatsAppClick() {
     if (!contact) return;
     auditLog(AuditEventType.CONTACT_WHATSAPP_CLICKED, { contactId: contact.id });
-    const phone = contact.phone.replace(/[^0-9]/g, '');
-    window.open(`https://wa.me/${phone}`, '_blank');
+    window.open(`https://wa.me/${getPhoneDigits(contact.phone)}`, '_blank');
   }
 
   async function saveDetails() {
@@ -423,18 +430,34 @@ export function ContactDetailView({
                     {t('contactDetailsDesc')}
                   </SheetDescription>
                   <div className="flex flex-wrap items-center gap-3 mt-1.5 text-xs text-muted-foreground">
-                    <button
-                      onClick={copyPhone}
-                      className="flex items-center gap-1 hover:text-primary transition-colors cursor-pointer"
-                    >
-                      <Phone className="size-3" />
-                      {contact.phone}
-                      {copiedPhone ? (
-                        <Check className="size-3 text-primary" />
-                      ) : (
-                        <Copy className="size-3" />
-                      )}
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={copyPhone}
+                        className="flex items-center gap-1 hover:text-primary transition-colors cursor-pointer"
+                      >
+                        <Phone className="size-3" />
+                        <span className="font-mono">
+                          {showPhone ? contact.phone : maskPhoneNumber(contact.phone)}
+                        </span>
+                        {copiedPhone ? (
+                          <Check className="size-3 text-primary" />
+                        ) : (
+                          <Copy className="size-3" />
+                        )}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowPhone(!showPhone);
+                          if (!showPhone) {
+                            auditLog(AuditEventType.CONTACT_PHONE_REVEALED, { contactId: contact.id });
+                          }
+                        }}
+                        className="flex items-center justify-center p-1 hover:text-primary transition-colors cursor-pointer"
+                        title={showPhone ? "Hide number" : "Reveal number"}
+                      >
+                        {showPhone ? <EyeOff className="size-3" /> : <Eye className="size-3" />}
+                      </button>
+                    </div>
                     <button
                       onClick={handleCallClick}
                       className="flex items-center gap-1 hover:text-primary transition-colors cursor-pointer"

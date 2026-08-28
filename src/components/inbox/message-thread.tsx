@@ -57,6 +57,7 @@ import { buildReplyPreview } from "./reply-quote";
 import { toast } from "sonner";
 import { useAuditLogger } from "@/hooks/use-audit-logger";
 import { AuditEventType } from "@/lib/audit/events";
+import { maskPhoneNumber } from "@/lib/audit/masking";
 
 interface ReplyDraft {
   id: string;
@@ -1179,7 +1180,9 @@ export function MessageThread({
                 {conversation.team_participant_ids?.length ?? 0} members
               </p>
             ) : contact?.phone ? (
-              <p className="truncate text-xs text-muted-foreground">{contact.phone}</p>
+              <p className="truncate text-xs text-muted-foreground font-mono">
+                {maskPhoneNumber(contact.phone)}
+              </p>
             ) : null}
           </div>
           {/* Session timer badge — hidden for team conversations and on narrowest phones */}
