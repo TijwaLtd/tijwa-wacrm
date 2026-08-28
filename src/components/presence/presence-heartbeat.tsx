@@ -60,9 +60,10 @@ export function PresenceHeartbeat() {
         p_status: currentStatus(),
       });
       if (error && !cancelled) {
-        // Non-fatal: presence is best-effort. Log once per failure so a
-        // misconfigured RPC is visible without spamming.
-        console.error("[PresenceHeartbeat] touch_presence failed:", error.message);
+        // Non-fatal: presence is best-effort. Network failures ("Failed to
+        // fetch") are common and expected; downgrade to warn so they don't
+        // pollute the console as red errors.
+        console.warn("[PresenceHeartbeat] touch_presence failed:", error.message);
       }
     };
 
