@@ -228,3 +228,12 @@ html[data-theme="rose"] {
     @apply font-sans;
   }
 }
+
+/* Hide scrollbar but keep scrolling enabled */
+.scrollbar-hidden {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+}

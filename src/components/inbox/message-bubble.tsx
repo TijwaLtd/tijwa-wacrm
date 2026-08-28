@@ -24,6 +24,7 @@ import {
 } from "./message-media";
 import { InteractivePreview } from "@/components/interactive/interactive-preview";
 import { useTranslations } from "next-intl";
+import { formatWhatsAppText } from "@/lib/whatsapp-format";
 
 interface MessageBubbleProps {
   message: Message;
@@ -73,9 +74,9 @@ function MessageContent({
   switch (message.content_type) {
     case "text":
       return (
-        <p className="whitespace-pre-wrap break-words text-sm">
-          {message.content_text}
-        </p>
+        <div className="whitespace-pre-wrap break-words text-sm">
+          {formatWhatsAppText(message.content_text ?? "")}
+        </div>
       );
 
     case "image":
@@ -87,9 +88,9 @@ function MessageContent({
             <MediaUnavailable label={t("photo")} t={t} />
           )}
           {message.content_text && (
-            <p className="mt-1 whitespace-pre-wrap break-words text-sm">
-              {message.content_text}
-            </p>
+            <div className="mt-1 whitespace-pre-wrap break-words text-sm">
+              {formatWhatsAppText(message.content_text)}
+            </div>
           )}
         </div>
       );
@@ -103,9 +104,9 @@ function MessageContent({
             <MediaUnavailable label={t("video")} t={t} />
           )}
           {message.content_text && (
-            <p className="mt-1 whitespace-pre-wrap break-words text-sm">
-              {message.content_text}
-            </p>
+            <div className="mt-1 whitespace-pre-wrap break-words text-sm">
+              {formatWhatsAppText(message.content_text)}
+            </div>
           )}
         </div>
       );
@@ -135,9 +136,9 @@ function MessageContent({
             {t("template")}
           </span>
           {message.content_text && (
-            <p className="mt-1 whitespace-pre-wrap break-words text-sm">
-              {message.content_text}
-            </p>
+            <div className="mt-1 whitespace-pre-wrap break-words text-sm">
+              {formatWhatsAppText(message.content_text)}
+            </div>
           )}
         </div>
       );
@@ -185,9 +186,9 @@ function MessageContent({
 
     default:
       return (
-        <p className="whitespace-pre-wrap break-words text-sm">
-          {message.content_text || t("unsupported")}
-        </p>
+        <div className="whitespace-pre-wrap break-words text-sm">
+          {formatWhatsAppText(message.content_text || t("unsupported"))}
+        </div>
       );
   }
 }

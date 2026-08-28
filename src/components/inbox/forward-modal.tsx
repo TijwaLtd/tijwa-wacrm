@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import { Loader2, Forward, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { formatWhatsAppInline } from '@/lib/whatsapp-format';
 import {
   Dialog,
   DialogContent,
@@ -105,7 +106,7 @@ export function ForwardModal({
         {/* Message preview */}
         {messagePreview && (
           <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground line-clamp-2">
-            {messagePreview}
+            {formatWhatsAppInline(messagePreview)}
           </div>
         )}
 

@@ -18,6 +18,9 @@ import {
   LayoutTemplate,
   Zap,
   FileText,
+  Smile,
+  Camera,
+  Paperclip,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { GatedButton } from "@/components/ui/gated-button";
@@ -46,6 +49,7 @@ import { validateInteractivePayload } from "@/lib/whatsapp/interactive";
 import type { InteractiveMessagePayload, QuickReply } from "@/types";
 import { QuickReplyPicker } from "./quick-reply-picker";
 import { ActionPickerDialog, type ActionKind } from "./action-picker-dialog";
+import { FloatingToolbar, type ToolbarAction } from "./floating-toolbar";
 
 /** Media content types an agent can send from the composer. */
 export type ComposerMediaKind = "image" | "video" | "document" | "audio";
@@ -140,7 +144,28 @@ export function MessageComposer({
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [drafting, setDrafting] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Two textareas exist in the DOM simultaneously (desktop + mobile
+  // layouts, toggled purely via `hidden sm:flex` / `flex sm:hidden`), so
+  // each needs its own ref. A single shared ref would always resolve to
+  // whichever textarea React committed last (the mobile one), regardless
+  // of which is actually visible/focused — silently breaking selection
+  // detection, focus restoration, and auto-grow on desktop.
+  const desktopTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const mobileTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Resolves to whichever textarea the user is actually interacting with.
+  // Prefers the currently-focused one; falls back to whichever is
+  // actually rendered/visible (offsetParent is null for display:none
+  // elements) for cases where nothing is focused yet.
+  const getActiveTextarea = useCallback((): HTMLTextAreaElement | null => {
+    const active = document.activeElement;
+    if (active === desktopTextareaRef.current) return desktopTextareaRef.current;
+    if (active === mobileTextareaRef.current) return mobileTextareaRef.current;
+    return desktopTextareaRef.current?.offsetParent
+      ? desktopTextareaRef.current
+      : mobileTextareaRef.current;
+  }, []);
 
   // Interactive-message builder dialog + quick-reply picker.
   const [interactiveOpen, setInteractiveOpen] = useState(false);
@@ -151,6 +176,11 @@ export function MessageComposer({
 
   // Action picker dialog (WhatsApp-style "+" menu).
   const [actionPickerOpen, setActionPickerOpen] = useState(false);
+
+  // Floating formatting toolbar state.
+  const [toolbarVisible, setToolbarVisible] = useState(false);
+  const [toolbarPos, setToolbarPos] = useState({ top: 0, left: 0 });
+  const selectionRef = useRef<{ start: number; end: number } | null>(null);
 
   // Slash-command quick-reply menu state.
   const [slashMenuOpen, setSlashMenuOpen] = useState(false);
@@ -217,12 +247,12 @@ export function MessageComposer({
   }, [clearTimer, removeStaged]);
 
   const adjustHeight = useCallback(() => {
-    const el = textareaRef.current;
+    const el = getActiveTextarea();
     if (!el) return;
     el.style.height = "auto";
     // Max 4 lines (~96px)
     el.style.height = `${Math.min(el.scrollHeight, 96)}px`;
-  }, []);
+  }, [getActiveTextarea]);
 
   const handleSend = useCallback(async () => {
     const trimmed = text.trim();
@@ -232,14 +262,14 @@ export function MessageComposer({
     try {
       onSend(trimmed, replyTo?.id);
       setText("");
-      if (textareaRef.current) {
-        textareaRef.current.style.height = "auto";
+      const el = getActiveTextarea();
+      if (el) {
+        el.style.height = "auto";
       }
     } finally {
       setSending(false);
     }
-  },     [text, sending, sessionExpired, onSend, replyTo?.id]);
-
+  }, [text, sending, sessionExpired, onSend, replyTo?.id, getActiveTextarea]);
 
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -304,7 +334,7 @@ export function MessageComposer({
       // the agent can tweak immediately.
       requestAnimationFrame(() => {
         adjustHeight();
-        const el = textareaRef.current;
+        const el = getActiveTextarea();
         if (el) {
           el.focus();
           el.setSelectionRange(el.value.length, el.value.length);
@@ -315,7 +345,7 @@ export function MessageComposer({
     } finally {
       setDrafting(false);
     }
-  }, [drafting, conversationId, adjustHeight]);
+  }, [drafting, conversationId, adjustHeight, getActiveTextarea]);
 
   // ---- Interactive message + quick replies --------------------------
 
@@ -353,14 +383,14 @@ export function MessageComposer({
       setSlashMenuOpen(false);
       requestAnimationFrame(() => {
         adjustHeight();
-        const el = textareaRef.current;
+        const el = getActiveTextarea();
         if (el) {
           el.focus();
           el.setSelectionRange(el.value.length, el.value.length);
         }
       });
     },
-    [text, openInteractiveBuilder, adjustHeight],
+    [text, openInteractiveBuilder, adjustHeight, getActiveTextarea],
   );
 
   // Scroll the selected slash-menu item into view.
@@ -386,6 +416,10 @@ export function MessageComposer({
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      // Formatting shortcuts (Ctrl+B/I/E/X) — must come before slash-menu
+      // check so they fire even when the slash menu is open.
+      handleToolbarShortcut(e);
+
       // Slash-menu keyboard navigation
       if (slashMenuOpen && filteredSlashItems.length > 0) {
         if (e.key === "ArrowDown") {
@@ -415,6 +449,7 @@ export function MessageComposer({
         handleSend();
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [handleSend, slashMenuOpen, filteredSlashItems, slashIndex, selectSlashItem],
   );
 
@@ -481,14 +516,14 @@ export function MessageComposer({
       );
       requestAnimationFrame(() => {
         adjustHeight();
-        const el = textareaRef.current;
+        const el = getActiveTextarea();
         if (el) {
           el.focus();
           el.setSelectionRange(el.value.length, el.value.length);
         }
       });
     },
-    [openInteractiveBuilder, adjustHeight],
+    [openInteractiveBuilder, adjustHeight, getActiveTextarea],
   );
 
   // ---- Voice recording (client-side Ogg/Opus, no server transcode) ---
@@ -622,11 +657,199 @@ export function MessageComposer({
     [stageUpload],
   );
 
+  // ── Paste-to-upload ────────────────────────────────────────
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent) => {
+      if (inputsDisabled || !onSendMedia) return;
+      const items = Array.from(e.clipboardData.items);
+      for (const item of items) {
+        const kind = item.kind;
+        if (kind === "file") {
+          const file = item.getAsFile();
+          if (!file) continue;
+          e.preventDefault();
+          const mime = file.type;
+          if (mime.startsWith("image/")) {
+            void stageUpload("image", file);
+          } else if (mime.startsWith("video/")) {
+            void stageUpload("video", file);
+          } else {
+            void stageUpload("document", file);
+          }
+          return;
+        }
+      }
+    },
+    [inputsDisabled, onSendMedia, stageUpload],
+  );
+
   const stopRecording = useCallback(() => {
     clearTimer();
     setRecording(false);
     void recorderRef.current?.stop().catch(() => {});
   }, [clearTimer]);
+
+  // ── Formatting toolbar helpers ──────────────────────────────
+
+  /** Wrap the current selection in WhatsApp formatting markers. */
+  const applyFormatting = useCallback(
+    (action: ToolbarAction) => {
+      const el = getActiveTextarea();
+      if (!el) return;
+
+      const start = el.selectionStart;
+      const end = el.selectionEnd;
+      const selected = text.slice(start, end);
+
+      // No selection → nothing to wrap
+      if (start === end || !selected) {
+        setToolbarVisible(false);
+        return;
+      }
+
+      let wrapped: string;
+      let cursorOffset = 0;
+
+      switch (action) {
+        case "bold":
+          wrapped = `*${selected}*`;
+          cursorOffset = 1;
+          break;
+        case "italic":
+          wrapped = `_${selected}_`;
+          cursorOffset = 1;
+          break;
+        case "strikethrough":
+          wrapped = `~${selected}~`;
+          cursorOffset = 1;
+          break;
+        case "code":
+          wrapped = `\`${selected}\``;
+          cursorOffset = 1;
+          break;
+        case "bullet": {
+          // Wrap each selected line with "- "
+          const lines = selected.split("\n");
+          wrapped = lines.map((l) => `- ${l}`).join("\n");
+          cursorOffset = 2;
+          break;
+        }
+        case "ordered": {
+          const lines = selected.split("\n");
+          wrapped = lines.map((l, i) => `${i + 1}. ${l}`).join("\n");
+          cursorOffset = 3;
+          break;
+        }
+        case "quote": {
+          const lines = selected.split("\n");
+          wrapped = lines.map((l) => `> ${l}`).join("\n");
+          cursorOffset = 2;
+          break;
+        }
+        default:
+          return;
+      }
+
+      const newText = text.slice(0, start) + wrapped + text.slice(end);
+      setText(newText);
+      setToolbarVisible(false);
+
+      // Restore cursor inside the wrapped text
+      requestAnimationFrame(() => {
+        el.focus();
+        const newCursorPos = start + cursorOffset + selected.length;
+        el.setSelectionRange(newCursorPos, newCursorPos);
+      });
+    },
+    [text, getActiveTextarea],
+  );
+
+  /** Keyboard shortcuts: Ctrl/Cmd+B/I/E, Ctrl/Cmd+Shift+X */
+  const handleToolbarShortcut = useCallback(
+    (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod) return;
+
+      const el = getActiveTextarea();
+      if (!el) return;
+
+      const start = el.selectionStart;
+      const end = el.selectionEnd;
+      if (start === end) return; // no selection
+
+      let action: ToolbarAction | null = null;
+
+      if (e.key === "b" || e.key === "B") {
+        action = "bold";
+      } else if (e.key === "i" || e.key === "I") {
+        action = "italic";
+      } else if (e.key === "e" || e.key === "E") {
+        action = "code";
+      } else if (e.shiftKey && (e.key === "x" || e.key === "X")) {
+        action = "strikethrough";
+      }
+
+      if (action) {
+        e.preventDefault();
+        applyFormatting(action);
+      }
+    },
+    [applyFormatting, getActiveTextarea],
+  );
+
+  /** Detect text selection to show/hide the floating toolbar. */
+  const checkSelection = useCallback(() => {
+    const el = getActiveTextarea();
+    if (!el || document.activeElement !== el) {
+      setToolbarVisible(false);
+      return;
+    }
+
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+
+    if (start === end) {
+      setToolbarVisible(false);
+      return;
+    }
+
+    // Store selection for restoration
+    selectionRef.current = { start, end };
+
+    // Position: centered above the textarea, near the top.
+    // We can't precisely measure caret position in a textarea,
+    // so we show it centered horizontally above the input.
+    const elRect = el.getBoundingClientRect();
+    const top = elRect.top - 48;
+    const left = elRect.left + elRect.width / 2;
+
+    setToolbarPos({ top, left });
+    setToolbarVisible(true);
+  }, [getActiveTextarea]);
+
+  // Listen for selection changes via multiple events for reliability.
+  // selectionchange covers most cases; mouseup/keyup catch edge cases
+  // where selectionchange fires before the selection is finalized.
+  useEffect(() => {
+    const onSelection = () => checkSelection();
+    document.addEventListener("selectionchange", onSelection);
+    return () => document.removeEventListener("selectionchange", onSelection);
+  }, [checkSelection]);
+
+  // Hide toolbar on click outside either textarea and outside the toolbar
+  useEffect(() => {
+    if (!toolbarVisible) return;
+    const hide = (e: MouseEvent) => {
+      const target = e.target as Node;
+      // Don't hide if clicking either textarea or inside the toolbar
+      if (desktopTextareaRef.current?.contains(target)) return;
+      if (mobileTextareaRef.current?.contains(target)) return;
+      if (document.querySelector("[data-floating-toolbar]")?.contains(target)) return;
+      setToolbarVisible(false);
+    };
+    document.addEventListener("mousedown", hide);
+    return () => document.removeEventListener("mousedown", hide);
+  }, [toolbarVisible]);
 
   const cancelRecording = useCallback(() => {
     cancelledRef.current = true;
@@ -809,76 +1032,189 @@ export function MessageComposer({
             </div>
           )}
 
-          <div className="flex items-end gap-2">
-          {/* Single "+" button — opens the action picker dialog. */}
-          {/* Attach button — hidden for team conversations */}
-          {!isTeam && (
-          <GatedButton
-            variant="ghost"
-            size="sm"
-            canAct={!readOnly}
-            gateReason="send messages"
-            disabled={busy}
-            title={readOnly ? undefined : t("attachMedia")}
-            className="h-9 w-9 shrink-0 p-0 text-muted-foreground hover:text-foreground"
-            onClick={() => setActionPickerOpen(true)}
-          >
-            {busy ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+          {/* Desktop: single-line dark bar layout */}
+          <div className="hidden sm:flex items-end gap-2">
+            {/* "+" button — opens the action picker dialog */}
+            {!isTeam && (
+              <GatedButton
+                variant="ghost"
+                size="sm"
+                canAct={!readOnly}
+                gateReason="send messages"
+                disabled={busy}
+                title={readOnly ? undefined : t("attachMedia")}
+                className="h-10 w-10 shrink-0 p-0 text-muted-foreground hover:text-foreground"
+                onClick={() => setActionPickerOpen(true)}
+              >
+                {busy ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <Plus className="h-5 w-5" />
+                )}
+              </GatedButton>
+            )}
+
+            {/* Sticker/emoji placeholder */}
+            {!isTeam && (
+              <button
+                type="button"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
+                onClick={() => {}}
+              >
+                <Smile className="h-5 w-5" />
+              </button>
+            )}
+
+            <textarea
+              ref={desktopTextareaRef}
+              value={text}
+              onChange={handleChange}
+              onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
+              onMouseUp={checkSelection}
+              onKeyUp={checkSelection}
+              placeholder={
+                readOnly
+                  ? t("readOnlyPlaceholder")
+                  : sessionExpired
+                    ? t("sessionExpiredPlaceholder")
+                    : t("typeMessagePlaceholder")
+              }
+              disabled={sessionExpired || readOnly}
+              rows={1}
+              title={readOnly ? t("readOnlyTitle") : undefined}
+              className={cn(
+                "flex-1 resize-none rounded-xl border border-border bg-muted px-4 py-2.5 text-sm text-foreground placeholder-muted-foreground outline-none transition-colors focus:border-primary/50 scrollbar-hidden",
+                (sessionExpired || readOnly) && "cursor-not-allowed opacity-50"
+              )}
+            />
+
+            {text.trim() ? (
+              <GatedButton
+                size="sm"
+                canAct={!readOnly}
+                gateReason="send messages"
+                disabled={sessionExpired || sending}
+                onClick={handleSend}
+                className="h-10 w-10 shrink-0 bg-primary p-0 hover:bg-primary/90 disabled:opacity-40"
+              >
+                <Send className="h-4 w-4" />
+              </GatedButton>
             ) : (
-              <Plus className="h-4 w-4" />
+              <GatedButton
+                size="sm"
+                canAct={!readOnly}
+                gateReason="send messages"
+                disabled={sessionExpired || busy}
+                onClick={() => void startRecording()}
+                className="h-10 w-10 shrink-0 p-0 text-muted-foreground hover:text-foreground disabled:opacity-40"
+              >
+                <Mic className="h-5 w-5" />
+              </GatedButton>
             )}
-          </GatedButton>
-          )}
+          </div>
 
-          <textarea
-            ref={textareaRef}
-            value={text}
-            onChange={handleChange}
-            onKeyDown={handleKeyDown}
-            placeholder={
-              readOnly
-                ? t("readOnlyPlaceholder")
-                : sessionExpired
-                  ? t("sessionExpiredPlaceholder")
-                  : t("typeMessagePlaceholder")
-            }
-            disabled={sessionExpired || readOnly}
-            rows={1}
-            // Textarea keeps its own inline title — the GatedButton
-            // wrapping pattern doesn't apply to non-button inputs.
-            // The placeholder text also surfaces the read-only state.
-            title={readOnly ? t("readOnlyTitle") : undefined}
-            className={cn(
-              "flex-1 resize-none rounded-xl border border-border bg-muted px-4 py-2.5 text-sm text-foreground placeholder-muted-foreground outline-none transition-colors focus:border-primary/50",
-              (sessionExpired || readOnly) && "cursor-not-allowed opacity-50"
-            )}
-          />
+          {/* Mobile: rounded layout with action row below */}
+          <div className="flex flex-col sm:hidden">
+            <textarea
+              ref={mobileTextareaRef}
+              value={text}
+              onChange={handleChange}
+              onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
+              onMouseUp={checkSelection}
+              onKeyUp={checkSelection}
+              placeholder={
+                readOnly
+                  ? t("readOnlyPlaceholder")
+                  : sessionExpired
+                    ? t("sessionExpiredPlaceholder")
+                    : t("typeMessagePlaceholder")
+              }
+              disabled={sessionExpired || readOnly}
+              rows={1}
+              title={readOnly ? t("readOnlyTitle") : undefined}
+              className={cn(
+                "w-full resize-none rounded-t-2xl border border-border border-b-0 bg-muted px-4 py-3 text-sm text-foreground placeholder-muted-foreground outline-none transition-colors focus:border-primary/50 scrollbar-hidden",
+                (sessionExpired || readOnly) && "cursor-not-allowed opacity-50"
+              )}
+            />
 
-          {text.trim() ? (
-            <GatedButton
-              size="sm"
-              canAct={!readOnly}
-              gateReason="send messages"
-              disabled={sessionExpired || sending}
-              onClick={handleSend}
-              className="h-9 w-9 shrink-0 bg-primary p-0 hover:bg-primary/90 disabled:opacity-40"
-            >
-              <Send className="h-4 w-4" />
-            </GatedButton>
-          ) : (
-            <GatedButton
-              size="sm"
-              canAct={!readOnly}
-              gateReason="send messages"
-              disabled={sessionExpired || busy}
-              onClick={() => void startRecording()}
-              className="h-9 w-9 shrink-0 p-0 text-muted-foreground hover:text-foreground disabled:opacity-40"
-            >
-              <Mic className="h-4 w-4" />
-            </GatedButton>
-          )}
-        </div>
+            <div className="flex items-center justify-between rounded-b-2xl border border-border border-t-0 bg-muted px-2 py-1.5">
+              {/* Reply chip — shown when replying */}
+              {replyTo && (
+                <span className="ml-1 max-w-[100px] truncate rounded-full bg-primary/10 px-2.5 py-1 text-xs text-primary">
+                  {replyTo.authorLabel}
+                </span>
+              )}
+
+              <div className="flex items-center gap-1">
+                {/* Sticker/emoji */}
+                <button
+                  type="button"
+                  className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
+                  onClick={() => {}}
+                >
+                  <Smile className="h-5 w-5" />
+                </button>
+
+                {/* Paperclip / attach */}
+                {!isTeam && (
+                  <GatedButton
+                    variant="ghost"
+                    size="sm"
+                    canAct={!readOnly}
+                    gateReason="send messages"
+                    disabled={busy}
+                    className="h-9 w-9 shrink-0 p-0 text-muted-foreground hover:text-foreground"
+                    onClick={() => setActionPickerOpen(true)}
+                  >
+                    {busy ? (
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    ) : (
+                      <Paperclip className="h-5 w-5" />
+                    )}
+                  </GatedButton>
+                )}
+
+                {/* Camera */}
+                {!isTeam && (
+                  <button
+                    type="button"
+                    className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
+                    onClick={() => imageInputRef.current?.click()}
+                  >
+                    <Camera className="h-5 w-5" />
+                  </button>
+                )}
+
+                {/* Mic / Send — large white circle on mobile */}
+                {text.trim() ? (
+                  <GatedButton
+                    size="sm"
+                    canAct={!readOnly}
+                    gateReason="send messages"
+                    disabled={sessionExpired || sending}
+                    onClick={handleSend}
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary p-0 text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
+                  >
+                    <Send className="h-5 w-5" />
+                  </GatedButton>
+                ) : (
+                  <GatedButton
+                    size="sm"
+                    canAct={!readOnly}
+                    gateReason="send messages"
+                    disabled={sessionExpired || busy}
+                    onClick={() => void startRecording()}
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-foreground p-0 text-background hover:bg-foreground/90 disabled:opacity-40"
+                  >
+                    <Mic className="h-5 w-5" />
+                  </GatedButton>
+                )}
+              </div>
+            </div>
+          </div>
         </>
       )}
 
@@ -938,6 +1274,13 @@ export function MessageComposer({
         onSelect={handleActionSelect}
         mediaDisabled={inputsDisabled}
         textDisabled={inputsDisabled}
+      />
+
+      {/* Floating formatting toolbar — appears on text selection */}
+      <FloatingToolbar
+        visible={toolbarVisible}
+        position={toolbarPos}
+        onAction={applyFormatting}
       />
     </div>
   );
