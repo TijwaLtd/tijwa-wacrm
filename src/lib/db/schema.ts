@@ -196,6 +196,26 @@ export interface KnowledgeOutboxItem {
 }
 
 // ============================================================
+// Audit outbox — offline-first audit event queue
+// ============================================================
+
+/**
+ * An audit event queued while offline.
+ * Synced to POST /api/audit/events when connectivity returns.
+ */
+export interface AuditOutboxItem {
+  id: string;
+  account_id: string;
+  event_type: string;
+  contact_id?: string;
+  conversation_id?: string;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+  status: "pending" | "synced" | "failed";
+  error_message?: string;
+}
+
+// ============================================================
 // Database definition
 // ============================================================
 
@@ -214,6 +234,7 @@ export const db = new Dexie(DB_NAME) as Dexie & {
   knowledge_documents: EntityTable<LocalKnowledgeDocument, "id">;
   knowledge_chunks: EntityTable<LocalKnowledgeChunk, "id">;
   knowledge_outbox: EntityTable<KnowledgeOutboxItem, "id">;
+  audit_outbox: EntityTable<AuditOutboxItem, "id">;
 };
 
 // Schema version 1: initial local-first schema
@@ -263,4 +284,10 @@ db.version(2).stores({
 
   // knowledge_outbox: pending uploads while offline
   knowledge_outbox: "id, account_id, status, created_at",
+});
+
+// Schema version 3: audit outbox for offline event queueing
+db.version(3).stores({
+  // audit_outbox: pending audit events while offline
+  audit_outbox: "id, account_id, status, created_at",
 });

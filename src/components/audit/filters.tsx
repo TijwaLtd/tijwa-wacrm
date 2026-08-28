@@ -2,15 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { AuditEventType } from "@/lib/audit/events";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { X } from "lucide-react";
 
 interface Filters {
@@ -27,6 +19,7 @@ interface Profile {
 }
 
 const EVENT_TYPE_OPTIONS = [
+  { value: "", label: "All actions" },
   { value: "CONTACT_VIEWED", label: "Contact viewed" },
   { value: "CONTACT_PHONE_REVEALED", label: "Phone revealed" },
   { value: "CONTACT_PHONE_COPIED", label: "Phone copied" },
@@ -51,10 +44,10 @@ export function AuditFilters({
     const supabase = createClient();
     supabase
       .from("profiles")
-      .select("id, full_name, email")
+      .select("user_id, full_name, email")
       .order("full_name")
       .then(({ data }) => {
-        if (data) setTeamMembers(data as Profile[]);
+        if (data) setTeamMembers(data as unknown as Profile[]);
       });
   }, []);
 
@@ -68,44 +61,31 @@ export function AuditFilters({
   return (
     <div className="flex flex-wrap items-center gap-3">
       {/* Employee filter */}
-      <Select
-        value={filters.user || "__all__"}
-        onValueChange={(val) =>
-          onChange({ ...filters, user: val === "__all__" || !val ? "" : val })
-        }
+      <select
+        value={filters.user}
+        onChange={(e) => onChange({ ...filters, user: e.target.value })}
+        className="h-8 rounded-lg border border-input bg-transparent px-2.5 pr-7 text-sm text-foreground outline-none focus:border-ring focus:ring-3 focus:ring-ring/50"
       >
-        <SelectTrigger className="w-[180px]">
-          <SelectValue placeholder="All employees" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="__all__">All employees</SelectItem>
-          {teamMembers.map((member) => (
-            <SelectItem key={member.id} value={member.id}>
-              {member.full_name ?? member.email}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+        <option value="">All employees</option>
+        {teamMembers.map((member) => (
+          <option key={member.id} value={member.id}>
+            {member.full_name ?? member.email}
+          </option>
+        ))}
+      </select>
 
       {/* Action filter */}
-      <Select
-        value={filters.event_type || "__all__"}
-        onValueChange={(val) =>
-          onChange({ ...filters, event_type: val === "__all__" || !val ? "" : val })
-        }
+      <select
+        value={filters.event_type}
+        onChange={(e) => onChange({ ...filters, event_type: e.target.value })}
+        className="h-8 rounded-lg border border-input bg-transparent px-2.5 pr-7 text-sm text-foreground outline-none focus:border-ring focus:ring-3 focus:ring-ring/50"
       >
-        <SelectTrigger className="w-[180px]">
-          <SelectValue placeholder="All actions" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="__all__">All actions</SelectItem>
-          {EVENT_TYPE_OPTIONS.map((opt) => (
-            <SelectItem key={opt.value} value={opt.value}>
-              {opt.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+        {EVENT_TYPE_OPTIONS.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
 
       {/* Date from */}
       <Input

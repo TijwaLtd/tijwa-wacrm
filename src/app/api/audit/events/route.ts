@@ -66,20 +66,10 @@ export async function GET(request: Request) {
     const cursor = searchParams.get('cursor');
     const limit = Math.min(parseInt(searchParams.get('limit') ?? '50', 10), 100);
 
+    // Query audit_events without joins (no FK to profiles/contacts)
     let query = ctx.serviceClient
       .from('audit_events')
-      .select(`
-        id,
-        actor_user_id,
-        contact_id,
-        conversation_id,
-        event_type,
-        event_category,
-        metadata,
-        created_at,
-        actor:profiles!audit_events_actor_user_id_fkey(full_name, email),
-        contact:contacts!audit_events_contact_id_fkey(name, phone)
-      `)
+      .select('id, actor_user_id, contact_id, conversation_id, event_type, event_category, metadata, created_at')
       .eq('account_id', ctx.accountId)
       .order('created_at', { ascending: false })
       .order('id', { ascending: false });
@@ -116,29 +106,64 @@ export async function GET(request: Request) {
 
     query = query.limit(limit + 1);
 
-    const { data, error } = await query;
+    const { data: rows, error } = await query;
 
     if (error) {
       console.error('[AuditEvents] Query error:', error);
       return NextResponse.json({ error: 'Failed to fetch events' }, { status: 500 });
     }
 
-    const rows = data ?? [];
-    const hasMore = rows.length > limit;
-    const events = hasMore ? rows.slice(0, limit) : rows;
+    const allRows = rows ?? [];
+    const hasMore = allRows.length > limit;
+    const events = hasMore ? allRows.slice(0, limit) : allRows;
 
-    // Mask phone numbers in contact data
+    // Fetch actor profiles and contacts separately (no FK joins)
+    const actorIds = [...new Set(events.map((e) => e.actor_user_id).filter(Boolean))];
+    const contactIds = [...new Set(events.map((e) => e.contact_id).filter(Boolean))];
+
+    const [profilesRes, contactsRes] = await Promise.all([
+      actorIds.length > 0
+        ? ctx.serviceClient
+            .from('profiles')
+            .select('user_id, full_name, email')
+            .in('user_id', actorIds)
+        : { data: [], error: null },
+      contactIds.length > 0
+        ? ctx.serviceClient
+            .from('contacts')
+            .select('id, name, phone')
+            .in('id', contactIds)
+        : { data: [], error: null },
+    ]);
+
+    // Build lookup maps
+    const profileMap = new Map<string, { full_name: string | null; email: string }>();
+    for (const p of (profilesRes.data ?? []) as Array<{ user_id: string; full_name: string | null; email: string }>) {
+      profileMap.set(p.user_id, { full_name: p.full_name, email: p.email });
+    }
+
+    const contactMap = new Map<string, { name: string | null; phone: string }>();
+    for (const c of (contactsRes.data ?? []) as Array<{ id: string; name: string | null; phone: string }>) {
+      contactMap.set(c.id, { name: c.name, phone: c.phone });
+    }
+
+    // Merge and mask
     const maskedEvents = events.map((event) => {
-      const contactRaw = event.contact as unknown as { name: string | null; phone: string } | null;
+      const actor = profileMap.get(event.actor_user_id) ?? null;
+      const contact = contactMap.get(event.contact_id) ?? null;
       return {
-        ...event,
-        contact: contactRaw
-          ? {
-              name: contactRaw.name,
-              phone: maskPhoneNumber(contactRaw.phone),
-            }
+        id: event.id,
+        actor_user_id: event.actor_user_id,
+        contact_id: event.contact_id,
+        conversation_id: event.conversation_id,
+        event_type: event.event_type,
+        event_category: event.event_category,
+        metadata: event.metadata,
+        created_at: event.created_at,
+        actor,
+        contact: contact
+          ? { name: contact.name, phone: maskPhoneNumber(contact.phone) }
           : null,
-        actor: event.actor,
       };
     });
 

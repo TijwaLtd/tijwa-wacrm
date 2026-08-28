@@ -12,6 +12,7 @@ import type {
   LocalKnowledgeDocument,
   LocalKnowledgeChunk,
   KnowledgeOutboxItem,
+  AuditOutboxItem,
 } from "./schema";
 
 export type {
@@ -27,6 +28,7 @@ export type {
   LocalKnowledgeDocument,
   LocalKnowledgeChunk,
   KnowledgeOutboxItem,
+  AuditOutboxItem,
 };
 
 // ============================================================
@@ -401,6 +403,9 @@ export async function clearTenantData(tenantId: string): Promise<void> {
       await db.knowledge_documents.where("account_id").equals(tenantId).delete();
       await db.knowledge_chunks.where("account_id").equals(tenantId).delete();
       await db.knowledge_outbox.where("account_id").equals(tenantId).delete();
+
+      // Audit
+      await db.audit_outbox.where("account_id").equals(tenantId).delete();
     }
   );
 }
@@ -416,8 +421,9 @@ export async function getLocalStats(): Promise<{
   outboxPending: number;
   knowledgeDocuments: number;
   knowledgeOutboxPending: number;
+  auditOutboxPending: number;
 }> {
-  const [conversations, messages, contacts, quickReplies, outboxPending, knowledgeDocuments, knowledgeOutboxPending] =
+  const [conversations, messages, contacts, quickReplies, outboxPending, knowledgeDocuments, knowledgeOutboxPending, auditOutboxPending] =
     await Promise.all([
       db.conversations.count(),
       db.messages.count(),
@@ -426,6 +432,37 @@ export async function getLocalStats(): Promise<{
       db.outbox.where("status").anyOf(["pending", "uploading"]).count(),
       db.knowledge_documents.count(),
       db.knowledge_outbox.where("status").anyOf(["pending", "uploading"]).count(),
+      db.audit_outbox.where("status").equals("pending").count(),
     ]);
-  return { conversations, messages, contacts, quickReplies, outboxPending, knowledgeDocuments, knowledgeOutboxPending };
+  return { conversations, messages, contacts, quickReplies, outboxPending, knowledgeDocuments, knowledgeOutboxPending, auditOutboxPending };
+}
+
+// ---- Audit Outbox ----
+
+export async function addAuditOutboxItem(
+  item: AuditOutboxItem
+): Promise<void> {
+  await db.audit_outbox.put(item);
+}
+
+export async function getPendingAuditOutbox(): Promise<AuditOutboxItem[]> {
+  return db.audit_outbox
+    .where("status")
+    .equals("pending")
+    .sortBy("created_at");
+}
+
+export async function updateAuditOutboxItem(
+  id: string,
+  updates: Partial<AuditOutboxItem>
+): Promise<void> {
+  await db.audit_outbox.update(id, updates);
+}
+
+export async function deleteAuditOutboxItem(id: string): Promise<void> {
+  await db.audit_outbox.delete(id);
+}
+
+export async function getAuditOutboxCount(): Promise<number> {
+  return db.audit_outbox.where("status").equals("pending").count();
 }
