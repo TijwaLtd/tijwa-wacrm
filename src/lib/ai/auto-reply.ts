@@ -177,11 +177,18 @@ export async function dispatchInboundToAiReply(
       .select('assigned_agent_id, ai_autoreply_disabled, ai_reply_count, last_message_text, human_assigned_at, human_replied')
       .eq('id', conversationId)
       .maybeSingle()
-    if (!conv) return
+    console.log('[dispatchInboundToAiReply] conv:', conv ? `assigned=${conv.assigned_agent_id}, ai_disabled=${conv.ai_autoreply_disabled}, reply_count=${conv.ai_reply_count}` : 'NULL')
+    if (!conv) {
+      console.log('[dispatchInboundToAiReply] no conversation found, returning')
+      return
+    }
 
     // Check if message matches a keyword automation
     const lastMessage = conv.last_message_text || ''
-    if (await messageMatchesAutoResponder(db, accountId, lastMessage)) {
+    const matchesAutoResponder = await messageMatchesAutoResponder(db, accountId, lastMessage)
+    console.log('[dispatchInboundToAiReply] matchesAutoResponder:', matchesAutoResponder)
+    if (matchesAutoResponder) {
+      console.log('[dispatchInboundToAiReply] matches keyword automation, skipping AI')
       return
     }
 
@@ -218,6 +225,7 @@ export async function dispatchInboundToAiReply(
       } else {
         // Human is assigned, hasn't replied yet, but timeout hasn't elapsed
         // Stay quiet — give human more time
+        console.log('[dispatchInboundToAiReply] human assigned, timeout not elapsed, skipping')
         return
       }
     }
@@ -225,17 +233,26 @@ export async function dispatchInboundToAiReply(
     // ── CHECK CONVERSATION STATE ──────────────────────────────
     if (conv.assigned_agent_id) {
       // Human assigned and has replied (or just assigned, within timeout)
+      console.log('[dispatchInboundToAiReply] human assigned, skipping')
       return
     }
-    if (conv.ai_autoreply_disabled) return
+    if (conv.ai_autoreply_disabled) {
+      console.log('[dispatchInboundToAiReply] ai_autoreply_disabled=true, skipping')
+      return
+    }
     if (conv.ai_reply_count >= config.autoReplyMaxPerConversation) {
+      console.log('[dispatchInboundToAiReply] reply cap reached, sending replyCapReached')
       await sendDefaultMessage(db, accountId, conversationId, contactId, configOwnerUserId, 'replyCapReached')
       return
     }
 
     // ── BUILD CONTEXT & GENERATE ──────────────────────────────
     const ctx = await buildConversationContext(db, conversationId)
-    if (ctx.messages.length === 0) return
+    console.log('[dispatchInboundToAiReply] context messages:', ctx.messages.length)
+    if (ctx.messages.length === 0) {
+      console.log('[dispatchInboundToAiReply] no messages in context, returning')
+      return
+    }
 
     const acctLimit = checkRateLimit(
       `ai-autoreply:${accountId}`,
