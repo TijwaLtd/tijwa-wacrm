@@ -17,7 +17,7 @@
   "Sidebar": {
     "title": "CRM Template for WhatsApp",
     "dashboard": "Dashboard",
-    "inbox": "Inbox",
+    "inbox": "Chats",
     "notifications": "Notifications",
     "contacts": "Contacts",
     "knowledge": "Knowledge",
@@ -54,6 +54,7 @@
     "automations": "Automations",
     "settings": "Settings",
     "openMenu": "Open menu",
+    "more": "More",
     "openAccountMenu": "Open account menu",
     "defaultUser": "User",
     "defaultAvatar": "Avatar",

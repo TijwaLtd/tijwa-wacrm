@@ -52,13 +52,17 @@ function InboxPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { activeWorkspace } = useAuth();
-  const { hideDefaultHeader } = useHideDefaultHeader();
+  const { hideDefaultHeader, showDefaultHeader, hideBottomNav, showBottomNav } =
+    useHideDefaultHeader();
   useLocalSync();
 
-  // Hide the global header since inbox has its own header
+  // Hide the global header while the inbox is mounted — it has its own
+  // list/thread header. Restore it on unmount so the flag doesn't leak
+  // into the next page (HeaderProvider state is app-level, not per-route).
   useEffect(() => {
     hideDefaultHeader();
-  }, [hideDefaultHeader]);
+    return () => showDefaultHeader();
+  }, [hideDefaultHeader, showDefaultHeader]);
   /**
    * `?c=<id>` deep-link support. Used when landing here from the
    * dashboard's recent-conversations list so the right thread opens
@@ -71,6 +75,16 @@ function InboxPageInner() {
     useState<Conversation | null>(null);
   const [activeContact, setActiveContact] = useState<Contact | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+
+  // The bottom tab bar should only disappear once a conversation is open
+  // (full-screen chat). While the conversation list is showing, keep it
+  // visible so the user can still switch tabs. Restoring it on unmount
+  // guarantees we never leave it stuck hidden after leaving the inbox.
+  useEffect(() => {
+    if (activeConversation) hideBottomNav();
+    else showBottomNav();
+    return () => showBottomNav();
+  }, [activeConversation, hideBottomNav, showBottomNav]);
   const [whatsappConnected, setWhatsappConnected] = useState<boolean | null>(
     null
   );
@@ -689,7 +703,7 @@ function InboxPageInner() {
     !['active', 'trial'].includes(activeWorkspace.subscription_status);
 
   return (
-    <div className="-m-4 flex h-[100dvh] flex-col overflow-hidden sm:-m-6">
+    <div className="-m-4 flex h-full flex-col overflow-hidden sm:-m-6">
       {/* WhatsApp connection banner — in the flex column, not absolute,
           so it pushes the panels down instead of overlapping them. */}
       {whatsappConnected === false && (

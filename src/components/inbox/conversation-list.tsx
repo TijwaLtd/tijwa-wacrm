@@ -396,12 +396,12 @@ export function ConversationList({
     <div className="flex h-full w-full flex-col border-r border-border bg-card lg:w-80">
       {/* Header with tabs and actions */}
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
-        {/* Tabs — only on desktop */}
-        <div className="hidden lg:flex items-center gap-1">
+        {/* Tabs — WhatsApp / Team, shown on every size */}
+        <div className="flex min-w-0 items-center gap-1">
           <button
             onClick={() => onModeChange?.('whatsapp')}
             className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition-colors",
+              "flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors sm:px-3 sm:py-1.5 sm:text-sm",
               mode === 'whatsapp'
                 ? "bg-primary/10 text-primary"
                 : "text-muted-foreground hover:text-foreground hover:bg-muted"
@@ -413,7 +413,7 @@ export function ConversationList({
           <button
             onClick={() => onModeChange?.('team')}
             className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition-colors",
+              "flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors sm:px-3 sm:py-1.5 sm:text-sm",
               mode === 'team'
                 ? "bg-primary/10 text-primary"
                 : "text-muted-foreground hover:text-foreground hover:bg-muted"
@@ -424,26 +424,21 @@ export function ConversationList({
           </button>
         </div>
 
-        {/* Mobile: Title only */}
-        <span className="lg:hidden text-sm font-medium">
-          {mode === 'whatsapp' ? 'WhatsApp' : 'Team'}
-        </span>
-
         {/* Action buttons */}
         <div className="flex items-center gap-1">
           {onNewConversation && (
             <button
               onClick={onNewConversation}
-              className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+              className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground sm:h-8 sm:w-8"
               title="New conversation"
             >
-              <Plus className="h-4 w-4" />
+              <Plus className="h-5 w-5 sm:h-4 sm:w-4" />
             </button>
           )}
           {onBroadcastsClick && (
             <DropdownMenu>
-              <DropdownMenuTrigger className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground">
-                <MoreHorizontal className="h-4 w-4" />
+              <DropdownMenuTrigger className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground sm:h-8 sm:w-8">
+                <MoreHorizontal className="h-5 w-5 sm:h-4 sm:w-4" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={onBroadcastsClick}>
@@ -457,7 +452,7 @@ export function ConversationList({
       </div>
 
       {/* Search + Filter */}
-      <div className="space-y-2 border-b border-border p-3">
+      <div className="space-y-2 border-b border-border p-4">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input

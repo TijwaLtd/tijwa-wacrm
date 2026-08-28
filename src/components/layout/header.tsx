@@ -4,7 +4,21 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { useUnreadNotifications } from "@/hooks/use-unread-notifications";
-import { LogOut, Menu, Settings as SettingsIcon, User, Bell } from "lucide-react";
+import {
+  BookOpen,
+  CreditCard,
+  GitBranch,
+  LogOut,
+  MessageSquare,
+  MoreHorizontal,
+  Radio,
+  Settings as SettingsIcon,
+  User,
+  Users,
+  Workflow,
+  Zap,
+  Bell,
+} from "lucide-react";
 import {
   Avatar,
   AvatarFallback,
@@ -41,16 +55,30 @@ function getPageTitleKey(pathname: string): string {
   return match ? match[1] : "dashboard";
 }
 
+// Secondary destinations surfaced behind the "more" (…) menu on mobile. The
+// bottom tab bar already promotes Home + Inbox, so everything else lives here
+// to keep the phone header uncluttered. Desktop ignores this (the sidebar
+// carries full navigation) via the `lg:hidden` on the trigger.
+const moreNavItems = [
+  { href: "/contacts", labelKey: "contacts", icon: Users },
+  { href: "/knowledge", labelKey: "knowledge", icon: BookOpen },
+  { href: "/pipelines", labelKey: "pipelines", icon: GitBranch },
+  { href: "/broadcasts", labelKey: "broadcasts", icon: Radio },
+  { href: "/automations", labelKey: "automations", icon: Zap },
+  { href: "/flows", labelKey: "flows", icon: Workflow },
+  { href: "/billing", labelKey: "billing", icon: CreditCard },
+  { href: "/settings", labelKey: "settings", icon: SettingsIcon },
+];
+
 interface HeaderProps {
-  /** Wired to the shell's drawer state. Used only on mobile — the
-   *  hamburger button is hidden on lg+. */
-  onOpenSidebar?: () => void;
+  // No props currently — kept for call-site stability.
 }
 
 import { useTranslations } from "next-intl";
 
-export function Header({ onOpenSidebar }: HeaderProps) {
+export function Header({}: HeaderProps) {
   const t = useTranslations("Header");
+  const tSidebar = useTranslations("Sidebar");
   const pathname = usePathname();
   const { profile, signOut, user } = useAuth();
   const unreadNotifications = useUnreadNotifications();
@@ -68,15 +96,16 @@ export function Header({ onOpenSidebar }: HeaderProps) {
   return (
     <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-background px-4 lg:px-6">
       <div className="flex min-w-0 items-center gap-2">
-        {/* Hamburger — mobile only. 44×44 hit target per Apple HIG. */}
-        <button
-          type="button"
-          onClick={onOpenSidebar}
+        {/* Brand mark — mobile only; desktop shows the workspace switcher. */}
+        <Link
+          href="/dashboard"
           aria-label={t("openMenu")}
-          className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:hidden"
+          className="lg:hidden flex items-center"
         >
-          <Menu className="h-5 w-5" />
-        </button>
+          <span className="bg-primary text-primary-foreground flex h-8 w-8 items-center justify-center rounded-lg">
+            <MessageSquare className="h-4 w-4" />
+          </span>
+        </Link>
 
         {/* Workspace switcher - desktop */}
         <div className="hidden lg:block">
@@ -104,6 +133,37 @@ export function Header({ onOpenSidebar }: HeaderProps) {
             </span>
           )}
         </Link>
+
+        {/* "More" (…) — mobile only. Holds the secondary destinations that
+            aren't promoted to the bottom tab bar. Desktop uses the sidebar. */}
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            aria-label={t("more")}
+            className="text-muted-foreground hover:bg-muted hover:text-foreground flex h-9 w-9 items-center justify-center rounded-md transition-colors lg:hidden"
+          >
+            <MoreHorizontal className="h-5 w-5" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="end"
+            sideOffset={6}
+            className="bg-popover text-popover-foreground ring-border min-w-56"
+          >
+            {moreNavItems.map((item) => (
+              <DropdownMenuItem
+                key={item.href}
+                render={
+                  <Link
+                    href={item.href}
+                    className="text-popover-foreground focus:bg-accent focus:text-accent-foreground"
+                  />
+                }
+              >
+                <item.icon className="size-4" />
+                {tSidebar(item.labelKey as string)}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         <DropdownMenu>
         <DropdownMenuTrigger
