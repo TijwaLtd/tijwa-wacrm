@@ -94,6 +94,8 @@ export async function POST(request: Request) {
     }
 
     const ctx = await buildConversationContext(supabase, conversationId)
+    console.log('[ai/draft] conversation:', conversationId, 'messages fetched:', ctx.messages.length, 'hasAttachment:', ctx.hasAttachment)
+    console.log('[ai/draft] messages:', JSON.stringify(ctx.messages, null, 2))
     // Nothing to draft from — a brand-new thread with no customer text
     // would otherwise produce a nonsensical reply-to-nothing.
     if (ctx.messages.length === 0) {
@@ -114,6 +116,7 @@ export async function POST(request: Request) {
       config,
       latestUserMessage(ctx.messages),
     )
+    console.log('[ai/draft] knowledge retrieved:', knowledge?.length ?? 0, 'chunks')
 
     const systemPrompt = buildSystemPrompt({
       userPrompt: config.systemPrompt,
@@ -126,6 +129,7 @@ export async function POST(request: Request) {
       systemPrompt,
       messages: ctx.messages,
     })
+    console.log('[ai/draft] raw response:', text, 'handoff:', handoff)
 
     // Calculate credit cost based on complexity
     const creditsUsed = calculateCreditCost({
