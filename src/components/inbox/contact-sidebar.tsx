@@ -18,10 +18,18 @@ import {
   MessageCircle,
   Eye,
   EyeOff,
+  MoreHorizontal,
+  X,
 } from "lucide-react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 import { format } from "date-fns";
 import { useTranslations } from "next-intl";
 import { useAuditLogger } from "@/hooks/use-audit-logger";
@@ -45,6 +53,8 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
   const [tags, setTags] = useState<(Tag & { contact_tag_id: string })[]>([]);
   const [newNote, setNewNote] = useState("");
   const [addingNote, setAddingNote] = useState(false);
+  const [allTags, setAllTags] = useState<Tag[]>([]);
+  const [assigningTags, setAssigningTags] = useState(false);
 
   // Reset reveal state when contact changes
   useEffect(() => {
@@ -58,7 +68,7 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
 
     const supabase = createClient();
 
-    const [dealsRes, notesRes, tagsRes] = await Promise.all([
+    const [dealsRes, notesRes, tagsRes, allTagsRes] = await Promise.all([
       supabase
         .from("deals")
         .select("*, stage:pipeline_stages(*)")
@@ -73,6 +83,10 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
         .from("contact_tags")
         .select("id, tag_id, tags(*)")
         .eq("contact_id", contact.id),
+      supabase
+        .from("tags")
+        .select("*")
+        .order("name", { ascending: true }),
     ]);
 
     if (dealsRes.data) setDeals(dealsRes.data);
@@ -86,6 +100,7 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
         }));
       setTags(mapped);
     }
+    if (allTagsRes.data) setAllTags(allTagsRes.data);
   }, [contact]);
 
   useEffect(() => {
@@ -143,6 +158,38 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
     auditLog(AuditEventType.CONTACT_WHATSAPP_CLICKED, { contactId: contact.id });
     window.open(`https://wa.me/${getPhoneDigits(contact.phone)}`, '_blank');
   }, [contact, auditLog]);
+
+  const handleTagToggle = useCallback(async (tagId: string, currentlyAssigned: boolean) => {
+    if (!contact) return;
+    const supabase = createClient();
+
+    if (currentlyAssigned) {
+      const ct = tags.find((t) => t.id === tagId);
+      if (ct) {
+        await supabase.from("contact_tags").delete().eq("id", ct.contact_tag_id);
+        setTags((prev) => prev.filter((t) => t.id !== tagId));
+      }
+    } else {
+      const { data } = await supabase
+        .from("contact_tags")
+        .insert({ contact_id: contact.id, tag_id: tagId })
+        .select("id, tag_id, tags(*)")
+        .single();
+      if (data && data.tags) {
+        const tagData = Array.isArray(data.tags) ? data.tags[0] : data.tags;
+        setTags((prev) => [
+          ...prev,
+          { ...(tagData as Tag), contact_tag_id: data.id },
+        ]);
+      }
+    }
+  }, [contact, tags]);
+
+  const handleTagRemove = useCallback(async (contactTagId: string, tagId: string) => {
+    const supabase = createClient();
+    await supabase.from("contact_tags").delete().eq("id", contactTagId);
+    setTags((prev) => prev.filter((t) => t.id !== tagId));
+  }, []);
 
   if (!contact) {
     return (
@@ -251,6 +298,41 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
             <div className="flex items-center gap-2 px-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
               <TagIcon className="h-3 w-3" />
               {tSidebar("tags")}
+              <DropdownMenu>
+                <DropdownMenuTrigger className="ml-auto rounded p-0.5 hover:bg-muted">
+                  <Plus className="h-3 w-3 text-muted-foreground" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
+                    {tSidebar("assignTag")}
+                  </div>
+                  {allTags.length === 0 ? (
+                    <div className="px-2 py-2 text-xs text-muted-foreground">
+                      {tSidebar("noTags")}
+                    </div>
+                  ) : (
+                    allTags.map((tag) => {
+                      const isAssigned = tags.some((t) => t.id === tag.id);
+                      return (
+                        <DropdownMenuItem
+                          key={tag.id}
+                          onClick={() => handleTagToggle(tag.id, isAssigned)}
+                          className="flex items-center gap-2 text-xs"
+                        >
+                          <span
+                            className="size-2.5 shrink-0 rounded-full"
+                            style={{ backgroundColor: tag.color }}
+                          />
+                          <span className="flex-1 truncate">{tag.name}</span>
+                          {isAssigned && (
+                            <Check className="h-3 w-3 text-primary" />
+                          )}
+                        </DropdownMenuItem>
+                      );
+                    })
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
             <div className="mt-2 flex flex-wrap gap-1">
               {tags.length === 0 ? (
@@ -259,13 +341,21 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
                 tags.map((tag) => (
                   <span
                     key={tag.contact_tag_id}
-                    className="rounded-full px-2 py-0.5 text-[10px] font-medium"
+                    className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium"
                     style={{
                       backgroundColor: `${tag.color}20`,
                       color: tag.color,
                     }}
                   >
                     {tag.name}
+                    <button
+                      onClick={() =>
+                        handleTagRemove(tag.contact_tag_id, tag.id)
+                      }
+                      className="hover:opacity-70"
+                    >
+                      <X className="h-2.5 w-2.5" />
+                    </button>
                   </span>
                 ))
               )}

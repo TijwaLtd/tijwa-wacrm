@@ -20,12 +20,17 @@ import { ConversationList } from '@/components/inbox/conversation-list';
 import { MessageThread } from '@/components/inbox/message-thread';
 import { ContactSidebar } from '@/components/inbox/contact-sidebar';
 import { NewConversationDialog } from '@/components/inbox/new-conversation-dialog';
-import { WifiOff, MessageSquare, Users, AlertTriangle, Plus } from 'lucide-react';
+import {
+  WifiOff,
+  MessageSquare,
+  Users,
+  AlertTriangle,
+  Plus,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/use-auth';
 import { useLocalSync } from '@/hooks/use-local-sync';
 import { useHideDefaultHeader } from '@/components/layout/header-context';
-
 
 // Remembers the agent's show/hide choice for the desktop contact panel
 // across reloads and sessions (device-scoped, like the theme prefs).
@@ -679,10 +684,12 @@ function InboxPageInner() {
   // it back to the list. On lg+ both panes render side-by-side as
   // before, unchanged.
   const hasActiveConv = !!activeConversation;
-  const subscriptionExpired = activeWorkspace?.subscription_status && !['active', 'trial'].includes(activeWorkspace.subscription_status);
+  const subscriptionExpired =
+    activeWorkspace?.subscription_status &&
+    !['active', 'trial'].includes(activeWorkspace.subscription_status);
 
   return (
-    <div className="-m-4 flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden sm:-m-6">
+    <div className="-m-4 flex h-[calc(100vh-3.5rem)]flex-col overflow-hidden sm:-m-6">
       {/* WhatsApp connection banner — in the flex column, not absolute,
           so it pushes the panels down instead of overlapping them. */}
       {whatsappConnected === false && (
@@ -694,11 +701,13 @@ function InboxPageInner() {
 
       {/* Subscription expired banner */}
       {subscriptionExpired && (
-        <div className="flex shrink-0 items-center justify-center gap-2 border-b border-destructive/20 bg-destructive/10 px-4 py-2">
-          <AlertTriangle className="h-4 w-4 text-destructive" />
-          <p className="text-xs text-destructive">
+        <div className="border-destructive/20 bg-destructive/10 flex shrink-0 items-center justify-center gap-2 border-b px-4 py-2">
+          <AlertTriangle className="text-destructive h-4 w-4" />
+          <p className="text-destructive text-xs">
             Your subscription has expired. Sending is disabled.{' '}
-            <a href="/billing" className="underline font-medium">Renew now</a>
+            <a href="/billing" className="font-medium underline">
+              Renew now
+            </a>
           </p>
         </div>
       )}
@@ -775,7 +784,7 @@ function InboxPageInner() {
           {/* Floating Action Button for new conversation on mobile */}
           <button
             onClick={() => setNewConvDialogOpen(true)}
-            className="fixed bottom-24 right-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 lg:hidden z-50"
+            className="bg-primary text-primary-foreground hover:bg-primary/90 fixed right-4 bottom-24 z-50 flex h-14 w-14 items-center justify-center rounded-full shadow-lg lg:hidden"
             aria-label="New conversation"
           >
             <Plus className="h-6 w-6" />

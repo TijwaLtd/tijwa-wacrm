@@ -438,10 +438,10 @@ export default function ContactsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {/* Workspace filter */}
+          {/* Workspace filter — desktop only */}
           {showWorkspaceSelector && (
             <DropdownMenu>
-              <DropdownMenuTrigger className="border-border bg-background text-muted-foreground hover:bg-muted data-[state=open]:bg-muted flex h-9 items-center gap-1.5 rounded-md border px-3 text-sm">
+              <DropdownMenuTrigger className="border-border bg-background text-muted-foreground hover:bg-muted data-[state=open]:bg-muted hidden h-9 items-center gap-1.5 rounded-md border px-3 text-sm sm:flex">
                 <Building2 className="h-4 w-4" />
                 {workspaceFilter === null ? (
                   <span>All</span>
@@ -490,11 +490,75 @@ export default function ContactsPage() {
               </DropdownMenuContent>
             </DropdownMenu>
           )}
+          {/* Mobile: actions in ... menu */}
+          <DropdownMenu>
+            <DropdownMenuTrigger className="border-border bg-background text-muted-foreground hover:bg-muted data-[state=open]:bg-muted flex h-9 w-9 items-center justify-center rounded-md border px-0 sm:hidden">
+              <MoreHorizontal className="size-4" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              {showWorkspaceSelector && (
+                <>
+                  <DropdownMenuItem
+                    onClick={() => setWorkspaceFilter(null)}
+                    className={cn(
+                      'text-sm',
+                      workspaceFilter === null && 'bg-muted text-primary'
+                    )}
+                  >
+                    <Building2 className="size-4" />
+                    All Workspaces
+                  </DropdownMenuItem>
+                  {workspaces.map((ws) => (
+                    <DropdownMenuItem
+                      key={ws.account_id}
+                      onClick={() => {
+                        setWorkspaceFilter(ws.account_id);
+                        setPage(0);
+                      }}
+                      className={cn(
+                        'text-sm',
+                        workspaceFilter === ws.account_id &&
+                          'bg-muted text-primary'
+                      )}
+                    >
+                      <Building2 className="size-4" />
+                      {ws.account_name}
+                    </DropdownMenuItem>
+                  ))}
+                  <DropdownMenuSeparator />
+                </>
+              )}
+              {canEditSettings && (
+                <DropdownMenuItem
+                  onClick={() => setCustomFieldsOpen(true)}
+                  className="text-sm"
+                >
+                  <SlidersHorizontal className="size-4" />
+                  {t('customFieldsBtn')}
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem
+                onClick={() => setImportOpen(true)}
+                className="text-sm"
+              >
+                <Upload className="size-4" />
+                {t('importBtn')}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={openAddForm}
+                className="text-sm"
+              >
+                <Plus className="size-4" />
+                {t('addContactBtn')}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {/* Desktop: direct buttons */}
           {canEditSettings && (
             <Button
               variant="outline"
               onClick={() => setCustomFieldsOpen(true)}
-              className="border-border text-muted-foreground hover:bg-muted"
+              className="border-border text-muted-foreground hover:bg-muted hidden sm:flex"
             >
               <SlidersHorizontal className="size-4" />
               {t('customFieldsBtn')}
@@ -505,7 +569,7 @@ export default function ContactsPage() {
             canAct={canEdit}
             gateReason="add or import contacts"
             onClick={() => setImportOpen(true)}
-            className="border-border text-muted-foreground hover:bg-muted"
+            className="border-border text-muted-foreground hover:bg-muted hidden sm:flex"
           >
             <Upload className="size-4" />
             {t('importBtn')}
@@ -514,7 +578,7 @@ export default function ContactsPage() {
             canAct={canEdit}
             gateReason="add or import contacts"
             onClick={openAddForm}
-            className="bg-primary hover:bg-primary/90 text-primary-foreground"
+            className="bg-primary hover:bg-primary/90 text-primary-foreground hidden sm:flex"
           >
             <Plus className="size-4" />
             {t('addContactBtn')}
@@ -524,8 +588,8 @@ export default function ContactsPage() {
 
       {/* Search + tag filter */}
       <div className="space-y-2">
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <div className="relative w-full max-w-sm">
+        <div className="flex flex-row flex-wrap items-center gap-2">
+          <div className="relative min-w-0 flex-1">
             <Search className="text-muted-foreground absolute top-1/2 left-2.5 size-4 -translate-y-1/2" />
             <Input
               value={search}
