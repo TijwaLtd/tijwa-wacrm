@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useCan } from "@/hooks/use-can";
 import { useRouter } from "next/navigation";
@@ -48,7 +48,8 @@ export default function AuditPage() {
 
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [stats, setStats] = useState<AuditStats | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [filterLoading, setFilterLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [filters, setFilters] = useState<Filters>({
@@ -57,13 +58,17 @@ export default function AuditPage() {
     date_from: "",
     date_to: "",
   });
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   // Redirect if not admin
   useEffect(() => {
-    if (!accountRole) return; // still loading
-    if (!canAccess) {
-      router.push("/dashboard");
-    }
+    if (!accountRole) return;
+    if (!canAccess) router.push("/dashboard");
   }, [accountRole, canAccess, router]);
 
   const fetchEvents = useCallback(
@@ -79,7 +84,7 @@ export default function AuditPage() {
       params.set("limit", "50");
 
       const res = await fetch(`/api/audit/events?${params.toString()}`);
-      if (!res.ok) return;
+      if (!res.ok || !mountedRef.current) return;
 
       const data = await res.json();
       setEvents((prev) => (reset ? data.data : [...prev, ...data.data]));
@@ -91,37 +96,42 @@ export default function AuditPage() {
   const fetchStats = useCallback(async () => {
     if (!canAccess) return;
     const res = await fetch("/api/audit/stats");
-    if (res.ok) {
+    if (res.ok && mountedRef.current) {
       setStats(await res.json());
     }
   }, [canAccess]);
 
-  // Initial load
+  // Initial load — only runs once
   useEffect(() => {
     if (!canAccess) return;
-    setLoading(true);
-    Promise.all([fetchEvents(undefined, true), fetchStats()]).then(() =>
-      setLoading(false),
-    );
-  }, [canAccess, fetchEvents, fetchStats]);
+    setInitialLoading(true);
+    Promise.all([fetchEvents(undefined, true), fetchStats()]).then(() => {
+      if (mountedRef.current) setInitialLoading(false);
+    });
+  }, [canAccess]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Refetch on filter change
+  // Refetch on filter change — no full-page loading
+  const isInitialMount = useRef(true);
   useEffect(() => {
     if (!canAccess) return;
-    setLoading(true);
-    fetchEvents(undefined, true).then(() => setLoading(false));
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+    setFilterLoading(true);
+    fetchEvents(undefined, true).then(() => {
+      if (mountedRef.current) setFilterLoading(false);
+    });
   }, [filters, canAccess, fetchEvents]);
 
   const handleLoadMore = async () => {
     if (!nextCursor) return;
     setLoadingMore(true);
     await fetchEvents(nextCursor);
-    setLoadingMore(false);
+    if (mountedRef.current) setLoadingMore(false);
   };
 
-  if (!canAccess) {
-    return null;
-  }
+  if (!canAccess) return null;
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
@@ -134,7 +144,7 @@ export default function AuditPage() {
         </p>
       </div>
 
-      {loading ? (
+      {initialLoading ? (
         <div className="flex items-center py-12 text-sm text-muted-foreground">
           <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading audit data...
         </div>
@@ -146,7 +156,12 @@ export default function AuditPage() {
             <AuditFilters filters={filters} onChange={setFilters} />
           </div>
 
-          <div className="mt-4">
+          <div className="relative mt-4">
+            {filterLoading && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60 backdrop-blur-[1px]">
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              </div>
+            )}
             <ActivityTable events={events} />
           </div>
 

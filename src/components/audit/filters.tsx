@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, memo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Input } from "@/components/ui/input";
 import { X } from "lucide-react";
@@ -19,7 +19,7 @@ interface Profile {
 }
 
 const EVENT_TYPE_OPTIONS = [
-  { value: "", label: "All actions" },
+  { value: "ALL_ACTIONS", label: "All actions" },
   { value: "CONTACT_VIEWED", label: "Contact viewed" },
   { value: "CONTACT_PHONE_REVEALED", label: "Phone revealed" },
   { value: "CONTACT_PHONE_COPIED", label: "Phone copied" },
@@ -31,7 +31,9 @@ const EVENT_TYPE_OPTIONS = [
   { value: "CONTACT_DELETED", label: "Contact deleted" },
 ];
 
-export function AuditFilters({
+const ALL_ACTIONS = "ALL_ACTIONS";
+
+export const AuditFilters = memo(function AuditFilters({
   filters,
   onChange,
 }: {
@@ -41,14 +43,16 @@ export function AuditFilters({
   const [teamMembers, setTeamMembers] = useState<Profile[]>([]);
 
   useEffect(() => {
+    let cancelled = false;
     const supabase = createClient();
     supabase
       .from("profiles")
       .select("user_id, full_name, email")
       .order("full_name")
       .then(({ data }) => {
-        if (data) setTeamMembers(data as unknown as Profile[]);
+        if (!cancelled && data) setTeamMembers(data as unknown as Profile[]);
       });
+    return () => { cancelled = true; };
   }, []);
 
   const hasActiveFilters =
@@ -62,13 +66,15 @@ export function AuditFilters({
     <div className="flex flex-wrap items-center gap-3">
       {/* Employee filter */}
       <select
-        value={filters.user}
-        onChange={(e) => onChange({ ...filters, user: e.target.value })}
+        value={filters.user || "__all__"}
+        onChange={(e) =>
+          onChange({ ...filters, user: e.target.value === "__all__" ? "" : e.target.value })
+        }
         className="h-8 rounded-lg border border-input bg-transparent px-2.5 pr-7 text-sm text-foreground outline-none focus:border-ring focus:ring-3 focus:ring-ring/50"
       >
-        <option value="">All employees</option>
+        <option value="__all__">All employees</option>
         {teamMembers.map((member) => (
-          <option key={member.id} value={member.id}>
+          <option key={`emp-${member.id}`} value={member.id}>
             {member.full_name ?? member.email}
           </option>
         ))}
@@ -76,12 +82,14 @@ export function AuditFilters({
 
       {/* Action filter */}
       <select
-        value={filters.event_type}
-        onChange={(e) => onChange({ ...filters, event_type: e.target.value })}
+        value={filters.event_type || ALL_ACTIONS}
+        onChange={(e) =>
+          onChange({ ...filters, event_type: e.target.value === ALL_ACTIONS ? "" : e.target.value })
+        }
         className="h-8 rounded-lg border border-input bg-transparent px-2.5 pr-7 text-sm text-foreground outline-none focus:border-ring focus:ring-3 focus:ring-ring/50"
       >
         {EVENT_TYPE_OPTIONS.map((opt) => (
-          <option key={opt.value} value={opt.value}>
+          <option key={`action-${opt.value}`} value={opt.value}>
             {opt.label}
           </option>
         ))}
@@ -117,4 +125,4 @@ export function AuditFilters({
       )}
     </div>
   );
-}
+});
