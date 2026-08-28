@@ -1116,6 +1116,12 @@ export function MessageComposer({
 
           {/* Mobile: rounded layout with action row below */}
           <div className="flex flex-col sm:hidden">
+            {drafting && (
+              <div className="flex items-center gap-2 rounded-t-2xl border border-border border-b-0 bg-muted px-4 py-3">
+                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                <span className="text-sm text-muted-foreground">Generating draft...</span>
+              </div>
+            )}
             <textarea
               ref={mobileTextareaRef}
               value={text}
@@ -1135,7 +1141,8 @@ export function MessageComposer({
               rows={1}
               title={readOnly ? t("readOnlyTitle") : undefined}
               className={cn(
-                "w-full resize-none rounded-t-2xl border border-border border-b-0 bg-muted px-4 py-3 text-sm text-foreground placeholder-muted-foreground outline-none transition-colors focus:border-primary/50 scrollbar-hidden",
+                "w-full resize-none border border-border bg-muted px-4 py-3 text-sm text-foreground placeholder-muted-foreground outline-none transition-colors focus:border-primary/50 scrollbar-hidden",
+                drafting ? "rounded-t-none border-t-0" : "rounded-t-2xl",
                 (sessionExpired || readOnly) && "cursor-not-allowed opacity-50"
               )}
             />
@@ -1148,16 +1155,7 @@ export function MessageComposer({
                 </span>
               )}
 
-              <div className="flex items-center gap-1">
-                {/* Sticker/emoji */}
-                <button
-                  type="button"
-                  className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
-                  onClick={() => {}}
-                >
-                  <Smile className="h-5 w-5" />
-                </button>
-
+              <div className="ml-auto flex items-center gap-1">
                 {/* Paperclip / attach */}
                 {!isTeam && (
                   <GatedButton
