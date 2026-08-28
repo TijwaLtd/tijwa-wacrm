@@ -22,6 +22,7 @@ import {
   Camera,
   Paperclip,
 } from "lucide-react";
+import EmojiPicker from "emoji-picker-react";
 import { Button } from "@/components/ui/button";
 import { GatedButton } from "@/components/ui/gated-button";
 import {
@@ -144,6 +145,7 @@ export function MessageComposer({
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [drafting, setDrafting] = useState(false);
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
 
   // Two textareas exist in the DOM simultaneously (desktop + mobile
   // layouts, toggled purely via `hidden sm:flex` / `flex sm:hidden`), so
@@ -413,6 +415,18 @@ export function MessageComposer({
     document.addEventListener("mousedown", handle);
     return () => document.removeEventListener("mousedown", handle);
   }, [slashMenuOpen]);
+
+  // Close the emoji picker on click-outside.
+  useEffect(() => {
+    if (!emojiPickerOpen) return;
+    const handle = (e: MouseEvent) => {
+      if (!(e.target as Element).closest(".emoji-picker-react")) {
+        setEmojiPickerOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [emojiPickerOpen]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1033,61 +1047,90 @@ export function MessageComposer({
           )}
 
           {/* Desktop: single-line dark bar layout */}
-          <div className="hidden sm:flex items-end gap-2">
-            {/* "+" button — opens the action picker dialog */}
-            {!isTeam && (
-              <GatedButton
-                variant="ghost"
-                size="sm"
-                canAct={!readOnly}
-                gateReason="send messages"
-                disabled={busy}
-                title={readOnly ? undefined : t("attachMedia")}
-                className="h-10 w-10 shrink-0 p-0 text-muted-foreground hover:text-foreground"
-                onClick={() => setActionPickerOpen(true)}
-              >
-                {busy ? (
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                ) : (
-                  <Plus className="h-5 w-5" />
-                )}
-              </GatedButton>
+          <div className="hidden sm:flex flex-col gap-1">
+            {drafting && (
+              <div className="flex items-center gap-2 rounded-t-xl border border-border border-b-0 bg-muted px-4 py-2">
+                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                <span className="text-sm text-muted-foreground">Generating draft...</span>
+              </div>
             )}
-
-            {/* Sticker/emoji placeholder */}
-            {!isTeam && (
-              <button
-                type="button"
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
-                onClick={() => {}}
-              >
-                <Smile className="h-5 w-5" />
-              </button>
-            )}
-
-            <textarea
-              ref={desktopTextareaRef}
-              value={text}
-              onChange={handleChange}
-              onKeyDown={handleKeyDown}
-              onPaste={handlePaste}
-              onMouseUp={checkSelection}
-              onKeyUp={checkSelection}
-              placeholder={
-                readOnly
-                  ? t("readOnlyPlaceholder")
-                  : sessionExpired
-                    ? t("sessionExpiredPlaceholder")
-                    : t("typeMessagePlaceholder")
-              }
-              disabled={sessionExpired || readOnly}
-              rows={1}
-              title={readOnly ? t("readOnlyTitle") : undefined}
-              className={cn(
-                "flex-1 resize-none rounded-xl border border-border bg-muted px-4 py-2.5 text-sm text-foreground placeholder-muted-foreground outline-none transition-colors focus:border-primary/50 scrollbar-hidden",
-                (sessionExpired || readOnly) && "cursor-not-allowed opacity-50"
+            <div className="flex items-end gap-2">
+              {/* "+" button — opens the action picker dialog */}
+              {!isTeam && (
+                <GatedButton
+                  variant="ghost"
+                  size="sm"
+                  canAct={!readOnly}
+                  gateReason="send messages"
+                  disabled={busy || drafting}
+                  title={readOnly ? undefined : t("attachMedia")}
+                  className="h-10 w-10 shrink-0 p-0 text-muted-foreground hover:text-foreground"
+                  onClick={() => setActionPickerOpen(true)}
+                >
+                  {busy ? (
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  ) : (
+                    <Plus className="h-5 w-5" />
+                  )}
+                </GatedButton>
               )}
-            />
+
+              {/* Emoji picker */}
+              {!isTeam && (
+                <div className="relative">
+                  <button
+                    type="button"
+                    disabled={drafting}
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground disabled:opacity-40"
+                    onClick={() => setEmojiPickerOpen((v) => !v)}
+                  >
+                    <Smile className="h-5 w-5" />
+                  </button>
+                  {emojiPickerOpen && (
+                    <div className="absolute bottom-full left-0 mb-2 z-50">
+                      <div className="relative">
+                        <EmojiPicker
+                          onEmojiClick={(emoji) => {
+                            setText((prev) => prev + emoji.emoji)
+                            setEmojiPickerOpen(false)
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setEmojiPickerOpen(false)}
+                          className="absolute -top-2 -right-2 flex h-6 w-6 items-center justify-center rounded-full bg-muted text-muted-foreground hover:text-foreground"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <textarea
+                ref={desktopTextareaRef}
+                value={text}
+                onChange={handleChange}
+                onKeyDown={handleKeyDown}
+                onPaste={handlePaste}
+                onMouseUp={checkSelection}
+                onKeyUp={checkSelection}
+                placeholder={
+                  readOnly
+                    ? t("readOnlyPlaceholder")
+                    : sessionExpired
+                      ? t("sessionExpiredPlaceholder")
+                      : t("typeMessagePlaceholder")
+                }
+                disabled={sessionExpired || readOnly || drafting}
+                rows={1}
+                title={readOnly ? t("readOnlyTitle") : undefined}
+                className={cn(
+                  "flex-1 resize-none rounded-xl border border-border bg-muted px-4 py-2.5 text-sm text-foreground placeholder-muted-foreground outline-none transition-colors focus:border-primary/50 scrollbar-hidden",
+                  (sessionExpired || readOnly || drafting) && "cursor-not-allowed opacity-50"
+                )}
+              />
 
             {text.trim() ? (
               <GatedButton
@@ -1112,6 +1155,7 @@ export function MessageComposer({
                 <Mic className="h-5 w-5" />
               </GatedButton>
             )}
+            </div>
           </div>
 
           {/* Mobile: rounded layout with action row below */}
@@ -1137,13 +1181,13 @@ export function MessageComposer({
                     ? t("sessionExpiredPlaceholder")
                     : t("typeMessagePlaceholder")
               }
-              disabled={sessionExpired || readOnly}
+              disabled={sessionExpired || readOnly || drafting}
               rows={1}
               title={readOnly ? t("readOnlyTitle") : undefined}
               className={cn(
                 "w-full resize-none border border-border bg-muted px-4 py-3 text-sm text-foreground placeholder-muted-foreground outline-none transition-colors focus:border-primary/50 scrollbar-hidden",
                 drafting ? "rounded-t-none border-t-0" : "rounded-t-2xl",
-                (sessionExpired || readOnly) && "cursor-not-allowed opacity-50"
+                (sessionExpired || readOnly || drafting) && "cursor-not-allowed opacity-50"
               )}
             />
 
