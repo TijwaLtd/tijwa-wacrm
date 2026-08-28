@@ -428,8 +428,8 @@ export default function ContactsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
+      <div className="flex flex-wrap items-center justify-between gap-3 sm:gap-4">
+        <div className="min-w-0">
           <h1 className="text-foreground text-2xl font-bold">{t('title')}</h1>
           <p className="text-muted-foreground mt-1 text-sm">
             {totalCount > 0
@@ -453,7 +453,7 @@ export default function ContactsPage() {
                 )}
                 <ChevronDown className="h-3 w-3" />
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuContent align="end" className="w-fit min-w-[160px]">
                 <DropdownMenuItem
                   onClick={() => {
                     setWorkspaceFilter(null);
@@ -544,10 +544,7 @@ export default function ContactsPage() {
                 <Upload className="size-4" />
                 {t('importBtn')}
               </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={openAddForm}
-                className="text-sm"
-              >
+              <DropdownMenuItem onClick={openAddForm} className="text-sm">
                 <Plus className="size-4" />
                 {t('addContactBtn')}
               </DropdownMenuItem>
@@ -587,10 +584,10 @@ export default function ContactsPage() {
       </div>
 
       {/* Search + tag filter */}
-      <div className="space-y-2">
+      <div className="space-y-3 px-1">
         <div className="flex flex-row flex-wrap items-center gap-2">
           <div className="relative min-w-0 flex-1">
-            <Search className="text-muted-foreground absolute top-1/2 left-2.5 size-4 -translate-y-1/2" />
+            <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
             <Input
               value={search}
               onChange={(e) => {
@@ -600,7 +597,7 @@ export default function ContactsPage() {
                 setPage(0);
               }}
               placeholder={t('searchPlaceholder')}
-              className="bg-card border-border text-foreground placeholder:text-muted-foreground pl-8"
+              className="bg-card border-border text-foreground placeholder:text-muted-foreground h-11 pl-10 text-base"
             />
           </div>
 
@@ -609,7 +606,7 @@ export default function ContactsPage() {
               render={
                 <Button
                   variant="outline"
-                  className="border-border text-muted-foreground hover:bg-muted shrink-0"
+                  className="border-border text-muted-foreground hover:bg-muted h-11 shrink-0 px-4 text-base"
                 />
               }
             >
