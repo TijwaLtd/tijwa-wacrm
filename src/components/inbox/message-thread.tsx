@@ -41,6 +41,7 @@ import {
 
 import { MessageBubble } from "./message-bubble";
 import { MessageActions } from "./message-actions";
+import { MobileActionBar } from "./mobile-action-bar";
 import { ForwardModal } from "./forward-modal";
 import { MediaLightbox } from "./media-lightbox";
 import { collectMediaGallery } from "@/lib/media/gallery";
@@ -207,6 +208,8 @@ export function MessageThread({
     }, 700);
   }, [isRefreshing, onRefresh]);
   const [replyTo, setReplyTo] = useState<ReplyDraft | null>(null);
+  // Mobile long-press selected message for the action bar
+  const [mobileSelectedMsg, setMobileSelectedMsg] = useState<string | null>(null);
   // Which attachment the media viewer is showing. Lives here rather than in
   // the bubble so the viewer can page through every image/video in the
   // thread (issue #373). Paired with the conversation it belongs to and read
@@ -1383,6 +1386,7 @@ export function MessageThread({
                           setForwardMessage(msg);
                           setForwardModalOpen(true);
                         }}
+                        onMobileLongPress={(msgId) => setMobileSelectedMsg(msgId)}
                       >
                         <MessageBubble
                           message={msg}
@@ -1455,6 +1459,41 @@ export function MessageThread({
         onOpenChange={setForwardModalOpen}
         messageId={forwardMessage?.id ?? ''}
         messagePreview={forwardMessage?.content_text ?? ''}
+      />
+
+      {/* Mobile long-press action bar */}
+      <MobileActionBar
+        messageId={mobileSelectedMsg}
+        onReply={() => {
+          const msg = messages.find((m) => m.id === mobileSelectedMsg);
+          if (msg) handleStartReply(msg);
+          setMobileSelectedMsg(null);
+        }}
+        onCopy={async () => {
+          const msg = messages.find((m) => m.id === mobileSelectedMsg);
+          const text = msg?.content_text ?? "";
+          if (text) {
+            try {
+              await navigator.clipboard.writeText(text);
+              toast.success(t("copied"));
+            } catch {
+              toast.error(t("copyFailed"));
+            }
+          }
+          setMobileSelectedMsg(null);
+        }}
+        onReact={() => {
+          setMobileSelectedMsg(null);
+        }}
+        onForward={() => {
+          const msg = messages.find((m) => m.id === mobileSelectedMsg);
+          if (msg) {
+            setForwardMessage(msg);
+            setForwardModalOpen(true);
+          }
+          setMobileSelectedMsg(null);
+        }}
+        onDismiss={() => setMobileSelectedMsg(null)}
       />
     </div>
   );

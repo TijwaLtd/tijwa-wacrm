@@ -8,7 +8,8 @@
 -- First, add the unique constraint (Postgres will check existing rows first;
 -- if any duplicates exist this will fail and need to be cleaned up manually).
 ALTER TABLE broadcast_recipients
-ADD CONSTRAINT broadcast_recipients_broadcast_contact_unique
+  DROP CONSTRAINT IF EXISTS broadcast_recipients_broadcast_contact_unique,
+  ADD CONSTRAINT broadcast_recipients_broadcast_contact_unique
 UNIQUE (broadcast_id, contact_id);
 
 -- The application already inserts without explicit ids (relies on the PK

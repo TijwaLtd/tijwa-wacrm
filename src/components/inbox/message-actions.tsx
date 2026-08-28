@@ -1,57 +1,142 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
-import { CornerUpLeft, Copy, Forward, SmilePlus } from "lucide-react";
+import { useState, useRef, useCallback, type ReactNode } from "react";
+import {
+  CornerUpLeft,
+  Copy,
+  Forward,
+  SmilePlus,
+  MoreVertical,
+} from "lucide-react";
+// TODO: Add these when backend support is ready
+// import { Pin, Star, StickyNote, Flag, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { Message } from "@/types";
 import { useTranslations } from "next-intl";
 
-// WhatsApp's own quick-reaction bar starts with these six. Picking the same
-// set keeps the affordance familiar without pulling in a 300KB emoji library.
 const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
+
+/** Minimum horizontal distance (px) to count as a swipe */
+const SWIPE_THRESHOLD = 60;
 
 interface MessageActionsProps {
   message: Message;
   onReply: () => void;
   onReact: (emoji: string) => void;
   onForward?: () => void;
+  // TODO: Add when backend support is ready
+  // onDelete?: () => void;
+  // onPin?: () => void;
+  // onStar?: () => void;
+  // onReport?: () => void;
+  // onAddToNote?: () => void;
+  /** Called on mobile long-press so the thread can show a mobile action bar */
+  onMobileLongPress?: (messageId: string) => void;
   children: ReactNode;
 }
 
 /**
- * Hover/long-press toolbar wrapper around a `<MessageBubble>`. The bubble
- * itself stays a pure presenter — this component owns the action surface so
- * the bubble's render path is unaffected when the toolbar isn't visible.
+ * WhatsApp-style message action surface.
+ *
+ * Desktop: Right-click or click the ⋮ trigger opens a vertical dropdown menu.
+ * Mobile: Long-press shows a thread-level action bar (via onMobileLongPress).
+ * Mobile: Horizontal swipe right triggers reply.
  */
 export function MessageActions({
   message,
   onReply,
   onReact,
   onForward,
+  // onDelete,
+  // onPin,
+  // onStar,
+  // onReport,
+  // onAddToNote,
+  onMobileLongPress,
   children,
 }: MessageActionsProps) {
   const t = useTranslations("Inbox.actions");
 
-  // Touch devices have no hover. Long-press fires `contextmenu`; we capture
-  // it, suppress the native menu, and pin the toolbar open until the user
-  // interacts elsewhere.
-  const [touchOpen, setTouchOpen] = useState(false);
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
 
   const isAgent =
     message.sender_type === "agent" || message.sender_type === "bot";
 
-  const handleContextMenu = (e: React.MouseEvent) => {
-    e.preventDefault();
-    setTouchOpen(true);
-  };
+  // ── Swipe-to-reply (mobile) ──────────────────────────────
+  const touchStartX = useRef(0);
+  const touchStartY = useRef(0);
+  const swiping = useRef(false);
+  const [swipeOffset, setSwipeOffset] = useState(0);
 
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
+    swiping.current = false;
+  }, []);
+
+  const handleTouchMove = useCallback(
+    (e: React.TouchEvent) => {
+      const dx = e.touches[0].clientX - touchStartX.current;
+      const dy = e.touches[0].clientY - touchStartY.current;
+
+      // Only track horizontal swipes (right direction, agent messages)
+      if (Math.abs(dx) > Math.abs(dy) && dx > 10 && isAgent) {
+        swiping.current = true;
+        setSwipeOffset(Math.min(dx, 120));
+      }
+    },
+    [isAgent],
+  );
+
+  const handleTouchEnd = useCallback(() => {
+    if (swiping.current && swipeOffset > SWIPE_THRESHOLD) {
+      onReply();
+    }
+    setSwipeOffset(0);
+    swiping.current = false;
+  }, [swipeOffset, onReply]);
+
+  // ── Long-press (mobile) ──────────────────────────────────
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleTouchStartForLongPress = useCallback(() => {
+    longPressTimer.current = setTimeout(() => {
+      onMobileLongPress?.(message.id);
+    }, 500);
+  }, [message.id, onMobileLongPress]);
+
+  const handleTouchEndForLongPress = useCallback(() => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }, []);
+
+  const handleTouchMoveForLongPress = useCallback(() => {
+    // Cancel long-press if finger moves
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }, []);
+
+  // ── Desktop right-click ──────────────────────────────────
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      setDropdownOpen(true);
+    },
+    [],
+  );
+
+  // ── Action handlers ──────────────────────────────────────
   const handleCopy = async () => {
     const text = message.content_text ?? "";
     if (!text) {
@@ -64,28 +149,31 @@ export function MessageActions({
     } catch {
       toast.error(t("copyFailed"));
     }
-    setTouchOpen(false);
+    setDropdownOpen(false);
   };
 
   const handlePickEmoji = (emoji: string) => {
     onReact(emoji);
-    setPickerOpen(false);
-    setTouchOpen(false);
+    setDropdownOpen(false);
   };
 
   const handleReply = () => {
     onReply();
-    setTouchOpen(false);
+    setDropdownOpen(false);
   };
 
   const handleForward = () => {
     onForward?.();
-    setTouchOpen(false);
+    setDropdownOpen(false);
   };
 
-  // Row alignment lives here (not in MessageBubble) so the `group/actions`
-  // hover region matches the bubble's content width — hovering empty space
-  // in the row no longer reveals the toolbar.
+  // TODO: Add when backend support is ready
+  // const handlePin = () => { onPin?.(); toast.success(t("pinned")); setDropdownOpen(false); };
+  // const handleStar = () => { onStar?.(); toast.success(t("starred")); setDropdownOpen(false); };
+  // const handleAddToNote = () => { onAddToNote?.(); toast.success(t("addedToNote")); setDropdownOpen(false); };
+  // const handleReport = () => { onReport?.(); toast.success(t("reported")); setDropdownOpen(false); };
+  // const handleDelete = () => { onDelete?.(); setDropdownOpen(false); };
+
   return (
     <div
       className={cn(
@@ -93,75 +181,102 @@ export function MessageActions({
         isAgent ? "justify-end" : "justify-start",
       )}
       onContextMenu={handleContextMenu}
-      onBlur={() => setTouchOpen(false)}
     >
-      {/* `min-w-0` lets this flex child actually respect the 75% cap.
-       *  Default `min-width: auto` lets content (a long quote preview,
-       *  an unbroken URL) push past the cap and shove the row past
-       *  100%, which used to bleed across into the contact-sidebar
-       *  area. See issue #165. */}
-      <div className="group/actions relative min-w-0 max-w-[75%]">
-        {children}
       <div
-        data-touch-open={touchOpen || pickerOpen ? "true" : undefined}
         className={cn(
-          "absolute -top-3 z-10 flex h-7 items-center gap-0.5 rounded-full border border-border bg-popover/95 px-1 shadow-md backdrop-blur-sm transition-opacity",
-          "opacity-0 group-hover/actions:opacity-100 group-focus-within/actions:opacity-100",
-          "data-[touch-open=true]:opacity-100",
-          isAgent ? "right-3" : "left-3",
+          "group/actions relative min-w-0 max-w-[75%]",
+          // Swipe visual feedback
+          swipeOffset > 0 && "transition-transform",
         )}
+        style={
+          swipeOffset > 0
+            ? { transform: `translateX(-${swipeOffset}px)` }
+            : undefined
+        }
+        onTouchStart={(e) => {
+          handleTouchStart(e);
+          handleTouchStartForLongPress();
+        }}
+        onTouchMove={(e) => {
+          handleTouchMove(e);
+          handleTouchMoveForLongPress();
+        }}
+        onTouchEnd={() => {
+          handleTouchEnd();
+          handleTouchEndForLongPress();
+        }}
       >
-        <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
-          <PopoverTrigger
-            className="flex h-5 w-5 items-center justify-center rounded-full text-popover-foreground hover:bg-muted hover:text-foreground"
-            aria-label={t("react")}
-          >
-            <SmilePlus className="h-3.5 w-3.5" />
-          </PopoverTrigger>
-          <PopoverContent
-            className="flex w-auto flex-row gap-1 p-1.5"
-            sideOffset={6}
-          >
-            {QUICK_EMOJIS.map((e) => (
-              <button
-                key={e}
-                type="button"
-                onClick={() => handlePickEmoji(e)}
-                className="flex h-8 w-8 items-center justify-center rounded-full text-lg leading-none transition-transform hover:scale-125 hover:bg-muted"
-                aria-label={t("reactWith", { emoji: e })}
-              >
-                {e}
-              </button>
-            ))}
-          </PopoverContent>
-        </Popover>
-        <button
-          type="button"
-          onClick={handleReply}
-          className="flex h-5 w-5 items-center justify-center rounded-full text-popover-foreground hover:bg-muted hover:text-foreground"
-          aria-label={t("reply")}
-        >
-          <CornerUpLeft className="h-3.5 w-3.5" />
-        </button>
-        <button
-          type="button"
-          onClick={handleCopy}
-          className="flex h-5 w-5 items-center justify-center rounded-full text-popover-foreground hover:bg-muted hover:text-foreground"
-          aria-label={t("copyText")}
-        >
-          <Copy className="h-3.5 w-3.5" />
-        </button>
-        {onForward && (
-        <button
-          type="button"
-          onClick={handleForward}
-          className="flex h-5 w-5 items-center justify-center rounded-full text-popover-foreground hover:bg-muted hover:text-foreground"
-          aria-label={t("forward")}
-        >
-          <Forward className="h-3.5 w-3.5" />
-        </button>
+        {/* Swipe reply indicator (visible when swiping agent messages) */}
+        {swipeOffset > 20 && isAgent && (
+          <div className="absolute -left-10 top-1/2 z-20 -translate-y-1/2 text-primary opacity-60">
+            <CornerUpLeft className="h-5 w-5" />
+          </div>
         )}
-      </div>
+
+        {children}
+
+        {/* Desktop: Dropdown trigger (hover-visible, inside the bubble) */}
+        <DropdownMenu open={dropdownOpen} onOpenChange={setDropdownOpen}>
+          <DropdownMenuTrigger
+            className={cn(
+              "absolute z-10 flex h-7 w-7 items-center justify-center rounded-full",
+              "opacity-0 transition-opacity",
+              "bg-muted/80 hover:bg-muted",
+              "group-hover/actions:opacity-100 group-focus-within/actions:opacity-100",
+              isAgent ? "left-0 -translate-x-1/2 -translate-y-1/2" : "right-0 translate-x-1/2 -translate-y-1/2",
+              "top-0",
+            )}
+          >
+            <MoreVertical className="h-4 w-4 font-bold text-foreground" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align={isAgent ? "start" : "end"}
+            side={isAgent ? "right" : "left"}
+            className="w-56"
+          >
+            <DropdownMenuItem onClick={handleReply}>
+              <CornerUpLeft className="mr-2 h-4 w-4" />
+              {t("reply")}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={handleCopy}>
+              <Copy className="mr-2 h-4 w-4" />
+              {t("copyText")}
+            </DropdownMenuItem>
+
+            {/* React submenu trigger */}
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                className="flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+              >
+                <SmilePlus className="mr-2 h-4 w-4" />
+                {t("react")}
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                side="right"
+                className="flex w-auto flex-row gap-1 p-1.5"
+              >
+                {QUICK_EMOJIS.map((e) => (
+                  <button
+                    key={e}
+                    type="button"
+                    onClick={() => handlePickEmoji(e)}
+                    className="flex h-8 w-8 items-center justify-center rounded-full text-lg leading-none transition-transform hover:scale-125 hover:bg-muted"
+                    aria-label={t("reactWith", { emoji: e })}
+                  >
+                    {e}
+                  </button>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {onForward && (
+              <DropdownMenuItem onClick={handleForward}>
+                <Forward className="mr-2 h-4 w-4" />
+                {t("forward")}
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
   );

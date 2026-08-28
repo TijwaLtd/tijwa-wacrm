@@ -16,6 +16,7 @@ ALTER TABLE subscriptions
 
 -- Ensure extra_seats never goes negative
 ALTER TABLE subscriptions
+  DROP CONSTRAINT IF EXISTS extra_seats_non_negative,
   ADD CONSTRAINT extra_seats_non_negative CHECK (extra_seats >= 0);
 
 COMMENT ON COLUMN subscriptions.extra_seats IS 'Number of extra team member seats purchased beyond plan limit. KES 750/mo each.';

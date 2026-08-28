@@ -43,11 +43,12 @@ export async function GET() {
     // Ensure ai_credits row exists and matches plan allocation.
     // The on_account_created_ai_credits trigger creates a row with 0 credits.
     // We sync: if the row exists but has wrong allocation, reset to plan's value.
-    const PLAN_CREDITS: Record<string, number> = {
-      starter: 0,
-      business: 400,
-      growth: 1000,
-      enterprise: 999999,
+    // Credits = 20% of plan price (floor). Starter is exempt (0 credits).
+    const PLAN_PRICES: Record<string, number> = {
+      starter: 2500,
+      business: 5000,
+      growth: 10000,
+      enterprise: 25000,
     };
 
     const { data: settings } = await serviceClient
@@ -57,7 +58,8 @@ export async function GET() {
       .maybeSingle();
 
     const plan = settings?.plan ?? "starter";
-    const planCredits = PLAN_CREDITS[plan] ?? 0;
+    const price = PLAN_PRICES[plan] ?? 0;
+    const planCredits = plan === 'starter' ? 0 : Math.floor(price * 0.20);
 
     const { data: existingCredits } = await serviceClient
       .from("ai_credits")

@@ -137,10 +137,21 @@ export async function dispatchInboundToAiReply(
     }
 
     // ── CHECK CREDITS ─────────────────────────────────────────
-    const hasCredits = await checkAiCredits(db, accountId)
-    if (!hasCredits) {
-      await sendDefaultMessage(db, accountId, conversationId, contactId, configOwnerUserId, 'noCredits')
-      return
+    // First package (starter) is exempt from AI credit check
+    const { data: settings } = await db
+      .from('tenant_settings')
+      .select('plan')
+      .eq('account_id', accountId)
+      .maybeSingle();
+
+    const isCreditCheckExempt = settings?.plan === 'starter';
+
+    if (!isCreditCheckExempt) {
+      const hasCredits = await checkAiCredits(db, accountId)
+      if (!hasCredits) {
+        await sendDefaultMessage(db, accountId, conversationId, contactId, configOwnerUserId, 'noCredits')
+        return
+      }
     }
 
     // ── CHECK WORKING HOURS ───────────────────────────────────

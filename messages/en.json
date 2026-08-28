@@ -183,7 +183,14 @@
       "selectConversation": "Select a conversation",
       "selectConversationHint": "Choose a conversation from the left to start messaging",
       "today": "Today",
-      "yesterday": "Yesterday"
+      "yesterday": "Yesterday",
+      "messageDeleted": "Message deleted",
+      "messagePinned": "Message pinned",
+      "messageStarred": "Message starred",
+      "messageReported": "Message reported",
+      "messageAddedToNote": "Added to note",
+      "copied": "Copied",
+      "copyFailed": "Copy failed"
     },
     "sessionTimer": {
       "expired": "Expired",
@@ -270,7 +277,11 @@
       "reactWith": "React with {emoji}",
       "nothingToCopy": "Nothing to copy",
       "copied": "Copied",
-      "copyFailed": "Copy failed"
+      "copyFailed": "Copy failed",
+      "pin": "Pin",
+      "star": "Star",
+      "addToNote": "Add text to note",
+      "report": "Report"
     },
     "forward": {
       "title": "Forward to team",

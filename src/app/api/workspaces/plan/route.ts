@@ -87,13 +87,15 @@ export async function POST(request: Request) {
     // Add plan allocation credits (don't wipe purchased credits).
     // The monthly allocation is additive — purchased credits are preserved.
     // A monthly cron resets credits_remaining to plan allocation on the 1st.
-    const PLAN_CREDITS: Record<string, number> = {
-      starter: 0,
-      business: 400,
-      growth: 1000,
-      enterprise: 999999,
+    // Credits = 20% of plan price (floor). Starter is exempt (0 credits).
+    const PLAN_PRICES: Record<string, number> = {
+      starter: 2500,
+      business: 5000,
+      growth: 10000,
+      enterprise: 25000,
     };
-    const creditsToGrant = PLAN_CREDITS[plan] ?? 0;
+    const price = PLAN_PRICES[plan] ?? 0;
+    const creditsToGrant = plan === 'starter' ? 0 : Math.floor(price * 0.20);
 
     if (creditsToGrant > 0) {
       await serviceClient.rpc("add_ai_credits", {
