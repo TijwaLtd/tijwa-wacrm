@@ -69,6 +69,11 @@ const nextConfig: NextConfig = {
   // Harmless outside Docker: `next start` keeps working as before.
   output: "standalone",
 
+  // pdf-parse bundles pdfjs-dist which requires a worker file that
+  // webpack can't resolve in the Next.js dev/prod bundle. Externalizing
+  // it lets Node load it from node_modules at runtime.
+  serverExternalPackages: ["pdf-parse", "pdfjs-dist"],
+
   /**
    * Cross-origin dev access (Next.js 16).
    *
