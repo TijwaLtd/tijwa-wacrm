@@ -179,7 +179,11 @@ export async function dispatchInboundToAiReply(
       .maybeSingle()
     console.log('[dispatchInboundToAiReply] conv:', conv ? `assigned=${conv.assigned_agent_id}, ai_disabled=${conv.ai_autoreply_disabled}, reply_count=${conv.ai_reply_count}` : 'NULL')
     if (!conv) {
-      console.log('[dispatchInboundToAiReply] no conversation found, returning')
+      // This shouldn't happen in normal flow — findOrCreateConversation runs first.
+      // But if it does (race condition, eventual consistency), create one and let
+      // the customer know we received their message.
+      console.warn('[dispatchInboundToAiReply] no conversation found — this should not happen in normal flow')
+      await sendDefaultMessage(db, accountId, conversationId, contactId, configOwnerUserId, 'noAi')
       return
     }
 
@@ -250,7 +254,11 @@ export async function dispatchInboundToAiReply(
     const ctx = await buildConversationContext(db, conversationId)
     console.log('[dispatchInboundToAiReply] context messages:', ctx.messages.length)
     if (ctx.messages.length === 0) {
-      console.log('[dispatchInboundToAiReply] no messages in context, returning')
+      // Nearly impossible in normal flow — the inbound message was just inserted.
+      // If it happens (e.g., race with another concurrent insert), acknowledge to
+      // the customer so they're not left waiting.
+      console.warn('[dispatchInboundToAiReply] no messages in context — this should not happen in normal flow')
+      await sendDefaultMessage(db, accountId, conversationId, contactId, configOwnerUserId, 'noAi')
       return
     }
 
