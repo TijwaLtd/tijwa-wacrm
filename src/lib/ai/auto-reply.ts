@@ -139,25 +139,14 @@ export async function dispatchInboundToAiReply(
     }
 
     // ── CHECK CREDITS ─────────────────────────────────────────
-    // First package (starter) is exempt from AI credit check
-    const { data: settings } = await db
-      .from('tenant_settings')
-      .select('plan')
-      .eq('account_id', accountId)
-      .maybeSingle();
-
-    console.log('[dispatchInboundToAiReply] plan:', settings?.plan, 'is exempt:', settings?.plan === 'starter')
-
-    const isCreditCheckExempt = settings?.plan === 'starter';
-
-    if (!isCreditCheckExempt) {
-      const hasCredits = await checkAiCredits(db, accountId)
-      console.log('[dispatchInboundToAiReply] hasCredits:', hasCredits)
-      if (!hasCredits) {
-        console.log('[dispatchInboundToAiReply] no credits, sending noCredits message')
-        await sendDefaultMessage(db, accountId, conversationId, contactId, configOwnerUserId, 'noCredits')
-        return
-      }
+    // Credits are the only gatekeeper — if account has credits and platform
+    // key is set, AI works. No credits = send default.
+    const hasCredits = await checkAiCredits(db, accountId)
+    console.log('[dispatchInboundToAiReply] hasCredits:', hasCredits)
+    if (!hasCredits) {
+      console.log('[dispatchInboundToAiReply] no credits, sending noCredits message')
+      await sendDefaultMessage(db, accountId, conversationId, contactId, configOwnerUserId, 'noCredits')
+      return
     }
 
     // ── CHECK WORKING HOURS ───────────────────────────────────
