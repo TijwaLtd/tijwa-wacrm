@@ -206,19 +206,24 @@ export async function getCreditRateForModel(
 
 /**
  * Check if the tenant has any AI credits remaining.
+ * Uses direct table query (bypasses RLS issues with RPC auth.uid()).
  */
 export async function checkAiCredits(
   db: SupabaseClient,
   accountId: string,
 ): Promise<boolean> {
-  const { data, error } = await db.rpc('check_ai_credits', {
-    p_account_id: accountId,
-  })
+  const { data, error } = await db
+    .from('ai_credits')
+    .select('credits_remaining')
+    .eq('account_id', accountId)
+    .maybeSingle()
+
   if (error) {
     console.error('[ai credits] check failed:', error)
     return false
   }
-  return data === true
+
+  return (Number(data?.credits_remaining) ?? 0) > 0
 }
 
 /**

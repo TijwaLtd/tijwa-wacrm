@@ -127,7 +127,7 @@ export async function dispatchInboundToAiReply(
   try {
     const db = supabaseAdmin()
 
-    const config = await loadAiConfig(db, accountId)
+    const config = await loadAiConfig()
 
     // ── AI NOT AVAILABLE ──────────────────────────────────────
     if (!config || !config.autoReplyEnabled) {

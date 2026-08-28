@@ -59,7 +59,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Conversation not found' }, { status: 404 })
     }
 
-    const config = await loadAiConfig(supabase, accountId)
+    const config = await loadAiConfig()
     if (!config) {
       return NextResponse.json(
         {
@@ -72,7 +72,7 @@ export async function POST(request: Request) {
 
     // Check if the tenant has AI credits remaining
     // First package (starter) is exempt from AI credit check
-    const { data: settings } = await supabase
+    const { data: settings } = await supabaseAdmin()
       .from('tenant_settings')
       .select('plan')
       .eq('account_id', accountId)
@@ -81,7 +81,7 @@ export async function POST(request: Request) {
     const isCreditCheckExempt = settings?.plan === 'starter';
 
     if (!isCreditCheckExempt) {
-      const hasCredits = await checkAiCredits(supabase, accountId)
+      const hasCredits = await checkAiCredits(supabaseAdmin(), accountId)
       if (!hasCredits) {
         return NextResponse.json(
           {
