@@ -144,6 +144,58 @@ export interface TenantMembership {
 }
 
 // ============================================================
+// Knowledge base — offline-first document cache
+// ============================================================
+
+/**
+ * A cached knowledge document. Content is stored locally so the
+ * knowledge page loads instantly and the AI retrieval pipeline
+ * can search offline.
+ */
+export interface LocalKnowledgeDocument {
+  id: string;
+  account_id: string;
+  title: string;
+  /** Full extracted text content */
+  content: string;
+  source_type: "text" | "file";
+  /** Storage path on Supabase (null for text-only docs) */
+  file_path: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * A cached knowledge chunk for offline retrieval.
+ */
+export interface LocalKnowledgeChunk {
+  id: string;
+  document_id: string;
+  account_id: string;
+  chunk_index: number;
+  content: string;
+}
+
+/**
+ * An outbox item for knowledge documents created while offline.
+ * Synced to the server when connectivity returns.
+ */
+export interface KnowledgeOutboxItem {
+  id: string;
+  account_id: string;
+  title: string;
+  content: string;
+  source_type: "text" | "file";
+  /** Original file bytes (for file uploads) */
+  file_data?: Blob;
+  file_name?: string;
+  file_mime?: string;
+  created_at: string;
+  status: "pending" | "uploading" | "synced" | "failed";
+  error_message?: string;
+}
+
+// ============================================================
 // Database definition
 // ============================================================
 
@@ -159,6 +211,9 @@ export const db = new Dexie(DB_NAME) as Dexie & {
   outbox: EntityTable<OutboxItem, "id">;
   sync_state: EntityTable<SyncState, "id">;
   tenant_memberships: EntityTable<TenantMembership, "account_id">;
+  knowledge_documents: EntityTable<LocalKnowledgeDocument, "id">;
+  knowledge_chunks: EntityTable<LocalKnowledgeChunk, "id">;
+  knowledge_outbox: EntityTable<KnowledgeOutboxItem, "id">;
 };
 
 // Schema version 1: initial local-first schema
@@ -195,4 +250,17 @@ db.version(1).stores({
 
   // tenant_memberships: indexed by account_id (primary key)
   tenant_memberships: "account_id",
+});
+
+// Schema version 2: knowledge base tables
+db.version(2).stores({
+  // knowledge_documents: indexed by id (primary), account_id (tenant filter)
+  knowledge_documents: "id, account_id, updated_at",
+
+  // knowledge_chunks: indexed by id (primary), document_id (join),
+  // account_id (tenant filter)
+  knowledge_chunks: "id, document_id, account_id",
+
+  // knowledge_outbox: pending uploads while offline
+  knowledge_outbox: "id, account_id, status, created_at",
 });

@@ -9,6 +9,9 @@ import type {
   SyncState,
   TenantMembership,
   LocalAttachment,
+  LocalKnowledgeDocument,
+  LocalKnowledgeChunk,
+  KnowledgeOutboxItem,
 } from "./schema";
 
 export type {
@@ -21,6 +24,9 @@ export type {
   SyncState,
   TenantMembership,
   LocalAttachment,
+  LocalKnowledgeDocument,
+  LocalKnowledgeChunk,
+  KnowledgeOutboxItem,
 };
 
 // ============================================================
@@ -238,6 +244,114 @@ export async function putSyncState(state: SyncState): Promise<void> {
   await db.sync_state.put(state);
 }
 
+// ---- Knowledge Documents ----
+
+export async function getKnowledgeDocumentsByTenant(
+  accountId: string
+): Promise<LocalKnowledgeDocument[]> {
+  return db.knowledge_documents
+    .where("account_id")
+    .equals(accountId)
+    .reverse()
+    .sortBy("updated_at");
+}
+
+export async function getKnowledgeDocumentById(
+  id: string
+): Promise<LocalKnowledgeDocument | undefined> {
+  return db.knowledge_documents.get(id);
+}
+
+export async function putKnowledgeDocument(
+  doc: LocalKnowledgeDocument
+): Promise<void> {
+  await db.knowledge_documents.put(doc);
+}
+
+export async function putKnowledgeDocuments(
+  docs: LocalKnowledgeDocument[]
+): Promise<void> {
+  await db.knowledge_documents.bulkPut(docs);
+}
+
+export async function deleteKnowledgeDocument(id: string): Promise<void> {
+  await db.transaction(
+    "rw",
+    [db.knowledge_documents, db.knowledge_chunks],
+    async () => {
+      await db.knowledge_documents.delete(id);
+      await db.knowledge_chunks.where("document_id").equals(id).delete();
+    }
+  );
+}
+
+// ---- Knowledge Chunks ----
+
+export async function getKnowledgeChunksByDocument(
+  documentId: string
+): Promise<LocalKnowledgeChunk[]> {
+  return db.knowledge_chunks
+    .where("document_id")
+    .equals(documentId)
+    .sortBy("chunk_index");
+}
+
+export async function getKnowledgeChunksByTenant(
+  accountId: string
+): Promise<LocalKnowledgeChunk[]> {
+  return db.knowledge_chunks.where("account_id").equals(accountId).toArray();
+}
+
+export async function putKnowledgeChunks(
+  chunks: LocalKnowledgeChunk[]
+): Promise<void> {
+  await db.knowledge_chunks.bulkPut(chunks);
+}
+
+export async function deleteKnowledgeChunksByDocument(
+  documentId: string
+): Promise<void> {
+  await db.knowledge_chunks
+    .where("document_id")
+    .equals(documentId)
+    .delete();
+}
+
+// ---- Knowledge Outbox (offline uploads) ----
+
+export async function getPendingKnowledgeOutbox(): Promise<KnowledgeOutboxItem[]> {
+  return db.knowledge_outbox
+    .where("status")
+    .anyOf(["pending", "uploading"])
+    .toArray();
+}
+
+export async function getKnowledgeOutboxItem(
+  id: string
+): Promise<KnowledgeOutboxItem | undefined> {
+  return db.knowledge_outbox.get(id);
+}
+
+export async function putKnowledgeOutboxItem(
+  item: KnowledgeOutboxItem
+): Promise<void> {
+  await db.knowledge_outbox.put(item);
+}
+
+export async function updateKnowledgeOutboxItem(
+  id: string,
+  updates: Partial<KnowledgeOutboxItem>
+): Promise<void> {
+  const existing = await db.knowledge_outbox.get(id);
+  if (existing) {
+    await db.knowledge_outbox.put({ ...existing, ...updates });
+  }
+}
+
+export async function deleteKnowledgeOutboxItem(id: string): Promise<void> {
+  await db.knowledge_outbox.delete(id);
+}
+
 // ---- Tenant Memberships ----
 
 export async function getTenantMemberships(): Promise<TenantMembership[]> {
@@ -259,7 +373,7 @@ export async function putTenantMemberships(
 export async function clearTenantData(tenantId: string): Promise<void> {
   await db.transaction(
     "rw",
-    [db.conversations, db.messages, db.contacts, db.quick_replies, db.outbox, db.attachments, db.sync_state],
+    [db.conversations, db.messages, db.contacts, db.quick_replies, db.outbox, db.attachments, db.sync_state, db.knowledge_documents, db.knowledge_chunks, db.knowledge_outbox],
     async () => {
       // Collect conversation IDs BEFORE deleting conversations
       const convIds = await db.conversations
@@ -282,6 +396,11 @@ export async function clearTenantData(tenantId: string): Promise<void> {
         .filter((s) => s.tenant_id === tenantId)
         .map((s) => s.id);
       await db.sync_state.bulkDelete(syncIds);
+
+      // Knowledge
+      await db.knowledge_documents.where("account_id").equals(tenantId).delete();
+      await db.knowledge_chunks.where("account_id").equals(tenantId).delete();
+      await db.knowledge_outbox.where("account_id").equals(tenantId).delete();
     }
   );
 }
@@ -295,14 +414,18 @@ export async function getLocalStats(): Promise<{
   contacts: number;
   quickReplies: number;
   outboxPending: number;
+  knowledgeDocuments: number;
+  knowledgeOutboxPending: number;
 }> {
-  const [conversations, messages, contacts, quickReplies, outboxPending] =
+  const [conversations, messages, contacts, quickReplies, outboxPending, knowledgeDocuments, knowledgeOutboxPending] =
     await Promise.all([
       db.conversations.count(),
       db.messages.count(),
       db.contacts.count(),
       db.quick_replies.count(),
       db.outbox.where("status").anyOf(["pending", "uploading"]).count(),
+      db.knowledge_documents.count(),
+      db.knowledge_outbox.where("status").anyOf(["pending", "uploading"]).count(),
     ]);
-  return { conversations, messages, contacts, quickReplies, outboxPending };
+  return { conversations, messages, contacts, quickReplies, outboxPending, knowledgeDocuments, knowledgeOutboxPending };
 }

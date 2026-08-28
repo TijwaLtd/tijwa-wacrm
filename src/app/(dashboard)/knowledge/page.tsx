@@ -30,6 +30,13 @@ import {
 import { useTranslations } from 'next-intl';
 import { useAuth } from '@/hooks/use-auth';
 import { cn } from '@/lib/utils';
+import { getKnowledgeDocumentsByTenant } from '@/lib/db';
+import {
+  cacheKnowledgeDocuments,
+  removeCachedKnowledgeDocument,
+  queueKnowledgeUpload,
+  syncKnowledgeOutbox,
+} from '@/lib/sync/knowledge-sync';
 
 interface DocSummary {
   id: string;
@@ -100,24 +107,56 @@ export default function KnowledgePage() {
   const hasAiCredits = Boolean(credits && credits.creditsRemaining > 0);
 
   const fetchDocs = useCallback(async () => {
+    if (!accountId) return;
     setLoading(true);
     try {
       const res = await fetch('/api/ai/knowledge');
       const data = await res.json();
-      if (res.ok) setDocs(data.documents ?? []);
-      else toast.error(data.error ?? t('loadFailed'));
+      if (res.ok) {
+        const list = data.documents ?? [];
+        setDocs(list);
+        // Cache to IndexedDB for offline access
+        await cacheKnowledgeDocuments(accountId, list);
+      } else {
+        toast.error(data.error ?? t('loadFailed'));
+      }
     } catch {
-      toast.error(t('loadFailed'));
+      // Offline fallback: load from IndexedDB
+      try {
+        const cached = await getKnowledgeDocumentsByTenant(accountId);
+        if (cached.length > 0) {
+          setDocs(
+            cached.map((d) => ({
+              id: d.id,
+              title: d.title,
+              updated_at: d.updated_at,
+              source_type: d.source_type,
+            }))
+          );
+          toast.info('Showing cached documents (offline)');
+        } else {
+          toast.error(t('loadFailed'));
+        }
+      } catch {
+        toast.error(t('loadFailed'));
+      }
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [accountId, t]);
 
   useEffect(() => {
     if (!accountId || loadedAccountIdRef.current === accountId) return;
     loadedAccountIdRef.current = accountId;
     void fetchDocs();
     void fetchCredits();
+    // Sync any pending offline uploads when we come back online
+    void syncKnowledgeOutbox().then(({ synced }) => {
+      if (synced > 0) {
+        toast.success(`${synced} document(s) synced from offline queue`);
+        void fetchDocs();
+      }
+    });
   }, [accountId, fetchDocs, fetchCredits]);
 
   const openNew = () => {
@@ -178,7 +217,21 @@ export default function KnowledgePage() {
         toast.error(data.error ?? t('saveFailed'));
       }
     } catch {
-      toast.error(t('saveFailed'));
+      // Offline: queue to outbox
+      if (accountId) {
+        await queueKnowledgeUpload({
+          accountId,
+          title: title.trim(),
+          content: content.trim(),
+          sourceType: 'text',
+        });
+        toast.info('Saved locally — will sync when you\'re back online');
+        cancelEdit();
+        // Show the doc in the list immediately
+        await fetchDocs();
+      } else {
+        toast.error(t('saveFailed'));
+      }
     } finally {
       setSaving(false);
     }
@@ -213,7 +266,25 @@ export default function KnowledgePage() {
         toast.error(data.error ?? t('saveFailed'));
       }
     } catch {
-      toast.error(t('saveFailed'));
+      // Offline: queue file to outbox
+      if (accountId) {
+        const arrayBuffer = await selectedFile.arrayBuffer();
+        const blob = new Blob([arrayBuffer], { type: selectedFile.type });
+        await queueKnowledgeUpload({
+          accountId,
+          title: title.trim() || selectedFile.name.replace(/\.[^.]+$/, ''),
+          content: '',
+          sourceType: 'file',
+          fileData: blob,
+          fileName: selectedFile.name,
+          fileMime: selectedFile.type,
+        });
+        toast.info('File saved locally — will upload when you\'re back online');
+        cancelEdit();
+        await fetchDocs();
+      } else {
+        toast.error(t('saveFailed'));
+      }
     } finally {
       setSaving(false);
     }
@@ -233,12 +304,16 @@ export default function KnowledgePage() {
       if (res.ok) {
         toast.success(t('removeSuccess'));
         setDocs((d) => d.filter((x) => x.id !== id));
+        await removeCachedKnowledgeDocument(id);
       } else {
         const data = await res.json();
         toast.error(data.error ?? t('removeFailed'));
       }
     } catch {
-      toast.error(t('removeFailed'));
+      // Offline: remove locally and note it'll need full re-sync later
+      setDocs((d) => d.filter((x) => x.id !== id));
+      await removeCachedKnowledgeDocument(id);
+      toast.info('Removed locally — deletion will sync when you\'re back online');
     }
   };
 
