@@ -36,7 +36,6 @@ export async function GET() {
       platform_provider: platformInfo.provider,
       platform_model: platformInfo.model,
       platform_ai_enabled: platformInfo.enabled,
-      platform_auto_reply_enabled: platformInfo.autoReplyEnabled,
       follow_up_enabled: ts?.follow_up_enabled ?? true,
       follow_up_timeout_minutes: ts?.follow_up_timeout_minutes ?? 10,
     })

@@ -40,7 +40,8 @@ function getPlatformKey(provider: AiProvider): string {
 
 /**
  * Load platform AI config. No per-tenant config - everything is global.
- * Returns null only when no platform key is configured or AI is disabled globally.
+ * Returns null only when no platform key is configured.
+ * Credit check is separate — done by the caller.
  */
 export async function loadAiConfig(): Promise<AiConfig | null> {
   const provider = getDefaultProvider()
@@ -57,16 +58,13 @@ export async function loadAiConfig(): Promise<AiConfig | null> {
     return null
   }
 
-  const platformActive = process.env.AI_ENABLED !== 'false'
-  if (!platformActive) return null
-
   return {
     provider,
     model,
     apiKey,
     systemPrompt: process.env.AI_SYSTEM_PROMPT ?? null,
     isActive: true,
-    autoReplyEnabled: process.env.AI_AUTO_REPLY_ENABLED !== 'false',
+    autoReplyEnabled: true,
     autoReplyMaxPerConversation: Number(process.env.AI_AUTO_REPLY_MAX_PER_CONVERSATION) || 3,
     handoffAgentId: null,
     embeddingsApiKey: getEmbeddingsApiKey(),
@@ -93,7 +91,6 @@ export function getPlatformAiInfo(): {
   model: string
   systemPrompt: string | null
   enabled: boolean
-  autoReplyEnabled: boolean
 } {
   const provider = getDefaultProvider()
   const model = getDefaultModel(provider)
@@ -101,7 +98,6 @@ export function getPlatformAiInfo(): {
     provider,
     model,
     systemPrompt: process.env.AI_SYSTEM_PROMPT ?? null,
-    enabled: process.env.AI_ENABLED !== 'false',
-    autoReplyEnabled: process.env.AI_AUTO_REPLY_ENABLED !== 'false',
+    enabled: true,
   }
 }
