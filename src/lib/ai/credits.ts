@@ -223,7 +223,9 @@ export async function checkAiCredits(
     return false
   }
 
-  return (Number(data?.credits_remaining) ?? 0) > 0
+  const credits = Number(data?.credits_remaining) ?? 0
+  console.log('[ai credits] account:', accountId, 'credits_remaining:', credits)
+  return credits > 0
 }
 
 /**

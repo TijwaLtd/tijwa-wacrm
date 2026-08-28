@@ -128,10 +128,12 @@ export async function dispatchInboundToAiReply(
     const db = supabaseAdmin()
 
     const config = await loadAiConfig()
+    console.log('[dispatchInboundToAiReply] config:', config ? `provider=${config.provider}, autoReplyEnabled=${config.autoReplyEnabled}` : 'NULL')
 
     // ── AI NOT AVAILABLE ──────────────────────────────────────
     if (!config || !config.autoReplyEnabled) {
       // No AI — send default message and let auto-assign handle it
+      console.log('[dispatchInboundToAiReply] AI not available, sending noAi message')
       await sendDefaultMessage(db, accountId, conversationId, contactId, configOwnerUserId, 'noAi')
       return
     }
@@ -144,11 +146,15 @@ export async function dispatchInboundToAiReply(
       .eq('account_id', accountId)
       .maybeSingle();
 
+    console.log('[dispatchInboundToAiReply] plan:', settings?.plan, 'is exempt:', settings?.plan === 'starter')
+
     const isCreditCheckExempt = settings?.plan === 'starter';
 
     if (!isCreditCheckExempt) {
       const hasCredits = await checkAiCredits(db, accountId)
+      console.log('[dispatchInboundToAiReply] hasCredits:', hasCredits)
       if (!hasCredits) {
+        console.log('[dispatchInboundToAiReply] no credits, sending noCredits message')
         await sendDefaultMessage(db, accountId, conversationId, contactId, configOwnerUserId, 'noCredits')
         return
       }
