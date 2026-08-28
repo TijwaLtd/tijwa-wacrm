@@ -107,3 +107,8 @@ export function canDeleteAccount(role: AccountRole): boolean {
 export function canTransferOwnership(role: AccountRole): boolean {
   return role === "owner";
 }
+
+/** Owner / admin: view audit logs and customer access reports. */
+export function canViewAudit(role: AccountRole): boolean {
+  return hasMinRole(role, "admin");
+}

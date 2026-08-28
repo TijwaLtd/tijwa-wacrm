@@ -37,8 +37,12 @@ import {
   Save,
   DollarSign,
   LayoutTemplate,
+  PhoneCall,
+  MessageCircle,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { useAuditLogger } from '@/hooks/use-audit-logger';
+import { AuditEventType } from '@/lib/audit/events';
 
 interface ContactDetailViewProps {
   open: boolean;
@@ -56,6 +60,7 @@ export function ContactDetailView({
   const t = useTranslations('Contacts.detailView');
   const supabase = createClient();
   const { accountId, defaultCurrency } = useAuth();
+  const { log: auditLog } = useAuditLogger();
 
   const [contact, setContact] = useState<Contact | null>(null);
   const [loading, setLoading] = useState(false);
@@ -194,6 +199,20 @@ export function ContactDetailView({
     await navigator.clipboard.writeText(contact.phone);
     setCopiedPhone(true);
     setTimeout(() => setCopiedPhone(false), 2000);
+    auditLog(AuditEventType.CONTACT_PHONE_COPIED, { contactId: contact.id });
+  }
+
+  function handleCallClick() {
+    if (!contact) return;
+    auditLog(AuditEventType.CONTACT_CALL_CLICKED, { contactId: contact.id });
+    window.open(`tel:${contact.phone}`, '_self');
+  }
+
+  function handleWhatsAppClick() {
+    if (!contact) return;
+    auditLog(AuditEventType.CONTACT_WHATSAPP_CLICKED, { contactId: contact.id });
+    const phone = contact.phone.replace(/[^0-9]/g, '');
+    window.open(`https://wa.me/${phone}`, '_blank');
   }
 
   async function saveDetails() {
@@ -415,6 +434,20 @@ export function ContactDetailView({
                       ) : (
                         <Copy className="size-3" />
                       )}
+                    </button>
+                    <button
+                      onClick={handleCallClick}
+                      className="flex items-center gap-1 hover:text-primary transition-colors cursor-pointer"
+                    >
+                      <PhoneCall className="size-3" />
+                      Call
+                    </button>
+                    <button
+                      onClick={handleWhatsAppClick}
+                      className="flex items-center gap-1 hover:text-primary transition-colors cursor-pointer"
+                    >
+                      <MessageCircle className="size-3" />
+                      WhatsApp
                     </button>
                     {contact.email && (
                       <span className="flex items-center gap-1">

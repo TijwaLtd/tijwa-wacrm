@@ -6,10 +6,13 @@ import { useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/use-auth';
 import { useTotalUnread } from '@/hooks/use-total-unread';
+import { canViewAudit as canViewAuditRole } from '@/lib/auth/roles';
 import {
+  BarChart3,
   BookOpen,
   CreditCard,
   Crown,
+  FileText,
   GitBranch,
   LayoutDashboard,
   LogOut,
@@ -97,6 +100,10 @@ const bottomNavItems = [
   { href: '/settings', labelKey: 'settings', icon: Settings },
 ];
 
+const reportNavItems: NavItem[] = [
+  { href: '/audit', labelKey: 'audit', icon: FileText },
+];
+
 interface SidebarProps {
   /** Controlled on mobile by the Header's hamburger button. Ignored on lg+. */
   open?: boolean;
@@ -110,6 +117,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
   const pathname = usePathname();
   const { profile, profileLoading, account, accountRole, signOut } = useAuth();
   const totalUnread = useTotalUnread();
+  const canViewAudit = accountRole ? canViewAuditRole(accountRole) : false;
   // Only surface the account-name strip when it actually carries
   // information. A solo user's personal account is named after them
   // (the 017 signup trigger seeds it from `full_name`), so showing it
@@ -250,6 +258,40 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
           </ul>
 
           <div className="border-border my-4 border-t" />
+
+          {/* Reports section — admin+ only */}
+          {canViewAudit && (
+            <>
+              <div className="px-3 py-1.5">
+                <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <BarChart3 className="h-3 w-3" />
+                  {t('reports')}
+                </div>
+              </div>
+              <ul className="flex flex-col gap-1">
+                {reportNavItems.map((item) => {
+                  const isActive = pathname.startsWith(item.href);
+                  return (
+                    <li key={item.href}>
+                      <Link
+                        href={item.href}
+                        className={cn(
+                          'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors lg:py-2',
+                          isActive
+                            ? 'bg-primary/10 text-primary'
+                            : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                        )}
+                      >
+                        <item.icon className="h-4 w-4" />
+                        <span className="flex-1">{t(item.labelKey as string)}</span>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+              <div className="border-border my-4 border-t" />
+            </>
+          )}
 
           <ul className="flex flex-col gap-1">
             {bottomNavItems.map((item) => {

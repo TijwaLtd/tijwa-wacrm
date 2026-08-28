@@ -14,12 +14,16 @@ import {
   DollarSign,
   StickyNote,
   Plus,
+  PhoneCall,
+  MessageCircle,
 } from "lucide-react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { format } from "date-fns";
 import { useTranslations } from "next-intl";
+import { useAuditLogger } from "@/hooks/use-audit-logger";
+import { AuditEventType } from "@/lib/audit/events";
 
 interface ContactSidebarProps {
   contact: Contact | null;
@@ -30,6 +34,7 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
   const tThread = useTranslations("Inbox.messageThread");
 
   const { accountId } = useAuth();
+  const { log: auditLog } = useAuditLogger();
   const [copied, setCopied] = useState(false);
   const [deals, setDeals] = useState<Deal[]>([]);
   const [notes, setNotes] = useState<ContactNote[]>([]);
@@ -85,10 +90,8 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
     await navigator.clipboard.writeText(contact.phone);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-    // Dep is the whole `contact` object (not `contact?.phone`) so the
-    // React Compiler's inference agrees with the manual dep list —
-    // fixes the `preserve-manual-memoization` lint error.
-  }, [contact]);
+    auditLog(AuditEventType.CONTACT_PHONE_COPIED, { contactId: contact.id });
+  }, [contact, auditLog]);
 
   const handleAddNote = useCallback(async () => {
     if (!contact || !newNote.trim()) return;
@@ -118,6 +121,19 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
     }
     setAddingNote(false);
   }, [contact, newNote, accountId]);
+
+  const handleCallClick = useCallback(() => {
+    if (!contact?.phone) return;
+    auditLog(AuditEventType.CONTACT_CALL_CLICKED, { contactId: contact.id });
+    window.open(`tel:${contact.phone}`, '_self');
+  }, [contact, auditLog]);
+
+  const handleWhatsAppClick = useCallback(() => {
+    if (!contact?.phone) return;
+    auditLog(AuditEventType.CONTACT_WHATSAPP_CLICKED, { contactId: contact.id });
+    const phone = contact.phone.replace(/[^0-9]/g, '');
+    window.open(`https://wa.me/${phone}`, '_blank');
+  }, [contact, auditLog]);
 
   if (!contact) {
     return (
@@ -172,6 +188,28 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
                 <Copy className="h-3 w-3 text-muted-foreground" />
               )}
             </button>
+
+            {/* Call & WhatsApp actions */}
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex-1"
+                onClick={handleCallClick}
+              >
+                <PhoneCall className="mr-1.5 h-3.5 w-3.5" />
+                Call
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex-1"
+                onClick={handleWhatsAppClick}
+              >
+                <MessageCircle className="mr-1.5 h-3.5 w-3.5" />
+                WhatsApp
+              </Button>
+            </div>
 
             {contact.email && (
               <div className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground">

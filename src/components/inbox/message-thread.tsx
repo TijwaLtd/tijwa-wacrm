@@ -55,6 +55,8 @@ import { TemplatePicker } from "./template-picker";
 import { AiThreadBanner } from "./ai-thread-banner";
 import { buildReplyPreview } from "./reply-quote";
 import { toast } from "sonner";
+import { useAuditLogger } from "@/hooks/use-audit-logger";
+import { AuditEventType } from "@/lib/audit/events";
 
 interface ReplyDraft {
   id: string;
@@ -177,6 +179,7 @@ export function MessageThread({
   const tQuote = useTranslations("Inbox.replyQuote");
 
   const { user } = useAuth();
+  const { log: auditLog } = useAuditLogger();
   const { getPresence, getRow, now } = usePresence();
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -242,6 +245,18 @@ export function MessageThread({
       cancelled = true;
     };
   }, []);
+
+  // Audit: log conversation viewed when a new conversation is opened
+  const auditConversationIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (conversation && conversation.id !== auditConversationIdRef.current) {
+      auditConversationIdRef.current = conversation.id;
+      auditLog(AuditEventType.CONVERSATION_VIEWED, {
+        conversationId: conversation.id,
+        contactId: conversation.contact_id ?? undefined,
+      });
+    }
+  }, [conversation, auditLog]);
 
   // 24-hour session timer
   const sessionInfo = useMemo(() => {
