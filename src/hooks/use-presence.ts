@@ -76,12 +76,15 @@ export function usePresence(enabled = true): UsePresenceResult {
       });
     };
 
-    // Subscribe FIRST, then snapshot. The snapshot MERGES into whatever
-    // Realtime has already delivered (keeping the newer last_seen_at)
-    // rather than replacing the map — so an event that lands while the
-    // fetch is in flight isn't clobbered by a staler snapshot row.
+    // Remove any existing channel for this accountId before creating a new one.
+    // This handles React strict mode's double-invocation: the second effect
+    // runs before the first's async removeChannel completes, so we sync-remove
+    // first to avoid "cannot add postgres_changes callbacks after subscribe()".
+    const channelName = `presence:${accountId}`;
+    supabase.removeChannel(supabase.channel(channelName));
+
     const channel: RealtimeChannel = supabase
-      .channel(`presence:${accountId}`)
+      .channel(channelName)
       .on(
         "postgres_changes",
         {
@@ -132,8 +135,6 @@ export function usePresence(enabled = true): UsePresenceResult {
               last_seen_at: r.last_seen_at as string,
             };
             const existing = next.get(userId);
-            // A live event that arrived first must win over a staler
-            // snapshot row.
             if (
               !existing ||
               new Date(incoming.last_seen_at) >= new Date(existing.last_seen_at)
