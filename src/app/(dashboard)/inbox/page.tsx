@@ -84,12 +84,13 @@ function InboxPageInner() {
   // Inbox mode: whatsapp (customer chats) or team (internal)
   const [inboxMode, setInboxMode] = useState<'whatsapp' | 'team'>('whatsapp');
 
+  // Preserves active conversation when switching modes - user continues seeing
+  // their conversation until they explicitly select another one
   const handleModeChange = useCallback((mode: 'whatsapp' | 'team') => {
     setInboxMode(mode);
     setConversations([]);
-    setActiveConversation(null);
-    setActiveContact(null);
-    setMessages([]);
+    // Don't clear activeConversation/Contact/Messages - keeps current conversation
+    // visible until user explicitly selects a different one
   }, []);
 
   // Determine if we should show workspace selector (user has multiple workspaces)
