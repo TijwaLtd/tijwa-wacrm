@@ -15,6 +15,7 @@ import {
   Lock,
   ArrowUpRight,
   Coins,
+  Clock,
 } from 'lucide-react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -41,6 +42,7 @@ import {
 interface DocSummary {
   id: string;
   title: string;
+  content?: string;
   updated_at: string;
   source_type?: string;
 }
@@ -51,6 +53,7 @@ type InputMode = 'text' | 'file';
 const ACCEPTED_EXTENSIONS = '.pdf,.docx,.doc,.txt,.csv,.md,.tsv';
 const MAX_FILE_SIZE_MB = 10;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+const PREVIEW_LINES = 3;
 
 const AI_ENABLED_PLANS = new Set(['business', 'growth', 'enterprise']);
 
@@ -58,6 +61,26 @@ interface CreditBalance {
   creditsRemaining: number;
   creditsUsed: number;
   lastResetAt: string | null;
+}
+
+function truncateContent(content: string | undefined, maxLines: number = PREVIEW_LINES): string {
+  if (!content) return '';
+  const lines = content.split('\n').filter(l => l.trim());
+  if (lines.length <= maxLines) return content;
+  return lines.slice(0, maxLines).join('\n') + '...';
+}
+
+function formatDate(dateStr: string): string {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return `${diffDays}d ago`;
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 export default function KnowledgePage() {
@@ -129,6 +152,7 @@ export default function KnowledgePage() {
             cached.map((d) => ({
               id: d.id,
               title: d.title,
+              content: d.content,
               updated_at: d.updated_at,
               source_type: d.source_type,
             }))
@@ -402,6 +426,7 @@ export default function KnowledgePage() {
 
   return (
     <div className="mx-auto max-w-3xl py-8">
+      {/* Header */}
       <div className="mb-6">
         <h1 className="text-2xl font-semibold text-foreground">Knowledge Base</h1>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -428,12 +453,38 @@ export default function KnowledgePage() {
         </div>
       )}
 
+      {/* Action bar: Add button + Reindex */}
+      {canEdit && editing === null && (
+        <div className="mb-4 flex items-center gap-2">
+          <Button size="sm" onClick={openNew}>
+            <Plus className="mr-1.5 h-4 w-4" /> Add document
+          </Button>
+          {hasEmbeddingsKey && docs.length > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={reindex}
+              disabled={reindexing}
+              title={t('reindexTooltip')}
+            >
+              {reindexing ? (
+                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="mr-1.5 h-4 w-4" />
+              )}
+              {t('reindex')}
+            </Button>
+          )}
+        </div>
+      )}
+
       {loading ? (
         <div className="flex items-center py-4 text-sm text-muted-foreground">
           <Loader2 className="mr-2 h-4 w-4 animate-spin" /> {t('loading')}
         </div>
       ) : (
         <div className="space-y-4">
+          {/* Empty state */}
           {docs.length === 0 && editing === null && (
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-12 text-center">
@@ -448,51 +499,99 @@ export default function KnowledgePage() {
             </Card>
           )}
 
+          {/* Document cards with preview */}
           {docs.length > 0 && (
-            <ul className="divide-y divide-border rounded-md border border-border">
-              {docs.map((doc) => (
-                <li
-                  key={doc.id}
-                  className="flex items-center justify-between gap-2 px-3 py-2.5"
-                >
-                  <span className="flex min-w-0 items-center gap-2 text-sm text-foreground">
-                    {doc.source_type === 'file' ? (
-                      <File className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    ) : (
-                      <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <div className="grid gap-3">
+              {docs.map((doc) => {
+                const preview = truncateContent(doc.content);
+                const hasPreview = Boolean(preview);
+                
+                return (
+                  <Card
+                    key={doc.id}
+                    className={cn(
+                      "group transition-colors hover:bg-accent/50",
+                      editing === doc.id && "border-primary"
                     )}
-                    <span className="truncate font-medium">{doc.title}</span>
-                  </span>
-                  {canEdit && (
-                    <span className="flex shrink-0 gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 w-8 p-0"
-                        onClick={() => void openEdit(doc.id)}
-                        title="Edit"
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 w-8 p-0 text-destructive hover:text-destructive"
-                        onClick={() => void remove(doc.id)}
-                        title="Delete"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </span>
-                  )}
-                </li>
-              ))}
-            </ul>
+                  >
+                    <CardContent className="p-4">
+                      {/* Title row */}
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex min-w-0 flex-1 items-start gap-2.5">
+                          <div className="mt-0.5 rounded-md bg-muted p-1.5">
+                            {doc.source_type === 'file' ? (
+                              <File className="h-4 w-4 text-muted-foreground" />
+                            ) : (
+                              <FileText className="h-4 w-4 text-muted-foreground" />
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <h3 className="text-sm font-medium text-foreground truncate">
+                              {doc.title}
+                            </h3>
+                            <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
+                              <span className="flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                {formatDate(doc.updated_at)}
+                              </span>
+                              {doc.source_type === 'file' && (
+                                <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase">
+                                  File
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Actions */}
+                        {canEdit && (
+                          <div className="flex shrink-0 gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0"
+                              onClick={() => void openEdit(doc.id)}
+                              title="Edit"
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                              onClick={() => void remove(doc.id)}
+                              title="Delete"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Content preview */}
+                      {hasPreview && (
+                        <div className="mt-3 ml-9">
+                          <p className="text-xs text-muted-foreground line-clamp-3 whitespace-pre-wrap">
+                            {preview}
+                          </p>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
           )}
 
-          {editing !== null ? (
+          {/* Edit/Create form */}
+          {editing !== null && (
             <Card>
-              <CardContent className="space-y-3 pt-6">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-lg">
+                  {editing === 'new' ? 'Add document' : 'Edit document'}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
                 {/* Mode toggle — only when creating new */}
                 {editing === 'new' && (
                   <div className="flex gap-1 rounded-md bg-muted p-0.5">
@@ -554,7 +653,8 @@ export default function KnowledgePage() {
                       value={content}
                       onChange={(e) => setContent(e.target.value)}
                       placeholder={t('editDocContentPlaceholder')}
-                      rows={8}
+                      rows={10}
+                      className="font-mono text-sm"
                       disabled={saving}
                     />
                   </div>
@@ -627,7 +727,7 @@ export default function KnowledgePage() {
                   </div>
                 )}
 
-                <div className="flex justify-end gap-2">
+                <div className="flex justify-end gap-2 pt-2">
                   <Button variant="ghost" onClick={cancelEdit} disabled={saving}>
                     {t('cancel')}
                   </Button>
@@ -638,30 +738,6 @@ export default function KnowledgePage() {
                 </div>
               </CardContent>
             </Card>
-          ) : (
-            canEdit && (
-              <div className="flex items-center justify-between">
-                <Button variant="outline" size="sm" onClick={openNew}>
-                  <Plus className="mr-2 h-4 w-4" /> {t('addDoc')}
-                </Button>
-                {hasEmbeddingsKey && docs.length > 0 && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={reindex}
-                    disabled={reindexing}
-                    title={t('reindexTooltip')}
-                  >
-                    {reindexing ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <RefreshCw className="mr-2 h-4 w-4" />
-                    )}
-                    {t('reindex')}
-                  </Button>
-                )}
-              </div>
-            )
           )}
         </div>
       )}
