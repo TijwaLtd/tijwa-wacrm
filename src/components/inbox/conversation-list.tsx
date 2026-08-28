@@ -10,7 +10,7 @@ import {
 import { cn } from "@/lib/utils";
 import { formatWhatsAppInline } from "@/lib/whatsapp-format";
 import type { Conversation, ConversationStatus, ConversationType, Tag } from "@/types";
-import { Search, ChevronDown, X } from "lucide-react";
+import { Search, ChevronDown, X, Plus, Users, MessageSquare, Radio, MoreHorizontal } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useTranslations } from "next-intl";
 import Image from "next/image";
@@ -50,6 +50,9 @@ interface ConversationListProps {
    * 'team' shows internal team conversations.
    */
   mode?: 'whatsapp' | 'team';
+  onModeChange?: (mode: 'whatsapp' | 'team') => void;
+  onNewConversation?: () => void;
+  onBroadcastsClick?: () => void;
 }
 
 const STATUS_COLORS: Record<ConversationStatus, string> = {
@@ -70,6 +73,9 @@ export function ConversationList({
   resyncToken = 0,
   workspaceFilter = null,
   mode = 'whatsapp',
+  onModeChange,
+  onNewConversation,
+  onBroadcastsClick,
 }: ConversationListProps) {
   const t = useTranslations("Inbox.conversationList");
   
@@ -388,6 +394,68 @@ export function ConversationList({
     // the single pane showing; fixed 320px on desktop where it shares the
     // row with the thread + contact sidebar.
     <div className="flex h-full w-full flex-col border-r border-border bg-card lg:w-80">
+      {/* Header with tabs and actions */}
+      <div className="flex items-center justify-between border-b border-border px-3 py-2">
+        {/* Tabs — only on desktop */}
+        <div className="hidden lg:flex items-center gap-1">
+          <button
+            onClick={() => onModeChange?.('whatsapp')}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition-colors",
+              mode === 'whatsapp'
+                ? "bg-primary/10 text-primary"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+            )}
+          >
+            <MessageSquare className="h-4 w-4" />
+            WhatsApp
+          </button>
+          <button
+            onClick={() => onModeChange?.('team')}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition-colors",
+              mode === 'team'
+                ? "bg-primary/10 text-primary"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+            )}
+          >
+            <Users className="h-4 w-4" />
+            Team
+          </button>
+        </div>
+
+        {/* Mobile: Title only */}
+        <span className="lg:hidden text-sm font-medium">
+          {mode === 'whatsapp' ? 'WhatsApp' : 'Team'}
+        </span>
+
+        {/* Action buttons */}
+        <div className="flex items-center gap-1">
+          {onNewConversation && (
+            <button
+              onClick={onNewConversation}
+              className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+              title="New conversation"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+          )}
+          {onBroadcastsClick && (
+            <DropdownMenu>
+              <DropdownMenuTrigger className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground">
+                <MoreHorizontal className="h-4 w-4" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={onBroadcastsClick}>
+                  <Radio className="mr-2 h-4 w-4" />
+                  Broadcasts
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
+      </div>
+
       {/* Search + Filter */}
       <div className="space-y-2 border-b border-border p-3">
         <div className="relative">

@@ -19,10 +19,12 @@ import { useRealtime } from '@/hooks/use-realtime';
 import { ConversationList } from '@/components/inbox/conversation-list';
 import { MessageThread } from '@/components/inbox/message-thread';
 import { ContactSidebar } from '@/components/inbox/contact-sidebar';
-import { WifiOff, MessageSquare, Users, AlertTriangle } from 'lucide-react';
+import { NewConversationDialog } from '@/components/inbox/new-conversation-dialog';
+import { WifiOff, MessageSquare, Users, AlertTriangle, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/use-auth';
 import { useLocalSync } from '@/hooks/use-local-sync';
+import { useHideDefaultHeader } from '@/components/layout/header-context';
 
 
 // Remembers the agent's show/hide choice for the desktop contact panel
@@ -45,7 +47,13 @@ function InboxPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { activeWorkspace } = useAuth();
+  const { hideDefaultHeader } = useHideDefaultHeader();
   useLocalSync();
+
+  // Hide the global header since inbox has its own header
+  useEffect(() => {
+    hideDefaultHeader();
+  }, [hideDefaultHeader]);
   /**
    * `?c=<id>` deep-link support. Used when landing here from the
    * dashboard's recent-conversations list so the right thread opens
@@ -76,6 +84,14 @@ function InboxPageInner() {
   // Inbox mode: whatsapp (customer chats) or team (internal)
   const [inboxMode, setInboxMode] = useState<'whatsapp' | 'team'>('whatsapp');
 
+  const handleModeChange = useCallback((mode: 'whatsapp' | 'team') => {
+    setInboxMode(mode);
+    setConversations([]);
+    setActiveConversation(null);
+    setActiveContact(null);
+    setMessages([]);
+  }, []);
+
   // Determine if we should show workspace selector (user has multiple workspaces)
 
   const [contactPanelOpen, setContactPanelOpen] = useState(() => {
@@ -85,6 +101,8 @@ function InboxPageInner() {
       return true;
     }
   });
+
+  const [newConvDialogOpen, setNewConvDialogOpen] = useState(false);
 
   const handleToggleContactPanel = useCallback(() => {
     setContactPanelOpen((prev) => {
@@ -578,6 +596,30 @@ function InboxPageInner() {
     router.replace('/inbox', { scroll: false });
   }, [router]);
 
+  // Handle new conversation started from dialog
+  const handleSelectNewConversation = useCallback(
+    (conversationId: string, contact: Contact) => {
+      const conv: Conversation = {
+        id: conversationId,
+        user_id: '',
+        account_id: contact.account_id || '',
+        contact_id: contact.id,
+        type: 'whatsapp',
+        status: 'open',
+        unread_count: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        contact,
+      };
+      setActiveConversation(conv);
+      setActiveContact(contact);
+      setMessages([]);
+      autoSelectedForDeepLinkRef.current = conversationId;
+      router.replace(`/inbox?c=${conversationId}`, { scroll: false });
+    },
+    [router]
+  );
+
   const handleMessagesLoaded = useCallback((loaded: Message[]) => {
     setMessages(loaded);
   }, []);
@@ -660,46 +702,6 @@ function InboxPageInner() {
         </div>
       )}
 
-      {/* Inbox mode tabs — full width at top */}
-      <div className="flex shrink-0 border-b border-border bg-card">
-        <button
-          onClick={() => {
-            setInboxMode('whatsapp');
-            setConversations([]);
-            setActiveConversation(null);
-            setActiveContact(null);
-            setMessages([]);
-          }}
-          className={cn(
-            'flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium transition-colors',
-            inboxMode === 'whatsapp'
-              ? 'border-b-2 border-primary text-primary'
-              : 'text-muted-foreground hover:text-foreground'
-          )}
-        >
-          <MessageSquare className="h-4 w-4" />
-          WhatsApp
-        </button>
-        <button
-          onClick={() => {
-            setInboxMode('team');
-            setConversations([]);
-            setActiveConversation(null);
-            setActiveContact(null);
-            setMessages([]);
-          }}
-          className={cn(
-            'flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium transition-colors',
-            inboxMode === 'team'
-              ? 'border-b-2 border-primary text-primary'
-              : 'text-muted-foreground hover:text-foreground'
-          )}
-        >
-          <Users className="h-4 w-4" />
-          Team
-        </button>
-      </div>
-
       <div className="flex flex-1 overflow-hidden">
         {/* Left panel: Conversation list.
             Hidden on mobile when a conversation is selected so the
@@ -764,7 +766,19 @@ function InboxPageInner() {
             resyncToken={resyncToken}
             workspaceFilter={workspaceFilter}
             mode={inboxMode}
+            onModeChange={handleModeChange}
+            onNewConversation={() => setNewConvDialogOpen(true)}
+            onBroadcastsClick={() => router.push('/broadcasts')}
           />
+
+          {/* Floating Action Button for new conversation on mobile */}
+          <button
+            onClick={() => setNewConvDialogOpen(true)}
+            className="fixed bottom-24 right-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 lg:hidden z-50"
+            aria-label="New conversation"
+          >
+            <Plus className="h-6 w-6" />
+          </button>
         </div>
 
         {/* Center panel: Message thread.
@@ -810,6 +824,14 @@ function InboxPageInner() {
           </div>
         )}
       </div>
+
+      {/* New conversation dialog */}
+      <NewConversationDialog
+        open={newConvDialogOpen}
+        onOpenChange={setNewConvDialogOpen}
+        onSelectConversation={handleSelectNewConversation}
+        onAddNewContact={() => router.push('/contacts?new=true')}
+      />
     </div>
   );
 }
