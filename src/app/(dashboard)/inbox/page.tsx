@@ -19,7 +19,6 @@ import { useRealtime } from '@/hooks/use-realtime';
 import { ConversationList } from '@/components/inbox/conversation-list';
 import { MessageThread } from '@/components/inbox/message-thread';
 import { ContactSidebar } from '@/components/inbox/contact-sidebar';
-import { SyncStatusIndicator } from '@/components/inbox/sync-status-indicator';
 import { WifiOff, MessageSquare, Users, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/use-auth';
@@ -46,7 +45,7 @@ function InboxPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { activeWorkspace } = useAuth();
-  const { syncProgress, outboxCount, triggerSync } = useLocalSync();
+  useLocalSync();
   /**
    * `?c=<id>` deep-link support. Used when landing here from the
    * dashboard's recent-conversations list so the right thread opens
@@ -660,15 +659,6 @@ function InboxPageInner() {
           </p>
         </div>
       )}
-
-      {/* Sync status bar — shows sync progress and outbox queue count */}
-      <div className="flex shrink-0 items-center justify-end border-b border-border bg-card px-4 py-1.5">
-        <SyncStatusIndicator
-          progress={syncProgress}
-          outboxCount={outboxCount}
-          onRetrySync={triggerSync}
-        />
-      </div>
 
       {/* Inbox mode tabs — full width at top */}
       <div className="flex shrink-0 border-b border-border bg-card">
