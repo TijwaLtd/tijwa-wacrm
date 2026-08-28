@@ -19,6 +19,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ModeToggle } from "@/components/layout/mode-toggle";
 import { WorkspaceSwitcher } from "@/components/layout/workspace-switcher";
+import { PresenceDot } from "@/components/presence/presence-dot";
+import { usePresence } from "@/hooks/use-presence";
 
 const pageTitles: Record<string, string> = {
   "/dashboard": "dashboard",
@@ -50,14 +52,18 @@ import { useTranslations } from "next-intl";
 export function Header({ onOpenSidebar }: HeaderProps) {
   const t = useTranslations("Header");
   const pathname = usePathname();
-  const { profile, signOut } = useAuth();
+  const { profile, signOut, user } = useAuth();
   const unreadNotifications = useUnreadNotifications();
   const titleKey = getPageTitleKey(pathname);
+  const { getPresence, getRow, now } = usePresence();
 
   const initial =
     profile?.full_name?.charAt(0)?.toUpperCase() ??
     profile?.email?.charAt(0)?.toUpperCase() ??
     "U";
+
+  const myPresence = user?.id ? getPresence(user.id) : "offline";
+  const myRow = user?.id ? getRow(user.id) : undefined;
 
   return (
     <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-background px-4 lg:px-6">
@@ -104,17 +110,22 @@ export function Header({ onOpenSidebar }: HeaderProps) {
           className="flex items-center gap-2 rounded-md px-1 py-1 transition-colors hover:bg-muted/70 focus:bg-muted/70 focus:outline-none data-popup-open:bg-muted/70 sm:gap-3 sm:pl-1 sm:pr-3"
           aria-label={t("openAccountMenu")}
         >
-          <Avatar className="size-8">
-            {profile?.avatar_url ? (
-              <AvatarImage
-                src={profile.avatar_url}
-                alt={profile.full_name ?? t("defaultAvatar")}
-              />
-            ) : null}
-            <AvatarFallback className="bg-primary/10 text-sm font-medium text-primary">
-              {initial}
-            </AvatarFallback>
-          </Avatar>
+          <div className="relative">
+            <Avatar className="size-8">
+              {profile?.avatar_url ? (
+                <AvatarImage
+                  src={profile.avatar_url}
+                  alt={profile.full_name ?? t("defaultAvatar")}
+                />
+              ) : null}
+              <AvatarFallback className="bg-primary/10 text-sm font-medium text-primary">
+                {initial}
+              </AvatarFallback>
+            </Avatar>
+            <span className="absolute -bottom-0.5 -right-0.5">
+              <PresenceDot status={myPresence} lastSeenAt={myRow?.last_seen_at} now={now} size="sm" />
+            </span>
+          </div>
           <span className="hidden text-sm font-medium text-foreground sm:inline">
             {profile?.full_name ?? t("defaultUser")}
           </span>

@@ -25,6 +25,8 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { WorkspaceBadge } from "@/components/shared/workspace-badge";
 import { getAllConversations, getConversationsByTenant, type LocalConversation } from "@/lib/db";
+import { PresenceDot } from "@/components/presence/presence-dot";
+import { usePresence } from "@/hooks/use-presence";
 
 interface ConversationListProps {
   activeConversationId: string | null;
@@ -89,6 +91,9 @@ export function ConversationList({
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
 
+  // Presence for assigned agents
+  const { getPresence, getRow, now } = usePresence();
+
   // Keep the latest callback in a ref so the fetch effect below can
   // have a stable, empty-dep identity. Previously the fetch useCallback
   // depended on `onConversationsLoaded`, which depends on the parent's
@@ -147,12 +152,13 @@ export function ConversationList({
 
       // WhatsApp mode: existing logic
       // 1. Load from IndexedDB first (instant, works offline)
+      let localLoaded = false;
       try {
         const localConvs = workspaceFilter === null
           ? await getAllConversations()
           : await getConversationsByTenant(workspaceFilter);
 
-        if (!cancelled && localConvs.length > 0) {
+        if (!cancelled) {
           // Convert LocalConversation to Conversation for the callback
           const asConversations: Conversation[] = localConvs.map((lc) => ({
             id: lc.id,
@@ -181,11 +187,14 @@ export function ConversationList({
               : undefined,
           }));
           onConversationsLoadedRef.current(asConversations);
-          setLoading(false);
+          localLoaded = true;
         }
       } catch {
         // IndexedDB might not be available (private browsing, etc.)
       }
+
+      // Show UI immediately after local load attempt (even if empty — empty state)
+      if (!cancelled) setLoading(false);
 
       // 2. Fetch from Supabase in background (authoritative data)
       const supabase = createClient();
@@ -569,6 +578,9 @@ export function ConversationList({
                 isActive={conv.id === activeConversationId}
                 onSelect={handleSelect}
                 t={t}
+                getPresence={getPresence}
+                getRow={getRow}
+                now={now}
               />
             ))}
           </div>
@@ -583,6 +595,9 @@ interface ConversationItemProps {
   isActive: boolean;
   onSelect: (conversation: Conversation) => void;
   t: ReturnType<typeof useTranslations>;
+  getPresence: (userId: string) => import("@/lib/presence").PresenceStatus;
+  getRow: (userId: string) => { status: import("@/lib/presence").StoredPresence; last_seen_at: string; } | undefined;
+  now: number;
 }
 
 function ConversationItem({
@@ -590,6 +605,9 @@ function ConversationItem({
   isActive,
   onSelect,
   t,
+  getPresence,
+  getRow,
+  now,
 }: ConversationItemProps) {
   const isTeam = conversation.type === 'team';
   const contact = conversation.contact;
@@ -597,6 +615,13 @@ function ConversationItem({
     ? (conversation.team_name || t("teamChat"))
     : (contact?.name || contact?.phone || t("unknown"));
   const initials = displayName.charAt(0).toUpperCase();
+
+  const assignedPresence = conversation.assigned_agent_id
+    ? getPresence(conversation.assigned_agent_id)
+    : null;
+  const assignedRow = conversation.assigned_agent_id
+    ? getRow(conversation.assigned_agent_id)
+    : undefined;
 
   const handleClick = useCallback(() => {
     onSelect(conversation);
@@ -663,6 +688,11 @@ function ConversationItem({
             {conversation.priority != null && conversation.priority > 0 && (
               <span className="shrink-0 rounded-md bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-600">
                 {conversation.priority >= 2 ? 'Urgent' : 'High'}
+              </span>
+            )}
+            {assignedPresence && !isTeam && (
+              <span className="shrink-0">
+                <PresenceDot status={assignedPresence} lastSeenAt={assignedRow?.last_seen_at} now={now} size="sm" />
               </span>
             )}
           </div>

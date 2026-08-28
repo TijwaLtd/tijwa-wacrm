@@ -159,7 +159,14 @@ export default function ContactsPage() {
       });
       if (seq !== fetchSeq.current) return;
       if (error) {
-        console.error('[contacts] get_user_contacts RPC failed:', JSON.stringify(error), error.message, error.code, error.details, error.hint);
+        console.error(
+          '[contacts] get_user_contacts RPC failed:',
+          JSON.stringify(error),
+          error.message,
+          error.code,
+          error.details,
+          error.hint
+        );
         toast.error(t('toastFailedLoad'));
         setLoading(false);
         return;
@@ -168,10 +175,11 @@ export default function ContactsPage() {
       // Apply search filter client-side
       if (term) {
         const lower = term.toLowerCase();
-        allContacts = allContacts.filter(c =>
-          c.name?.toLowerCase().includes(lower) ||
-          c.phone?.toLowerCase().includes(lower) ||
-          c.email?.toLowerCase().includes(lower)
+        allContacts = allContacts.filter(
+          (c) =>
+            c.name?.toLowerCase().includes(lower) ||
+            c.phone?.toLowerCase().includes(lower) ||
+            c.email?.toLowerCase().includes(lower)
         );
       }
       count = allContacts.length;
@@ -206,7 +214,9 @@ export default function ContactsPage() {
 
       if (term) {
         const like = `%${term}%`;
-        query = query.or(`name.ilike.${like},phone.ilike.${like},email.ilike.${like}`);
+        query = query.or(
+          `name.ilike.${like},phone.ilike.${like},email.ilike.${like}`
+        );
       }
 
       const { data, count: exactCount, error } = await query;
@@ -214,16 +224,20 @@ export default function ContactsPage() {
 
       if (error) {
         // Fallback to IndexedDB when offline
-        console.warn('[contacts] Supabase query failed, falling back to IndexedDB:', error.message);
+        console.warn(
+          '[contacts] Supabase query failed, falling back to IndexedDB:',
+          error.message
+        );
         try {
           const offlineContacts = await getContactsByTenant(workspaceFilter);
           let filtered = offlineContacts;
           if (term) {
             const lower = term.toLowerCase();
-            filtered = filtered.filter(c =>
-              c.name?.toLowerCase().includes(lower) ||
-              c.phone?.toLowerCase().includes(lower) ||
-              c.email?.toLowerCase().includes(lower)
+            filtered = filtered.filter(
+              (c) =>
+                c.name?.toLowerCase().includes(lower) ||
+                c.phone?.toLowerCase().includes(lower) ||
+                c.email?.toLowerCase().includes(lower)
             );
           }
           count = filtered.length;
@@ -394,7 +408,8 @@ export default function ContactsPage() {
   const allTags = Object.values(tagsMap).sort((a, b) =>
     a.name.localeCompare(b.name)
   );
-  const hasActiveFilters = search.trim().length > 0 || selectedTagIds.length > 0;
+  const hasActiveFilters =
+    search.trim().length > 0 || selectedTagIds.length > 0;
 
   function toggleTagFilter(tagId: string) {
     setSelectedTagIds((prev) =>
@@ -413,48 +428,62 @@ export default function ContactsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">{t('title')}</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            {totalCount > 0 ? t('subtitle', { count: totalCount }) : t('subtitleZero')}
+          <h1 className="text-foreground text-2xl font-bold">{t('title')}</h1>
+          <p className="text-muted-foreground mt-1 text-sm">
+            {totalCount > 0
+              ? t('subtitle', { count: totalCount })
+              : t('subtitleZero')}
           </p>
         </div>
         <div className="flex items-center gap-2">
           {/* Workspace filter */}
           {showWorkspaceSelector && (
             <DropdownMenu>
-              <DropdownMenuTrigger className="flex h-9 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-sm text-muted-foreground hover:bg-muted data-[state=open]:bg-muted">
+              <DropdownMenuTrigger className="border-border bg-background text-muted-foreground hover:bg-muted data-[state=open]:bg-muted flex h-9 items-center gap-1.5 rounded-md border px-3 text-sm">
                 <Building2 className="h-4 w-4" />
                 {workspaceFilter === null ? (
-                  <span>All Workspaces</span>
+                  <span>All</span>
                 ) : (
-                  <span>{workspaces.find(w => w.account_id === workspaceFilter)?.account_name ?? "Workspace"}</span>
+                  <span>
+                    {workspaces.find((w) => w.account_id === workspaceFilter)
+                      ?.account_name ?? 'Workspace'}
+                  </span>
                 )}
                 <ChevronDown className="h-3 w-3" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
                 <DropdownMenuItem
-                  onClick={() => { setWorkspaceFilter(null); setPage(0); }}
+                  onClick={() => {
+                    setWorkspaceFilter(null);
+                    setPage(0);
+                  }}
                   className={cn(
-                    "text-sm",
-                    workspaceFilter === null && "bg-muted text-primary"
+                    'text-sm',
+                    workspaceFilter === null && 'bg-muted text-primary'
                   )}
                 >
-                  All Workspaces
+                  All
                 </DropdownMenuItem>
                 {workspaces.map((ws) => (
                   <DropdownMenuItem
                     key={ws.account_id}
-                    onClick={() => { setWorkspaceFilter(ws.account_id); setPage(0); }}
+                    onClick={() => {
+                      setWorkspaceFilter(ws.account_id);
+                      setPage(0);
+                    }}
                     className={cn(
-                      "text-sm",
-                      workspaceFilter === ws.account_id && "bg-muted text-primary"
+                      'text-sm',
+                      workspaceFilter === ws.account_id &&
+                        'bg-muted text-primary'
                     )}
                   >
-                    <div className="flex items-center justify-between w-full">
+                    <div className="flex w-full items-center justify-between">
                       <span className="truncate">{ws.account_name}</span>
-                      <span className="text-xs text-muted-foreground capitalize">{ws.role}</span>
+                      <span className="text-muted-foreground text-xs capitalize">
+                        {ws.role}
+                      </span>
                     </div>
                   </DropdownMenuItem>
                 ))}
@@ -495,9 +524,9 @@ export default function ContactsPage() {
 
       {/* Search + tag filter */}
       <div className="space-y-2">
-        <div className="flex flex-col sm:flex-row gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row">
           <div className="relative w-full max-w-sm">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+            <Search className="text-muted-foreground absolute top-1/2 left-2.5 size-4 -translate-y-1/2" />
             <Input
               value={search}
               onChange={(e) => {
@@ -507,7 +536,7 @@ export default function ContactsPage() {
                 setPage(0);
               }}
               placeholder={t('searchPlaceholder')}
-              className="pl-8 bg-card border-border text-foreground placeholder:text-muted-foreground"
+              className="bg-card border-border text-foreground placeholder:text-muted-foreground pl-8"
             />
           </div>
 
@@ -523,27 +552,27 @@ export default function ContactsPage() {
               <Filter className="size-4" />
               {t('filterByTags')}
               {selectedTagIds.length > 0 && (
-                <span className="ml-1 inline-flex items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">
+                <span className="bg-primary text-primary-foreground ml-1 inline-flex items-center justify-center rounded-full px-1.5 text-[10px] font-semibold">
                   {selectedTagIds.length}
                 </span>
               )}
             </PopoverTrigger>
             <PopoverContent align="start" className="w-64 p-0">
-              <div className="flex items-center justify-between px-3 py-2 border-b border-border">
-                <span className="text-sm font-medium text-popover-foreground">
+              <div className="border-border flex items-center justify-between border-b px-3 py-2">
+                <span className="text-popover-foreground text-sm font-medium">
                   {t('filterByTags')}
                 </span>
                 {selectedTagIds.length > 0 && (
                   <button
                     onClick={clearTagFilters}
-                    className="text-xs text-muted-foreground hover:text-foreground"
+                    className="text-muted-foreground hover:text-foreground text-xs"
                   >
                     {t('clearAll')}
                   </button>
                 )}
               </div>
               {allTags.length === 0 ? (
-                <p className="px-3 py-4 text-sm text-muted-foreground text-center">
+                <p className="text-muted-foreground px-3 py-4 text-center text-sm">
                   {t('noTagsYet')}
                 </p>
               ) : (
@@ -551,7 +580,7 @@ export default function ContactsPage() {
                   {allTags.map((tag) => (
                     <label
                       key={tag.id}
-                      className="flex items-center gap-2.5 px-3 py-1.5 cursor-pointer hover:bg-muted/50"
+                      className="hover:bg-muted/50 flex cursor-pointer items-center gap-2.5 px-3 py-1.5"
                     >
                       <Checkbox
                         checked={selectedTagIds.includes(tag.id)}
@@ -562,7 +591,7 @@ export default function ContactsPage() {
                         className="size-2.5 shrink-0 rounded-full"
                         style={{ backgroundColor: tag.color }}
                       />
-                      <span className="text-sm text-popover-foreground truncate">
+                      <span className="text-popover-foreground truncate text-sm">
                         {tag.name}
                       </span>
                     </label>
@@ -601,7 +630,7 @@ export default function ContactsPage() {
             })}
             <button
               onClick={clearTagFilters}
-              className="text-xs text-muted-foreground hover:text-foreground px-1"
+              className="text-muted-foreground hover:text-foreground px-1 text-xs"
             >
               {t('clearAll')}
             </button>
@@ -611,8 +640,8 @@ export default function ContactsPage() {
 
       {/* Bulk action bar */}
       {selected.size > 0 && (
-        <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/40 px-4 py-2">
-          <p className="text-sm text-foreground">
+        <div className="border-border bg-muted/40 flex items-center justify-between gap-4 rounded-lg border px-4 py-2">
+          <p className="text-foreground text-sm">
             {t('selectedCount', { count: selected.size })}
           </p>
           <div className="flex items-center gap-2">
@@ -639,7 +668,7 @@ export default function ContactsPage() {
       )}
 
       {/* Table — desktop only */}
-      <div className="hidden md:block rounded-lg border border-border overflow-hidden">
+      <div className="border-border hidden overflow-hidden rounded-lg border md:block">
         <Table>
           <TableHeader>
             <TableRow className="border-border hover:bg-transparent">
@@ -652,31 +681,45 @@ export default function ContactsPage() {
                   aria-label="Select all contacts on this page"
                 />
               </TableHead>
-              <TableHead className="text-muted-foreground">{t('tableColumns.name')}</TableHead>
-              <TableHead className="text-muted-foreground">{t('tableColumns.phone')}</TableHead>
-              <TableHead className="text-muted-foreground hidden md:table-cell">{t('tableColumns.email')}</TableHead>
-              <TableHead className="text-muted-foreground hidden lg:table-cell">{t('tableColumns.company')}</TableHead>
-              <TableHead className="text-muted-foreground hidden md:table-cell">{t('tableColumns.tags')}</TableHead>
-              <TableHead className="text-muted-foreground hidden lg:table-cell">{t('tableColumns.createdAt')}</TableHead>
+              <TableHead className="text-muted-foreground">
+                {t('tableColumns.name')}
+              </TableHead>
+              <TableHead className="text-muted-foreground">
+                {t('tableColumns.phone')}
+              </TableHead>
+              <TableHead className="text-muted-foreground hidden md:table-cell">
+                {t('tableColumns.email')}
+              </TableHead>
+              <TableHead className="text-muted-foreground hidden lg:table-cell">
+                {t('tableColumns.company')}
+              </TableHead>
+              <TableHead className="text-muted-foreground hidden md:table-cell">
+                {t('tableColumns.tags')}
+              </TableHead>
+              <TableHead className="text-muted-foreground hidden lg:table-cell">
+                {t('tableColumns.createdAt')}
+              </TableHead>
               <TableHead className="text-muted-foreground w-12" />
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               <TableRow className="border-border">
-                <TableCell colSpan={8} className="text-center py-12">
+                <TableCell colSpan={8} className="py-12 text-center">
                   <div className="flex flex-col items-center gap-2">
-                    <Loader2 className="size-6 animate-spin text-primary" />
-                    <p className="text-sm text-muted-foreground">{t('loading')}</p>
+                    <Loader2 className="text-primary size-6 animate-spin" />
+                    <p className="text-muted-foreground text-sm">
+                      {t('loading')}
+                    </p>
                   </div>
                 </TableCell>
               </TableRow>
             ) : contacts.length === 0 ? (
               <TableRow className="border-border">
-                <TableCell colSpan={8} className="text-center py-12">
+                <TableCell colSpan={8} className="py-12 text-center">
                   <div className="flex flex-col items-center gap-2">
-                    <Users className="size-8 text-muted-foreground" />
-                    <p className="text-sm text-muted-foreground">
+                    <Users className="text-muted-foreground size-8" />
+                    <p className="text-muted-foreground text-sm">
                       {hasActiveFilters
                         ? t('noContactsMatch')
                         : t('noContactsYet')}
@@ -688,7 +731,7 @@ export default function ContactsPage() {
                         variant="outline"
                         size="sm"
                         onClick={openAddForm}
-                        className="mt-2 border-border text-muted-foreground hover:bg-muted"
+                        className="border-border text-muted-foreground hover:bg-muted mt-2"
                       >
                         <Plus className="size-3.5" />
                         {t('addFirstContact')}
@@ -714,17 +757,26 @@ export default function ContactsPage() {
                   <TableCell className="text-foreground font-medium">
                     <div className="flex items-center gap-1.5">
                       <span className="truncate">
-                        {contact.name || <span className="text-muted-foreground italic">{t('unnamed')}</span>}
+                        {contact.name || (
+                          <span className="text-muted-foreground italic">
+                            {t('unnamed')}
+                          </span>
+                        )}
                       </span>
                       {contact.account_id && (
-                        <WorkspaceBadge accountId={contact.account_id} size="sm" />
+                        <WorkspaceBadge
+                          accountId={contact.account_id}
+                          size="sm"
+                        />
                       )}
                     </div>
                   </TableCell>
                   <TableCell className="text-muted-foreground font-mono text-xs">
                     <div className="flex items-center gap-1.5">
                       <span>
-                        {revealedPhones.has(contact.id) ? contact.phone : maskPhoneNumber(contact.phone)}
+                        {revealedPhones.has(contact.id)
+                          ? contact.phone
+                          : maskPhoneNumber(contact.phone)}
                       </span>
                       <button
                         onClick={() => {
@@ -738,8 +790,12 @@ export default function ContactsPage() {
                             return next;
                           });
                         }}
-                        className="flex items-center justify-center p-1 text-muted-foreground hover:text-primary transition-colors cursor-pointer"
-                        title={revealedPhones.has(contact.id) ? "Hide number" : "Reveal number"}
+                        className="text-muted-foreground hover:text-primary flex cursor-pointer items-center justify-center p-1 transition-colors"
+                        title={
+                          revealedPhones.has(contact.id)
+                            ? 'Hide number'
+                            : 'Reveal number'
+                        }
                       >
                         {revealedPhones.has(contact.id) ? (
                           <EyeOff className="size-3" />
@@ -749,11 +805,15 @@ export default function ContactsPage() {
                       </button>
                     </div>
                   </TableCell>
-                  <TableCell className="text-muted-foreground hidden md:table-cell text-sm">
-                    {contact.email || <span className="text-muted-foreground">-</span>}
+                  <TableCell className="text-muted-foreground hidden text-sm md:table-cell">
+                    {contact.email || (
+                      <span className="text-muted-foreground">-</span>
+                    )}
                   </TableCell>
-                  <TableCell className="text-muted-foreground hidden lg:table-cell text-sm">
-                    {contact.company || <span className="text-muted-foreground">-</span>}
+                  <TableCell className="text-muted-foreground hidden text-sm lg:table-cell">
+                    {contact.company || (
+                      <span className="text-muted-foreground">-</span>
+                    )}
                   </TableCell>
                   <TableCell className="hidden md:table-cell">
                     <div className="flex flex-wrap gap-1">
@@ -774,13 +834,13 @@ export default function ContactsPage() {
                         <span className="text-muted-foreground text-xs">-</span>
                       )}
                       {contact.tags && contact.tags.length > 3 && (
-                        <span className="text-[10px] text-muted-foreground">
+                        <span className="text-muted-foreground text-[10px]">
                           +{contact.tags.length - 3}
                         </span>
                       )}
                     </div>
                   </TableCell>
-                  <TableCell className="text-muted-foreground text-xs hidden lg:table-cell">
+                  <TableCell className="text-muted-foreground hidden text-xs lg:table-cell">
                     {new Date(contact.created_at).toLocaleDateString('en-US', {
                       month: 'short',
                       day: 'numeric',
@@ -805,7 +865,8 @@ export default function ContactsPage() {
                         align="end"
                         className="bg-popover border-border"
                       >
-                        {contact.account_id && contact.account_id !== accountId ? (
+                        {contact.account_id &&
+                        contact.account_id !== accountId ? (
                           <Tooltip>
                             <TooltipTrigger
                               render={
@@ -835,7 +896,8 @@ export default function ContactsPage() {
                           </DropdownMenuItem>
                         )}
                         <DropdownMenuSeparator className="bg-border" />
-                        {contact.account_id && contact.account_id !== accountId ? (
+                        {contact.account_id &&
+                        contact.account_id !== accountId ? (
                           <Tooltip>
                             <TooltipTrigger
                               render={
@@ -876,16 +938,16 @@ export default function ContactsPage() {
       </div>
 
       {/* Mobile contact cards */}
-      <div className="md:hidden divide-y divide-border">
+      <div className="divide-border divide-y md:hidden">
         {loading ? (
-          <div className="flex flex-col items-center justify-center py-12 gap-3">
-            <Loader2 className="size-6 animate-spin text-primary" />
-            <p className="text-sm text-muted-foreground">{t('loading')}</p>
+          <div className="flex flex-col items-center justify-center gap-3 py-12">
+            <Loader2 className="text-primary size-6 animate-spin" />
+            <p className="text-muted-foreground text-sm">{t('loading')}</p>
           </div>
         ) : contacts.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 gap-3">
-            <Users className="size-8 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">
+          <div className="flex flex-col items-center justify-center gap-3 py-12">
+            <Users className="text-muted-foreground size-8" />
+            <p className="text-muted-foreground text-sm">
               {hasActiveFilters ? t('noContactsMatch') : t('noContactsYet')}
             </p>
             {!hasActiveFilters && (
@@ -895,7 +957,7 @@ export default function ContactsPage() {
                 variant="outline"
                 size="sm"
                 onClick={openAddForm}
-                className="mt-2 border-border text-muted-foreground hover:bg-muted"
+                className="border-border text-muted-foreground hover:bg-muted mt-2"
               >
                 <Plus className="size-3.5" />
                 {t('addFirstContact')}
@@ -904,12 +966,16 @@ export default function ContactsPage() {
           </div>
         ) : (
           contacts.map((contact) => {
-            const initials = (contact.name || contact.phone || '?').charAt(0).toUpperCase();
-            const displayPhone = revealedPhones.has(contact.id) ? contact.phone : maskPhoneNumber(contact.phone);
+            const initials = (contact.name || contact.phone || '?')
+              .charAt(0)
+              .toUpperCase();
+            const displayPhone = revealedPhones.has(contact.id)
+              ? contact.phone
+              : maskPhoneNumber(contact.phone);
             return (
               <div
                 key={contact.id}
-                className="flex items-start gap-3 p-4 hover:bg-muted/50 cursor-pointer"
+                className="hover:bg-muted/50 flex cursor-pointer items-start gap-3 p-4"
                 onClick={() => openDetail(contact.id)}
               >
                 <Checkbox
@@ -919,25 +985,33 @@ export default function ContactsPage() {
                   aria-label={`Select ${contact.name || contact.phone}`}
                   className="mt-1"
                 />
-                <div className="flex-1 min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div className="flex-shrink-0 w-10 h-10 rounded-full bg-muted flex items-center justify-center text-sm font-medium text-foreground">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <div className="bg-muted text-foreground flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-sm font-medium">
                         {contact.avatar_url ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
                             src={contact.avatar_url}
                             alt={contact.name || 'Avatar'}
-                            className="w-10 h-10 rounded-full object-cover"
+                            className="h-10 w-10 rounded-full object-cover"
                           />
-                        ) : initials}
+                        ) : (
+                          initials
+                        )}
                       </div>
                       <div className="min-w-0">
-                        <p className="text-sm font-medium text-foreground truncate">
-                          {contact.name || <span className="text-muted-foreground italic">{t('unnamed')}</span>}
+                        <p className="text-foreground truncate text-sm font-medium">
+                          {contact.name || (
+                            <span className="text-muted-foreground italic">
+                              {t('unnamed')}
+                            </span>
+                          )}
                         </p>
                         {contact.company && (
-                          <p className="text-xs text-muted-foreground truncate">{contact.company}</p>
+                          <p className="text-muted-foreground truncate text-xs">
+                            {contact.company}
+                          </p>
                         )}
                       </div>
                     </div>
@@ -983,7 +1057,7 @@ export default function ContactsPage() {
                     </DropdownMenu>
                   </div>
                   <div className="mt-2 flex items-center gap-1">
-                    <span className="font-mono text-xs text-muted-foreground">
+                    <span className="text-muted-foreground font-mono text-xs">
                       {displayPhone}
                     </span>
                     <button
@@ -999,7 +1073,7 @@ export default function ContactsPage() {
                           return next;
                         });
                       }}
-                      className="flex items-center justify-center p-1 text-muted-foreground hover:text-primary transition-colors"
+                      className="text-muted-foreground hover:text-primary flex items-center justify-center p-1 transition-colors"
                     >
                       {revealedPhones.has(contact.id) ? (
                         <EyeOff className="size-3" />
@@ -1009,7 +1083,9 @@ export default function ContactsPage() {
                     </button>
                   </div>
                   {contact.email && (
-                    <p className="mt-1 text-xs text-muted-foreground truncate">{contact.email}</p>
+                    <p className="text-muted-foreground mt-1 truncate text-xs">
+                      {contact.email}
+                    </p>
                   )}
                   {contact.tags && contact.tags.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-1">
@@ -1026,7 +1102,7 @@ export default function ContactsPage() {
                         </span>
                       ))}
                       {contact.tags.length > 3 && (
-                        <span className="text-[10px] text-muted-foreground">
+                        <span className="text-muted-foreground text-[10px]">
                           +{contact.tags.length - 3}
                         </span>
                       )}
@@ -1042,11 +1118,11 @@ export default function ContactsPage() {
       {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between">
-          <p className="text-xs text-muted-foreground">
+          <p className="text-muted-foreground text-xs">
             {t('showingPagination', {
               start: page * PAGE_SIZE + 1,
               end: Math.min((page + 1) * PAGE_SIZE, totalCount),
-              total: totalCount
+              total: totalCount,
             })}
           </p>
           <div className="flex items-center gap-1">
@@ -1059,7 +1135,7 @@ export default function ContactsPage() {
             >
               <ChevronLeft className="size-4" />
             </Button>
-            <span className="text-xs text-muted-foreground px-2">
+            <span className="text-muted-foreground px-2 text-xs">
               {t('pageCount', { page: page + 1, total: totalPages })}
             </span>
             <Button
@@ -1118,9 +1194,13 @@ export default function ContactsPage() {
       <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
         <DialogContent className="bg-popover border-border text-popover-foreground sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle className="text-popover-foreground">{t('deleteContactTitle')}</DialogTitle>
+            <DialogTitle className="text-popover-foreground">
+              {t('deleteContactTitle')}
+            </DialogTitle>
             <DialogDescription className="text-muted-foreground">
-              {t('deleteContactDesc', { name: deleteTarget?.name || deleteTarget?.phone || '' })}
+              {t('deleteContactDesc', {
+                name: deleteTarget?.name || deleteTarget?.phone || '',
+              })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="bg-popover border-border">

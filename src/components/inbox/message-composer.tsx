@@ -1,4 +1,4 @@
-"use client";
+'use client';
 
 import {
   useState,
@@ -7,7 +7,7 @@ import {
   useEffect,
   useMemo,
   KeyboardEvent,
-} from "react";
+} from 'react';
 import {
   Send,
   Mic,
@@ -21,42 +21,42 @@ import {
   Smile,
   Camera,
   Paperclip,
-} from "lucide-react";
-import EmojiPicker from "emoji-picker-react";
-import { Button } from "@/components/ui/button";
-import { GatedButton } from "@/components/ui/gated-button";
+} from 'lucide-react';
+import EmojiPicker from 'emoji-picker-react';
+import { Button } from '@/components/ui/button';
+import { GatedButton } from '@/components/ui/gated-button';
 import {
   Dialog,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import { useCan } from "@/hooks/use-can";
-import { cn } from "@/lib/utils";
-import { toast } from "sonner";
+} from '@/components/ui/dialog';
+import { useCan } from '@/hooks/use-can';
+import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 import {
   uploadAccountMedia,
   deleteAccountMedia,
   MEDIA_MAX_BYTES_BY_KIND,
-} from "@/lib/storage/upload-media";
-import { ReplyQuote } from "./reply-quote";
-import { useTranslations } from "next-intl";
+} from '@/lib/storage/upload-media';
+import { ReplyQuote } from './reply-quote';
+import { useTranslations } from 'next-intl';
 import {
   InteractiveBuilder,
   blankButtonsPayload,
-} from "@/components/interactive/interactive-builder";
-import { validateInteractivePayload } from "@/lib/whatsapp/interactive";
-import type { InteractiveMessagePayload, QuickReply } from "@/types";
-import { QuickReplyPicker } from "./quick-reply-picker";
-import { ActionPickerDialog, type ActionKind } from "./action-picker-dialog";
-import { FloatingToolbar, type ToolbarAction } from "./floating-toolbar";
+} from '@/components/interactive/interactive-builder';
+import { validateInteractivePayload } from '@/lib/whatsapp/interactive';
+import type { InteractiveMessagePayload, QuickReply } from '@/types';
+import { QuickReplyPicker } from './quick-reply-picker';
+import { ActionPickerDialog, type ActionKind } from './action-picker-dialog';
+import { FloatingToolbar, type ToolbarAction } from './floating-toolbar';
 
 /** Media content types an agent can send from the composer. */
-export type ComposerMediaKind = "image" | "video" | "document" | "audio";
+export type ComposerMediaKind = 'image' | 'video' | 'document' | 'audio';
 
 /** Supabase Storage bucket holding agent-sent chat attachments (migration 023). */
-export const CHAT_MEDIA_BUCKET = "chat-media";
+export const CHAT_MEDIA_BUCKET = 'chat-media';
 
 /** Meta caps media captions at 1024 chars. Enforced here and in the send route. */
 export const MEDIA_CAPTION_MAX = 1024;
@@ -89,11 +89,11 @@ interface ReplyDraft {
 // the file picker so unsupported files are rejected before upload rather
 // than failing with a confusing Storage error. Audio has no picker — it's
 // captured via the recorder.
-const PICKER_ACCEPT: Record<"image" | "video" | "document", string> = {
-  image: "image/png,image/jpeg,image/webp",
-  video: "video/mp4,video/3gpp",
+const PICKER_ACCEPT: Record<'image' | 'video' | 'document', string> = {
+  image: 'image/png,image/jpeg,image/webp',
+  video: 'video/mp4,video/3gpp',
   document:
-    "application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain",
+    'application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain',
 };
 
 interface MediaDraft {
@@ -110,7 +110,10 @@ interface MessageComposerProps {
   sessionExpired: boolean;
   onSend: (text: string, replyToId?: string) => void;
   onSendMedia?: (payload: SendMediaPayload) => void;
-  onSendInteractive?: (payload: InteractiveMessagePayload, replyToId?: string) => void;
+  onSendInteractive?: (
+    payload: InteractiveMessagePayload,
+    replyToId?: string
+  ) => void;
   onOpenTemplates?: () => void;
   replyTo?: ReplyDraft | null;
   onClearReply?: () => void;
@@ -121,13 +124,13 @@ interface MessageComposerProps {
 function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
-  return `${m}:${s.toString().padStart(2, "0")}`;
+  return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
 /** Worker that encodes mic input to Ogg/Opus entirely in the browser
  *  (vendored from opus-recorder into /public). Recording client-side in a
  *  Meta-accepted format means no server ffmpeg / transcode step. */
-const OPUS_ENCODER_PATH = "/opus/encoderWorker.min.js";
+const OPUS_ENCODER_PATH = '/opus/encoderWorker.min.js';
 
 export function MessageComposer({
   conversationId,
@@ -140,9 +143,9 @@ export function MessageComposer({
   onClearReply,
   isTeam = false,
 }: MessageComposerProps) {
-  const t = useTranslations("Inbox.composer");
+  const t = useTranslations('Inbox.composer');
 
-  const [text, setText] = useState("");
+  const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [drafting, setDrafting] = useState(false);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
@@ -162,7 +165,8 @@ export function MessageComposer({
   // elements) for cases where nothing is focused yet.
   const getActiveTextarea = useCallback((): HTMLTextAreaElement | null => {
     const active = document.activeElement;
-    if (active === desktopTextareaRef.current) return desktopTextareaRef.current;
+    if (active === desktopTextareaRef.current)
+      return desktopTextareaRef.current;
     if (active === mobileTextareaRef.current) return mobileTextareaRef.current;
     return desktopTextareaRef.current?.offsetParent
       ? desktopTextareaRef.current
@@ -187,7 +191,7 @@ export function MessageComposer({
   // Slash-command quick-reply menu state.
   const [slashMenuOpen, setSlashMenuOpen] = useState(false);
   const [slashItems, setSlashItems] = useState<QuickReply[]>([]);
-  const [slashQuery, setSlashQuery] = useState("");
+  const [slashQuery, setSlashQuery] = useState('');
   const [slashIndex, setSlashIndex] = useState(0);
   const slashMenuRef = useRef<HTMLDivElement>(null);
 
@@ -216,14 +220,14 @@ export function MessageComposer({
   // (opus-recorder) so there's no server-side transcode.
   const [recording, setRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
-  const recorderRef = useRef<import("opus-recorder").default | null>(null);
+  const recorderRef = useRef<import('opus-recorder').default | null>(null);
   const cancelledRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Viewers (read-only role) can browse the inbox but never send.
   // For solo users this is always true — single-owner accounts pass
   // every capability — so the disabled branch is a no-op there.
-  const canSend = useCan("send-messages");
+  const canSend = useCan('send-messages');
   const readOnly = !canSend;
   // Media (like free-form text) is only allowed inside the 24h window.
   const inputsDisabled = readOnly || sessionExpired;
@@ -251,7 +255,7 @@ export function MessageComposer({
   const adjustHeight = useCallback(() => {
     const el = getActiveTextarea();
     if (!el) return;
-    el.style.height = "auto";
+    el.style.height = 'auto';
     // Max 4 lines (~96px)
     el.style.height = `${Math.min(el.scrollHeight, 96)}px`;
   }, [getActiveTextarea]);
@@ -263,10 +267,10 @@ export function MessageComposer({
     setSending(true);
     try {
       onSend(trimmed, replyTo?.id);
-      setText("");
+      setText('');
       const el = getActiveTextarea();
       if (el) {
-        el.style.height = "auto";
+        el.style.height = 'auto';
       }
     } finally {
       setSending(false);
@@ -280,8 +284,8 @@ export function MessageComposer({
       adjustHeight();
 
       // Slash-command detection: text ends with "/" or "/query"
-      const lines = val.split("\n");
-      const lastLine = lines[lines.length - 1] ?? "";
+      const lines = val.split('\n');
+      const lastLine = lines[lines.length - 1] ?? '';
       const slashMatch = lastLine.match(/^\/(.*)$/);
       if (slashMatch) {
         const q = slashMatch[1].toLowerCase();
@@ -291,7 +295,7 @@ export function MessageComposer({
         // Load from IndexedDB (instant)
         void (async () => {
           try {
-            const { getAllQuickReplies } = await import("@/lib/db");
+            const { getAllQuickReplies } = await import('@/lib/db');
             const all = await getAllQuickReplies();
             setSlashItems(all);
           } catch {
@@ -302,7 +306,7 @@ export function MessageComposer({
         setSlashMenuOpen(false);
       }
     },
-    [adjustHeight],
+    [adjustHeight]
   );
 
   // Ask the AI assistant for a suggested reply and drop it into the
@@ -312,21 +316,23 @@ export function MessageComposer({
     if (drafting) return;
     setDrafting(true);
     try {
-      const res = await fetch("/api/ai/draft", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+      const res = await fetch('/api/ai/draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ conversation_id: conversationId }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        if (data.code === "ai_not_configured") {
-          toast.error("AI isn't set up yet — enable it in Settings → AI Assistant.");
+        if (data.code === 'ai_not_configured') {
+          toast.error(
+            "AI isn't set up yet — enable it in Settings → AI Assistant."
+          );
         } else {
           toast.error(data.error ?? "Couldn't draft a reply.");
         }
         return;
       }
-      const draftText = typeof data.draft === "string" ? data.draft.trim() : "";
+      const draftText = typeof data.draft === 'string' ? data.draft.trim() : '';
       if (!draftText) {
         toast.error("The assistant didn't return a reply.");
         return;
@@ -356,7 +362,7 @@ export function MessageComposer({
       setInteractivePayload(seed ?? blankButtonsPayload());
       setInteractiveOpen(true);
     },
-    [],
+    []
   );
 
   // ---- Slash-command quick-reply menu -----------------------------------
@@ -366,21 +372,21 @@ export function MessageComposer({
     return slashItems.filter(
       (qr) =>
         qr.title.toLowerCase().includes(slashQuery) ||
-        (qr.content_text ?? "").toLowerCase().includes(slashQuery),
+        (qr.content_text ?? '').toLowerCase().includes(slashQuery)
     );
   }, [slashItems, slashQuery]);
 
   const selectSlashItem = useCallback(
     (qr: QuickReply) => {
-      const lines = text.split("\n");
+      const lines = text.split('\n');
       lines.pop(); // remove the "/query" line
-      if (qr.kind === "interactive" && qr.interactive_payload) {
+      if (qr.kind === 'interactive' && qr.interactive_payload) {
         openInteractiveBuilder(qr.interactive_payload);
       } else {
-        const insertion = qr.content_text ?? "";
+        const insertion = qr.content_text ?? '';
         if (insertion) lines.push(insertion);
       }
-      const next = lines.join("\n");
+      const next = lines.join('\n');
       setText(next);
       setSlashMenuOpen(false);
       requestAnimationFrame(() => {
@@ -392,7 +398,7 @@ export function MessageComposer({
         }
       });
     },
-    [text, openInteractiveBuilder, adjustHeight, getActiveTextarea],
+    [text, openInteractiveBuilder, adjustHeight, getActiveTextarea]
   );
 
   // Scroll the selected slash-menu item into view.
@@ -401,31 +407,34 @@ export function MessageComposer({
     const container = slashMenuRef.current;
     if (!container) return;
     const btn = container.children[slashIndex] as HTMLElement | undefined;
-    btn?.scrollIntoView({ block: "nearest" });
+    btn?.scrollIntoView({ block: 'nearest' });
   }, [slashMenuOpen, slashIndex]);
 
   // Close the slash menu on click-outside.
   useEffect(() => {
     if (!slashMenuOpen) return;
     const handle = (e: MouseEvent) => {
-      if (slashMenuRef.current && !slashMenuRef.current.contains(e.target as Node)) {
+      if (
+        slashMenuRef.current &&
+        !slashMenuRef.current.contains(e.target as Node)
+      ) {
         setSlashMenuOpen(false);
       }
     };
-    document.addEventListener("mousedown", handle);
-    return () => document.removeEventListener("mousedown", handle);
+    document.addEventListener('mousedown', handle);
+    return () => document.removeEventListener('mousedown', handle);
   }, [slashMenuOpen]);
 
   // Close the emoji picker on click-outside.
   useEffect(() => {
     if (!emojiPickerOpen) return;
     const handle = (e: MouseEvent) => {
-      if (!(e.target as Element).closest(".emoji-picker-react")) {
+      if (!(e.target as Element).closest('.emoji-picker-react')) {
         setEmojiPickerOpen(false);
       }
     };
-    document.addEventListener("mousedown", handle);
-    return () => document.removeEventListener("mousedown", handle);
+    document.addEventListener('mousedown', handle);
+    return () => document.removeEventListener('mousedown', handle);
   }, [emojiPickerOpen]);
 
   const handleKeyDown = useCallback(
@@ -436,35 +445,38 @@ export function MessageComposer({
 
       // Slash-menu keyboard navigation
       if (slashMenuOpen && filteredSlashItems.length > 0) {
-        if (e.key === "ArrowDown") {
+        if (e.key === 'ArrowDown') {
           e.preventDefault();
           setSlashIndex((i) => (i + 1) % filteredSlashItems.length);
           return;
         }
-        if (e.key === "ArrowUp") {
+        if (e.key === 'ArrowUp') {
           e.preventDefault();
-          setSlashIndex((i) => (i - 1 + filteredSlashItems.length) % filteredSlashItems.length);
+          setSlashIndex(
+            (i) =>
+              (i - 1 + filteredSlashItems.length) % filteredSlashItems.length
+          );
           return;
         }
-        if (e.key === "Enter" && !e.shiftKey) {
+        if (e.key === 'Enter' && !e.shiftKey) {
           e.preventDefault();
           selectSlashItem(filteredSlashItems[slashIndex]);
           return;
         }
-        if (e.key === "Escape") {
+        if (e.key === 'Escape') {
           e.preventDefault();
           setSlashMenuOpen(false);
           return;
         }
       }
 
-      if (e.key === "Enter" && !e.shiftKey) {
+      if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         handleSend();
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [handleSend, slashMenuOpen, filteredSlashItems, slashIndex, selectSlashItem],
+    [handleSend, slashMenuOpen, filteredSlashItems, slashIndex, selectSlashItem]
   );
 
   const sendInteractive = useCallback(() => {
@@ -485,29 +497,27 @@ export function MessageComposer({
       toast.error(result.error);
       return;
     }
-    const title = window
-      .prompt(t("quickReplyNamePrompt"))
-      ?.trim();
+    const title = window.prompt(t('quickReplyNamePrompt'))?.trim();
     if (!title) return;
     setSavingQuickReply(true);
     try {
-      const res = await fetch("/api/quick-replies", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+      const res = await fetch('/api/quick-replies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title,
-          kind: "interactive",
+          kind: 'interactive',
           interactive_payload: interactivePayload,
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        toast.error(data.error ?? t("quickReplySaveError"));
+        toast.error(data.error ?? t('quickReplySaveError'));
         return;
       }
-      toast.success(t("quickReplySaved"));
+      toast.success(t('quickReplySaved'));
     } catch {
-      toast.error(t("quickReplySaveError"));
+      toast.error(t('quickReplySaveError'));
     } finally {
       setSavingQuickReply(false);
     }
@@ -518,15 +528,15 @@ export function MessageComposer({
   const handlePickQuickReply = useCallback(
     (qr: QuickReply) => {
       setQuickReplyOpen(false);
-      if (qr.kind === "interactive" && qr.interactive_payload) {
+      if (qr.kind === 'interactive' && qr.interactive_payload) {
         openInteractiveBuilder(qr.interactive_payload);
         return;
       }
-      const body = qr.content_text ?? "";
+      const body = qr.content_text ?? '';
       // Separate the snippet from any existing draft with a newline so the
       // words don't run together ("Thanks" + "we'll…" → "Thankswe'll…").
       setText((prev) =>
-        prev && !/\s$/.test(prev) ? `${prev}\n${body}` : `${prev}${body}`,
+        prev && !/\s$/.test(prev) ? `${prev}\n${body}` : `${prev}${body}`
       );
       requestAnimationFrame(() => {
         adjustHeight();
@@ -537,7 +547,7 @@ export function MessageComposer({
         }
       });
     },
-    [openInteractiveBuilder, adjustHeight, getActiveTextarea],
+    [openInteractiveBuilder, adjustHeight, getActiveTextarea]
   );
 
   // ---- Voice recording (client-side Ogg/Opus, no server transcode) ---
@@ -548,38 +558,54 @@ export function MessageComposer({
     async (bytes: Uint8Array) => {
       // Uint8Array is a valid BlobPart at runtime; the cast sidesteps the
       // lib.dom ArrayBufferLike-vs-ArrayBuffer generic mismatch.
-      const file = new File([bytes as unknown as BlobPart], `voice-${Date.now()}.ogg`, {
-        type: "audio/ogg",
-      });
+      const file = new File(
+        [bytes as unknown as BlobPart],
+        `voice-${Date.now()}.ogg`,
+        {
+          type: 'audio/ogg',
+        }
+      );
       if (file.size === 0) return; // cancelled / empty take
       if (file.size > MEDIA_MAX_BYTES_BY_KIND.audio) {
-        toast.error("Recording is too long (over 16 MB).");
+        toast.error('Recording is too long (over 16 MB).');
         return;
       }
       setBusy(true);
       try {
-        const { publicUrl, path } = await uploadAccountMedia(CHAT_MEDIA_BUCKET, file);
+        const { publicUrl, path } = await uploadAccountMedia(
+          CHAT_MEDIA_BUCKET,
+          file
+        );
         removeStaged(draftRef.current?.path);
-        setDraft({ kind: "audio", mediaUrl: publicUrl, path, filename: file.name, caption: "" });
+        setDraft({
+          kind: 'audio',
+          mediaUrl: publicUrl,
+          path,
+          filename: file.name,
+          caption: '',
+        });
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Upload failed.");
+        toast.error(err instanceof Error ? err.message : 'Upload failed.');
       } finally {
         setBusy(false);
       }
     },
-    [removeStaged],
+    [removeStaged]
   );
 
   const startRecording = useCallback(async () => {
     if (inputsDisabled || busy || recording) return;
-    if (!navigator.mediaDevices?.getUserMedia || typeof AudioContext === "undefined") {
+    if (
+      !navigator.mediaDevices?.getUserMedia ||
+      typeof AudioContext === 'undefined'
+    ) {
       toast.error("Voice recording isn't supported in this browser.");
       return;
     }
     try {
       // Lazy-load the encoder (≈400 KB worker) only when the user records,
       // keeping it out of the main bundle.
-      const { default: Recorder } = await import("opus-recorder");
+      const { default: Recorder } = await import('opus-recorder');
       const recorder = new Recorder({
         encoderPath: OPUS_ENCODER_PATH,
         numberOfChannels: 1,
@@ -596,11 +622,14 @@ export function MessageComposer({
       await recorder.start();
       setRecording(true);
       setRecordSeconds(0);
-      timerRef.current = setInterval(() => setRecordSeconds((s) => s + 1), 1000);
+      timerRef.current = setInterval(
+        () => setRecordSeconds((s) => s + 1),
+        1000
+      );
     } catch {
       void recorderRef.current?.stop().catch(() => {});
       recorderRef.current = null;
-      toast.error("Microphone access denied or unavailable.");
+      toast.error('Microphone access denied or unavailable.');
     }
   }, [inputsDisabled, busy, recording, finalizeRecording]);
 
@@ -608,25 +637,25 @@ export function MessageComposer({
   const handleActionSelect = useCallback(
     (kind: ActionKind) => {
       switch (kind) {
-        case "document":
+        case 'document':
           documentInputRef.current?.click();
           break;
-        case "photo":
+        case 'photo':
           imageInputRef.current?.click();
           break;
-        case "audio":
+        case 'audio':
           void startRecording();
           break;
-        case "interactive":
+        case 'interactive':
           openInteractiveBuilder();
           break;
-        case "quick-reply":
+        case 'quick-reply':
           setQuickReplyOpen(true);
           break;
-        case "template":
+        case 'template':
           onOpenTemplates?.();
           break;
-        case "ai-draft":
+        case 'ai-draft':
           void handleDraft();
           break;
       }
@@ -644,31 +673,40 @@ export function MessageComposer({
       if (file.size > max) {
         toast.error(
           `File is ${(file.size / 1024 / 1024).toFixed(1)} MB — ${kind} limit is ${Math.round(
-            max / 1024 / 1024,
-          )} MB.`,
+            max / 1024 / 1024
+          )} MB.`
         );
         return;
       }
       setBusy(true);
       try {
-        const { publicUrl, path } = await uploadAccountMedia(CHAT_MEDIA_BUCKET, file);
+        const { publicUrl, path } = await uploadAccountMedia(
+          CHAT_MEDIA_BUCKET,
+          file
+        );
         // Replacing an existing draft? GC the previous object first.
         removeStaged(draftRef.current?.path);
-        setDraft({ kind, mediaUrl: publicUrl, path, filename: file.name, caption: "" });
+        setDraft({
+          kind,
+          mediaUrl: publicUrl,
+          path,
+          filename: file.name,
+          caption: '',
+        });
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Upload failed.");
+        toast.error(err instanceof Error ? err.message : 'Upload failed.');
       } finally {
         setBusy(false);
       }
     },
-    [removeStaged],
+    [removeStaged]
   );
 
   const handlePicked = useCallback(
-    (kind: "image" | "video" | "document", file: File | undefined) => {
+    (kind: 'image' | 'video' | 'document', file: File | undefined) => {
       if (file) void stageUpload(kind, file);
     },
-    [stageUpload],
+    [stageUpload]
   );
 
   // ── Paste-to-upload ────────────────────────────────────────
@@ -678,23 +716,23 @@ export function MessageComposer({
       const items = Array.from(e.clipboardData.items);
       for (const item of items) {
         const kind = item.kind;
-        if (kind === "file") {
+        if (kind === 'file') {
           const file = item.getAsFile();
           if (!file) continue;
           e.preventDefault();
           const mime = file.type;
-          if (mime.startsWith("image/")) {
-            void stageUpload("image", file);
-          } else if (mime.startsWith("video/")) {
-            void stageUpload("video", file);
+          if (mime.startsWith('image/')) {
+            void stageUpload('image', file);
+          } else if (mime.startsWith('video/')) {
+            void stageUpload('video', file);
           } else {
-            void stageUpload("document", file);
+            void stageUpload('document', file);
           }
           return;
         }
       }
     },
-    [inputsDisabled, onSendMedia, stageUpload],
+    [inputsDisabled, onSendMedia, stageUpload]
   );
 
   const stopRecording = useCallback(() => {
@@ -725,38 +763,38 @@ export function MessageComposer({
       let cursorOffset = 0;
 
       switch (action) {
-        case "bold":
+        case 'bold':
           wrapped = `*${selected}*`;
           cursorOffset = 1;
           break;
-        case "italic":
+        case 'italic':
           wrapped = `_${selected}_`;
           cursorOffset = 1;
           break;
-        case "strikethrough":
+        case 'strikethrough':
           wrapped = `~${selected}~`;
           cursorOffset = 1;
           break;
-        case "code":
+        case 'code':
           wrapped = `\`${selected}\``;
           cursorOffset = 1;
           break;
-        case "bullet": {
+        case 'bullet': {
           // Wrap each selected line with "- "
-          const lines = selected.split("\n");
-          wrapped = lines.map((l) => `- ${l}`).join("\n");
+          const lines = selected.split('\n');
+          wrapped = lines.map((l) => `- ${l}`).join('\n');
           cursorOffset = 2;
           break;
         }
-        case "ordered": {
-          const lines = selected.split("\n");
-          wrapped = lines.map((l, i) => `${i + 1}. ${l}`).join("\n");
+        case 'ordered': {
+          const lines = selected.split('\n');
+          wrapped = lines.map((l, i) => `${i + 1}. ${l}`).join('\n');
           cursorOffset = 3;
           break;
         }
-        case "quote": {
-          const lines = selected.split("\n");
-          wrapped = lines.map((l) => `> ${l}`).join("\n");
+        case 'quote': {
+          const lines = selected.split('\n');
+          wrapped = lines.map((l) => `> ${l}`).join('\n');
           cursorOffset = 2;
           break;
         }
@@ -775,7 +813,7 @@ export function MessageComposer({
         el.setSelectionRange(newCursorPos, newCursorPos);
       });
     },
-    [text, getActiveTextarea],
+    [text, getActiveTextarea]
   );
 
   /** Keyboard shortcuts: Ctrl/Cmd+B/I/E, Ctrl/Cmd+Shift+X */
@@ -793,14 +831,14 @@ export function MessageComposer({
 
       let action: ToolbarAction | null = null;
 
-      if (e.key === "b" || e.key === "B") {
-        action = "bold";
-      } else if (e.key === "i" || e.key === "I") {
-        action = "italic";
-      } else if (e.key === "e" || e.key === "E") {
-        action = "code";
-      } else if (e.shiftKey && (e.key === "x" || e.key === "X")) {
-        action = "strikethrough";
+      if (e.key === 'b' || e.key === 'B') {
+        action = 'bold';
+      } else if (e.key === 'i' || e.key === 'I') {
+        action = 'italic';
+      } else if (e.key === 'e' || e.key === 'E') {
+        action = 'code';
+      } else if (e.shiftKey && (e.key === 'x' || e.key === 'X')) {
+        action = 'strikethrough';
       }
 
       if (action) {
@@ -808,7 +846,7 @@ export function MessageComposer({
         applyFormatting(action);
       }
     },
-    [applyFormatting, getActiveTextarea],
+    [applyFormatting, getActiveTextarea]
   );
 
   /** Detect text selection to show/hide the floating toolbar. */
@@ -846,8 +884,8 @@ export function MessageComposer({
   // where selectionchange fires before the selection is finalized.
   useEffect(() => {
     const onSelection = () => checkSelection();
-    document.addEventListener("selectionchange", onSelection);
-    return () => document.removeEventListener("selectionchange", onSelection);
+    document.addEventListener('selectionchange', onSelection);
+    return () => document.removeEventListener('selectionchange', onSelection);
   }, [checkSelection]);
 
   // Hide toolbar on click outside either textarea and outside the toolbar
@@ -858,11 +896,12 @@ export function MessageComposer({
       // Don't hide if clicking either textarea or inside the toolbar
       if (desktopTextareaRef.current?.contains(target)) return;
       if (mobileTextareaRef.current?.contains(target)) return;
-      if (document.querySelector("[data-floating-toolbar]")?.contains(target)) return;
+      if (document.querySelector('[data-floating-toolbar]')?.contains(target))
+        return;
       setToolbarVisible(false);
     };
-    document.addEventListener("mousedown", hide);
-    return () => document.removeEventListener("mousedown", hide);
+    document.addEventListener('mousedown', hide);
+    return () => document.removeEventListener('mousedown', hide);
   }, [toolbarVisible]);
 
   const cancelRecording = useCallback(() => {
@@ -892,8 +931,8 @@ export function MessageComposer({
       // Audio takes no caption (Meta rejects it). Everything else: the
       // trimmed caption, or undefined when blank.
       caption:
-        draft.kind === "audio" ? undefined : draft.caption.trim() || undefined,
-      filename: draft.kind === "document" ? draft.filename : undefined,
+        draft.kind === 'audio' ? undefined : draft.caption.trim() || undefined,
+      filename: draft.kind === 'document' ? draft.filename : undefined,
       replyToId: replyTo?.id,
     });
     // The object is now owned by the sent message — clear without GC.
@@ -914,7 +953,7 @@ export function MessageComposer({
   // ---- Render --------------------------------------------------------
 
   return (
-    <div className="border-t border-border bg-card p-3">
+    <div className="border-border bg-card border-t p-3">
       {replyTo && (
         <div className="mb-2">
           <ReplyQuote
@@ -926,9 +965,7 @@ export function MessageComposer({
       )}
       {sessionExpired && (
         <div className="mb-2 flex items-center justify-between rounded-lg bg-amber-500/10 px-3 py-2">
-          <p className="text-xs text-amber-400">
-            {t("sessionExpiredHint")}
-          </p>
+          <p className="text-xs text-amber-400">{t('sessionExpiredHint')}</p>
           <Button
             variant="ghost"
             size="sm"
@@ -936,7 +973,7 @@ export function MessageComposer({
             onClick={() => onOpenTemplates?.()}
           >
             <LayoutTemplate className="mr-1 h-3 w-3" />
-            {t("templates")}
+            {t('templates')}
           </Button>
         </div>
       )}
@@ -948,8 +985,8 @@ export function MessageComposer({
         accept={PICKER_ACCEPT.image}
         className="hidden"
         onChange={(e) => {
-          handlePicked("image", e.target.files?.[0]);
-          e.target.value = "";
+          handlePicked('image', e.target.files?.[0]);
+          e.target.value = '';
         }}
       />
       <input
@@ -958,8 +995,8 @@ export function MessageComposer({
         accept={PICKER_ACCEPT.video}
         className="hidden"
         onChange={(e) => {
-          handlePicked("video", e.target.files?.[0]);
-          e.target.value = "";
+          handlePicked('video', e.target.files?.[0]);
+          e.target.value = '';
         }}
       />
       <input
@@ -968,8 +1005,8 @@ export function MessageComposer({
         accept={PICKER_ACCEPT.document}
         className="hidden"
         onChange={(e) => {
-          handlePicked("document", e.target.files?.[0]);
-          e.target.value = "";
+          handlePicked('document', e.target.files?.[0]);
+          e.target.value = '';
         }}
       />
 
@@ -985,23 +1022,26 @@ export function MessageComposer({
         />
       ) : recording ? (
         // Recording bar — replaces the composer while the mic is live.
-        <div className="flex items-center gap-3 rounded-xl border border-border bg-muted px-4 py-2.5">
+        <div className="border-border bg-muted flex items-center gap-3 rounded-xl border px-4 py-2.5">
           <span className="flex h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-red-500" />
-          <span className="flex-1 text-sm text-foreground">
-            {t("recording", { current: formatDuration(recordSeconds), max: formatDuration(MAX_RECORDING_SECONDS) })}
+          <span className="text-foreground flex-1 text-sm">
+            {t('recording', {
+              current: formatDuration(recordSeconds),
+              max: formatDuration(MAX_RECORDING_SECONDS),
+            })}
           </span>
           <button
             type="button"
             onClick={cancelRecording}
-            className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-card hover:text-foreground"
+            className="text-muted-foreground hover:bg-card hover:text-foreground rounded-md px-2 py-1 text-xs"
           >
-            {t("cancel")}
+            {t('cancel')}
           </button>
           <Button
             size="sm"
             onClick={stopRecording}
-            className="h-9 w-9 shrink-0 bg-primary p-0 hover:bg-primary/90"
-            title={t("stopAndAttach")}
+            className="bg-primary hover:bg-primary/90 h-9 w-9 shrink-0 p-0"
+            title={t('stopAndAttach')}
           >
             <Square className="h-4 w-4" />
           </Button>
@@ -1012,7 +1052,7 @@ export function MessageComposer({
           {slashMenuOpen && filteredSlashItems.length > 0 && (
             <div
               ref={slashMenuRef}
-              className="mb-1 max-h-48 overflow-y-auto rounded-lg border border-border bg-popover shadow-md"
+              className="border-border bg-popover mb-1 max-h-48 overflow-y-auto rounded-lg border shadow-md"
             >
               {filteredSlashItems.map((qr, i) => (
                 <button
@@ -1024,21 +1064,23 @@ export function MessageComposer({
                   }}
                   onMouseEnter={() => setSlashIndex(i)}
                   className={cn(
-                    "flex w-full items-center gap-2 px-3 py-2 text-left text-sm",
+                    'flex w-full items-center gap-2 px-3 py-2 text-left text-sm',
                     i === slashIndex
-                      ? "bg-accent text-accent-foreground"
-                      : "text-foreground hover:bg-accent/50",
+                      ? 'bg-accent text-accent-foreground'
+                      : 'text-foreground hover:bg-accent/50'
                   )}
                 >
-                  {qr.kind === "interactive" ? (
-                    <Zap className="h-3.5 w-3.5 shrink-0 text-primary" />
+                  {qr.kind === 'interactive' ? (
+                    <Zap className="text-primary h-3.5 w-3.5 shrink-0" />
                   ) : (
-                    <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <FileText className="text-muted-foreground h-3.5 w-3.5 shrink-0" />
                   )}
-                  <span className="min-w-0 flex-1 truncate font-medium">{qr.title}</span>
-                  <span className="truncate text-xs text-muted-foreground">
-                    {qr.kind === "interactive" && qr.interactive_payload
-                      ? "interactive"
+                  <span className="min-w-0 flex-1 truncate font-medium">
+                    {qr.title}
+                  </span>
+                  <span className="text-muted-foreground truncate text-xs">
+                    {qr.kind === 'interactive' && qr.interactive_payload
+                      ? 'interactive'
                       : qr.content_text}
                   </span>
                 </button>
@@ -1047,11 +1089,13 @@ export function MessageComposer({
           )}
 
           {/* Desktop: single-line dark bar layout */}
-          <div className="hidden sm:flex flex-col gap-1">
+          <div className="hidden flex-col gap-1 sm:flex">
             {drafting && (
-              <div className="flex items-center gap-2 rounded-t-xl border border-border border-b-0 bg-muted px-4 py-2">
-                <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                <span className="text-sm text-muted-foreground">Generating draft...</span>
+              <div className="border-border bg-muted flex items-center gap-2 rounded-t-xl border border-b-0 px-4 py-2">
+                <Loader2 className="text-primary h-4 w-4 animate-spin" />
+                <span className="text-muted-foreground text-sm">
+                  Generating draft...
+                </span>
               </div>
             )}
             <div className="flex items-end gap-2">
@@ -1063,8 +1107,8 @@ export function MessageComposer({
                   canAct={!readOnly}
                   gateReason="send messages"
                   disabled={busy || drafting}
-                  title={readOnly ? undefined : t("attachMedia")}
-                  className="h-10 w-10 shrink-0 p-0 text-muted-foreground hover:text-foreground"
+                  title={readOnly ? undefined : t('attachMedia')}
+                  className="text-muted-foreground hover:text-foreground h-10 w-10 shrink-0 p-0"
                   onClick={() => setActionPickerOpen(true)}
                 >
                   {busy ? (
@@ -1081,24 +1125,24 @@ export function MessageComposer({
                   <button
                     type="button"
                     disabled={drafting}
-                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground disabled:opacity-40"
+                    className="text-muted-foreground hover:text-foreground flex h-10 w-10 shrink-0 items-center justify-center rounded-full disabled:opacity-40"
                     onClick={() => setEmojiPickerOpen((v) => !v)}
                   >
                     <Smile className="h-5 w-5" />
                   </button>
                   {emojiPickerOpen && (
-                    <div className="absolute bottom-full left-0 mb-2 z-50">
+                    <div className="absolute bottom-full left-0 z-50 mb-2">
                       <div className="relative">
                         <EmojiPicker
                           onEmojiClick={(emoji) => {
-                            setText((prev) => prev + emoji.emoji)
-                            setEmojiPickerOpen(false)
+                            setText((prev) => prev + emoji.emoji);
+                            setEmojiPickerOpen(false);
                           }}
                         />
                         <button
                           type="button"
                           onClick={() => setEmojiPickerOpen(false)}
-                          className="absolute -top-2 -right-2 flex h-6 w-6 items-center justify-center rounded-full bg-muted text-muted-foreground hover:text-foreground"
+                          className="bg-muted text-muted-foreground hover:text-foreground absolute -top-2 -right-2 flex h-6 w-6 items-center justify-center rounded-full"
                         >
                           <X className="h-4 w-4" />
                         </button>
@@ -1118,52 +1162,55 @@ export function MessageComposer({
                 onKeyUp={checkSelection}
                 placeholder={
                   readOnly
-                    ? t("readOnlyPlaceholder")
+                    ? t('readOnlyPlaceholder')
                     : sessionExpired
-                      ? t("sessionExpiredPlaceholder")
-                      : t("typeMessagePlaceholder")
+                      ? t('sessionExpiredPlaceholder')
+                      : t('typeMessagePlaceholder')
                 }
                 disabled={sessionExpired || readOnly || drafting}
                 rows={1}
-                title={readOnly ? t("readOnlyTitle") : undefined}
+                title={readOnly ? t('readOnlyTitle') : undefined}
                 className={cn(
-                  "flex-1 resize-none rounded-xl border border-border bg-muted px-4 py-2.5 text-sm text-foreground placeholder-muted-foreground outline-none transition-colors focus:border-primary/50 scrollbar-hidden",
-                  (sessionExpired || readOnly || drafting) && "cursor-not-allowed opacity-50"
+                  'border-border bg-muted text-foreground placeholder-muted-foreground focus:border-primary/50 scrollbar-hidden flex-1 resize-none rounded-xl border px-4 py-2.5 text-sm transition-colors outline-none',
+                  (sessionExpired || readOnly || drafting) &&
+                    'cursor-not-allowed opacity-50'
                 )}
               />
 
-            {text.trim() ? (
-              <GatedButton
-                size="sm"
-                canAct={!readOnly}
-                gateReason="send messages"
-                disabled={sessionExpired || sending}
-                onClick={handleSend}
-                className="h-10 w-10 shrink-0 bg-primary p-0 hover:bg-primary/90 disabled:opacity-40"
-              >
-                <Send className="h-4 w-4" />
-              </GatedButton>
-            ) : (
-              <GatedButton
-                size="sm"
-                canAct={!readOnly}
-                gateReason="send messages"
-                disabled={sessionExpired || busy}
-                onClick={() => void startRecording()}
-                className="h-10 w-10 shrink-0 p-0 text-muted-foreground hover:text-foreground disabled:opacity-40"
-              >
-                <Mic className="h-5 w-5" />
-              </GatedButton>
-            )}
+              {text.trim() ? (
+                <GatedButton
+                  size="sm"
+                  canAct={!readOnly}
+                  gateReason="send messages"
+                  disabled={sessionExpired || sending}
+                  onClick={handleSend}
+                  className="bg-primary hover:bg-primary/90 h-10 w-10 shrink-0 p-0 disabled:opacity-40"
+                >
+                  <Send className="h-4 w-4" />
+                </GatedButton>
+              ) : (
+                <GatedButton
+                  size="sm"
+                  canAct={!readOnly}
+                  gateReason="send messages"
+                  disabled={sessionExpired || busy}
+                  onClick={() => void startRecording()}
+                  className="text-muted-foreground hover:text-foreground h-10 w-10 shrink-0 p-0 disabled:opacity-40"
+                >
+                  <Mic className="h-5 w-5" />
+                </GatedButton>
+              )}
             </div>
           </div>
 
           {/* Mobile: rounded layout with action row below */}
           <div className="flex flex-col sm:hidden">
             {drafting && (
-              <div className="flex items-center gap-2 rounded-t-2xl border border-border border-b-0 bg-muted px-4 py-3">
-                <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                <span className="text-sm text-muted-foreground">Generating draft...</span>
+              <div className="border-border bg-muted flex items-center gap-2 rounded-t-2xl border border-b-0 px-4 py-3">
+                <Loader2 className="text-primary h-4 w-4 animate-spin" />
+                <span className="text-muted-foreground text-sm">
+                  Generating draft...
+                </span>
               </div>
             )}
             <textarea
@@ -1176,25 +1223,26 @@ export function MessageComposer({
               onKeyUp={checkSelection}
               placeholder={
                 readOnly
-                  ? t("readOnlyPlaceholder")
+                  ? t('readOnlyPlaceholder')
                   : sessionExpired
-                    ? t("sessionExpiredPlaceholder")
-                    : t("typeMessagePlaceholder")
+                    ? t('sessionExpiredPlaceholder')
+                    : t('typeMessagePlaceholder')
               }
               disabled={sessionExpired || readOnly || drafting}
               rows={1}
-              title={readOnly ? t("readOnlyTitle") : undefined}
+              title={readOnly ? t('readOnlyTitle') : undefined}
               className={cn(
-                "w-full resize-none border border-border bg-muted px-4 py-3 text-sm text-foreground placeholder-muted-foreground outline-none transition-colors focus:border-primary/50 scrollbar-hidden",
-                drafting ? "rounded-t-none border-t-0" : "rounded-t-2xl",
-                (sessionExpired || readOnly || drafting) && "cursor-not-allowed opacity-50"
+                'border-border bg-muted text-foreground placeholder-muted-foreground focus:border-primary/50 scrollbar-hidden w-full resize-none border px-4 py-3 text-sm transition-colors outline-none',
+                drafting ? 'rounded-t-none border-t-0' : 'rounded-t-2xl',
+                (sessionExpired || readOnly || drafting) &&
+                  'cursor-not-allowed opacity-50'
               )}
             />
 
-            <div className="flex items-center justify-between rounded-b-2xl border border-border border-t-0 bg-muted px-2 py-1.5">
+            <div className="border-border bg-muted flex items-center justify-between rounded-b-2xl border border-t-0 px-2 py-1.5">
               {/* Reply chip — shown when replying */}
               {replyTo && (
-                <span className="ml-1 max-w-[100px] truncate rounded-full bg-primary/10 px-2.5 py-1 text-xs text-primary">
+                <span className="bg-primary/10 text-primary ml-1 max-w-25 truncate rounded-full px-2.5 py-1 text-xs">
                   {replyTo.authorLabel}
                 </span>
               )}
@@ -1208,7 +1256,7 @@ export function MessageComposer({
                     canAct={!readOnly}
                     gateReason="send messages"
                     disabled={busy}
-                    className="h-9 w-9 shrink-0 p-0 text-muted-foreground hover:text-foreground"
+                    className="text-muted-foreground hover:text-foreground h-9 w-9 shrink-0 p-0"
                     onClick={() => setActionPickerOpen(true)}
                   >
                     {busy ? (
@@ -1223,7 +1271,7 @@ export function MessageComposer({
                 {!isTeam && (
                   <button
                     type="button"
-                    className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
+                    className="text-muted-foreground hover:text-foreground flex h-9 w-9 items-center justify-center rounded-full"
                     onClick={() => imageInputRef.current?.click()}
                   >
                     <Camera className="h-5 w-5" />
@@ -1238,7 +1286,7 @@ export function MessageComposer({
                     gateReason="send messages"
                     disabled={sessionExpired || sending}
                     onClick={handleSend}
-                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary p-0 text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
+                    className="bg-primary text-primary-foreground hover:bg-primary/90 flex h-11 w-11 shrink-0 items-center justify-center rounded-full p-0 disabled:opacity-40"
                   >
                     <Send className="h-5 w-5" />
                   </GatedButton>
@@ -1249,7 +1297,7 @@ export function MessageComposer({
                     gateReason="send messages"
                     disabled={sessionExpired || busy}
                     onClick={() => void startRecording()}
-                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-foreground p-0 text-background hover:bg-foreground/90 disabled:opacity-40"
+                    className="bg-foreground text-background hover:bg-foreground/90 flex h-11 w-11 shrink-0 items-center justify-center rounded-full p-0 disabled:opacity-40"
                   >
                     <Mic className="h-5 w-5" />
                   </GatedButton>
@@ -1263,17 +1311,17 @@ export function MessageComposer({
       {/* Hint sits outside the flex row so its height doesn't push
           `items-end` buttons below the textarea. Indented to line up
           under the textarea left edge. */}
-      {!draft && !recording && (
+      {/* {!draft && !recording && (
         <p className="mt-1 pl-[3.5rem] text-[10px] text-muted-foreground">
           {t("draftHint")}
         </p>
-      )}
+      )} */}
 
       {/* Interactive-message builder dialog. */}
       <Dialog open={interactiveOpen} onOpenChange={setInteractiveOpen}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>{t("interactiveMessage")}</DialogTitle>
+            <DialogTitle>{t('interactiveMessage')}</DialogTitle>
           </DialogHeader>
           <div className="max-h-[70vh] overflow-y-auto">
             <InteractiveBuilder
@@ -1292,11 +1340,11 @@ export function MessageComposer({
               ) : (
                 <Zap className="mr-1 h-4 w-4" />
               )}
-              {t("saveAsQuickReply")}
+              {t('saveAsQuickReply')}
             </Button>
             <Button onClick={sendInteractive}>
               <Send className="mr-1 h-4 w-4" />
-              {t("send")}
+              {t('send')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1352,10 +1400,10 @@ function MediaDraftPreview({
   t: ReturnType<typeof useTranslations>;
 }) {
   return (
-    <div className="rounded-xl border border-border bg-muted/40 p-3">
+    <div className="border-border bg-muted/40 rounded-xl border p-3">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
-          {draft.kind === "image" && (
+          {draft.kind === 'image' && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={draft.mediaUrl}
@@ -1363,15 +1411,19 @@ function MediaDraftPreview({
               className="max-h-40 rounded-lg object-cover"
             />
           )}
-          {draft.kind === "video" && (
-            <video src={draft.mediaUrl} controls className="max-h-40 rounded-lg" />
+          {draft.kind === 'video' && (
+            <video
+              src={draft.mediaUrl}
+              controls
+              className="max-h-40 rounded-lg"
+            />
           )}
-          {draft.kind === "audio" && (
+          {draft.kind === 'audio' && (
             <audio src={draft.mediaUrl} controls className="w-full" />
           )}
-          {draft.kind === "document" && (
-            <div className="flex items-center gap-2 text-sm text-foreground">
-              <FileText className="h-5 w-5 shrink-0 text-muted-foreground" />
+          {draft.kind === 'document' && (
+            <div className="text-foreground flex items-center gap-2 text-sm">
+              <FileText className="text-muted-foreground h-5 w-5 shrink-0" />
               <span className="truncate">{draft.filename}</span>
             </div>
           )}
@@ -1379,27 +1431,27 @@ function MediaDraftPreview({
         <button
           type="button"
           onClick={onDiscard}
-          aria-label={t("removeAttachment")}
-          className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+          aria-label={t('removeAttachment')}
+          className="text-muted-foreground hover:bg-muted hover:text-foreground rounded p-1"
         >
           <X className="h-4 w-4" />
         </button>
       </div>
 
       <div className="mt-2 flex items-end gap-2">
-        {draft.kind !== "audio" && (
+        {draft.kind !== 'audio' && (
           <input
             value={draft.caption}
             maxLength={MEDIA_CAPTION_MAX}
             onChange={(e) => onCaptionChange(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
+              if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 onSend();
               }
             }}
-            placeholder={t("addCaption")}
-            className="flex-1 rounded-xl border border-border bg-muted px-4 py-2.5 text-sm text-foreground placeholder-muted-foreground outline-none transition-colors focus:border-primary/50"
+            placeholder={t('addCaption')}
+            className="border-border bg-muted text-foreground placeholder-muted-foreground focus:border-primary/50 flex-1 rounded-xl border px-4 py-2.5 text-sm transition-colors outline-none"
           />
         )}
         <GatedButton
@@ -1409,8 +1461,8 @@ function MediaDraftPreview({
           disabled={busy}
           onClick={onSend}
           className={cn(
-            "h-9 w-9 shrink-0 bg-primary p-0 hover:bg-primary/90 disabled:opacity-40",
-            draft.kind === "audio" && "ml-auto",
+            'bg-primary hover:bg-primary/90 h-9 w-9 shrink-0 p-0 disabled:opacity-40',
+            draft.kind === 'audio' && 'ml-auto'
           )}
         >
           <Send className="h-4 w-4" />

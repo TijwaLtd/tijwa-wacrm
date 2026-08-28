@@ -1,40 +1,65 @@
-import { cn } from "@/lib/utils";
-import type { PresenceStatus } from "@/lib/presence";
+"use client";
 
-// Single source of truth for presence colours. Semantic accents
-// (emerald / amber / muted), mirroring the role-chip palette already
-// used across settings, so they're intentionally not tokenized.
-export const PRESENCE_DOT_CLASS: Record<PresenceStatus, string> = {
-  online: "bg-emerald-500",
-  away: "bg-amber-500",
-  offline: "bg-muted-foreground/50",
+import { cn } from "@/lib/utils";
+import { presenceLabel, type PresenceStatus } from "@/lib/presence";
+
+interface PresenceDotProps {
+  status: PresenceStatus;
+  lastSeenAt?: string | null;
+  now?: number;
+  showLabel?: boolean;
+  size?: "sm" | "md";
+  className?: string;
+  /** Custom label/tooltip — overrides auto-generated label when provided */
+  label?: string;
+}
+
+const SIZE_CLASSES = {
+  sm: "h-2 w-2",
+  md: "h-2.5 w-2.5",
 };
 
-/**
- * A small presence dot. Used inline (e.g. the inbox Assign dropdown)
- * and, with `asAvatarBadge`-style positioning supplied via className,
- * layered onto an avatar. `label` powers the native title/aria for
- * the lightweight inline case; the roster wraps it in a real Tooltip.
- */
+const STATUS_CLASSES: Record<PresenceStatus, string> = {
+  online: "bg-green-500",
+  away: "bg-amber-500",
+  offline: "bg-muted-foreground/40",
+};
+
+export const PRESENCE_DOT_CLASS: Record<PresenceStatus, string> = {
+  online: "bg-green-500",
+  away: "bg-amber-500",
+  offline: "bg-muted-foreground/40",
+};
+
 export function PresenceDot({
   status,
-  label,
+  lastSeenAt,
+  now,
+  showLabel = false,
+  size = "sm",
   className,
-}: {
-  status: PresenceStatus;
-  label?: string;
-  className?: string;
-}) {
+  label,
+}: PresenceDotProps) {
+  const dotClass = STATUS_CLASSES[status];
+  const tooltip = label ?? presenceLabel(status, lastSeenAt, now ?? Date.now());
+
   return (
     <span
-      role={label ? "img" : undefined}
-      aria-label={label}
-      title={label}
-      className={cn(
-        "inline-block size-2 shrink-0 rounded-full",
-        PRESENCE_DOT_CLASS[status],
-        className,
+      className={cn("inline-flex items-center gap-1.5", className)}
+      title={tooltip}
+      aria-label={tooltip}
+    >
+      <span
+        className={cn(
+          "shrink-0 rounded-full",
+          dotClass,
+          status === "online" && "animate-pulse",
+          SIZE_CLASSES[size],
+        )}
+      />
+      {showLabel && (
+        <span className="text-xs text-muted-foreground capitalize">{status}</span>
       )}
-    />
+    </span>
   );
 }
