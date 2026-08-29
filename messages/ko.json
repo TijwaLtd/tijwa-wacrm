@@ -427,6 +427,7 @@
       "addFirstContact": "첫 연락처 추가하기",
       "unnamed": "이름 없음",
       "editAction": "수정",
+      "viewAction": "보기",
       "deleteAction": "삭제",
       "showingPagination": "전체 {total}개 중 {start}-{end}",
       "pageCount": "{total} 중 {page}페이지",

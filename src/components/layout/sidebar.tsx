@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { useEffect } from 'react';
 import { cn } from '@/lib/utils';
@@ -185,12 +186,13 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
             close button is hidden since the sidebar is always-visible. */}
         <div className="border-border flex h-14 shrink-0 items-center justify-between gap-2 border-b px-4">
           <Link href="/dashboard" className="flex items-center gap-2">
-            <div className="bg-primary text-primary-foreground flex h-8 w-8 items-center justify-center rounded-lg">
-              <MessageSquare className="h-4 w-4" />
-            </div>
-            <span className="text-foreground text-sm font-semibold">
-              {t('title')}
-            </span>
+            <Image
+              src="/logo.png"
+              alt="Tijwa"
+              width={32}
+              height={32}
+              className="h-24 w-40 rounded-lg object-cover"
+            />
           </Link>
           <button
             type="button"
@@ -263,7 +265,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
           {canViewAudit && (
             <>
               <div className="px-3 py-1.5">
-                <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <div className="text-muted-foreground flex items-center gap-2 text-[10px] font-semibold tracking-wider uppercase">
                   <BarChart3 className="h-3 w-3" />
                   {t('reports')}
                 </div>
@@ -283,7 +285,9 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                         )}
                       >
                         <item.icon className="h-4 w-4" />
-                        <span className="flex-1">{t(item.labelKey as string)}</span>
+                        <span className="flex-1">
+                          {t(item.labelKey as string)}
+                        </span>
                       </Link>
                     </li>
                   );

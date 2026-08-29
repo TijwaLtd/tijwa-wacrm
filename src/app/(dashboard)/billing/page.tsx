@@ -610,26 +610,26 @@ export default function BillingPage() {
 
       {/* Current plan card */}
       <Card className="mb-8">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
+        <CardHeader className="px-4 py-3 sm:px-6 sm:py-6">
+          <CardTitle className="flex items-center gap-2 text-sm sm:text-base">
             <CreditCard className="text-primary h-4 w-4" /> Current Plan
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="px-4 py-3 sm:px-6 sm:py-6">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-foreground text-2xl font-bold">
+              <p className="text-foreground text-xl font-bold sm:text-2xl">
                 {activePlan?.name ?? currentPlan}
               </p>
-              <p className="text-muted-foreground text-sm">
+              <p className="text-muted-foreground text-xs sm:text-sm">
                 {activePlan ? formatPrice(activePlan) : ''}
               </p>
             </div>
             <div className="text-right">
-              <p className="text-muted-foreground text-sm">Status</p>
+              <p className="text-muted-foreground text-xs sm:text-sm">Status</p>
               <p
                 className={cn(
-                  'text-sm font-medium',
+                  'text-xs font-medium sm:text-sm',
                   isExpired ? 'text-destructive' : 'text-green-600'
                 )}
               >
@@ -642,25 +642,25 @@ export default function BillingPage() {
             </div>
           </div>
 
-          <div className="mt-6 grid gap-4 sm:grid-cols-2">
-            <div className="border-border rounded-md border p-3">
-              <div className="text-muted-foreground flex items-center gap-1.5 text-xs">
+          <div className="mt-6 grid grid-cols-2 gap-3 sm:gap-4">
+            <div className="border-border rounded-md border p-2 sm:p-3">
+              <div className="text-muted-foreground flex items-center gap-1.5 text-[10px] sm:text-xs">
                 <Calendar className="h-3 w-3" /> Current period started
               </div>
-              <p className="text-foreground mt-1 text-sm font-medium">
+              <p className="text-foreground mt-1 text-xs font-medium sm:text-sm">
                 {formatDate(subscription?.current_period_start)}
               </p>
             </div>
-            <div className="border-border rounded-md border p-3">
-              <div className="text-muted-foreground flex items-center gap-1.5 text-xs">
+            <div className="border-border rounded-md border p-2 sm:p-3">
+              <div className="text-muted-foreground flex items-center gap-1.5 text-[10px] sm:text-xs">
                 <Calendar className="h-3 w-3" />
                 {isCancelling ? 'Access expires' : 'Next billing date'}
               </div>
-              <p className="text-foreground mt-1 text-sm font-medium">
+              <p className="text-foreground mt-1 text-xs font-medium sm:text-sm">
                 {formatDate(subscription?.current_period_end)}
               </p>
               {daysLeft !== null && !isExpired && (
-                <p className="text-muted-foreground text-xs">
+                <p className="text-muted-foreground text-[10px] sm:text-xs">
                   {daysLeft <= 0
                     ? 'Expired today'
                     : `${daysLeft} ${daysLeft === 1 ? 'day' : 'days'} remaining`}
@@ -670,61 +670,33 @@ export default function BillingPage() {
           </div>
 
           {activePlan?.features && (
-            <div className="mt-6 grid gap-4 sm:grid-cols-4">
-              <div className="border-border rounded-md border p-3">
-                <p className="text-muted-foreground text-xs">Contacts</p>
-                <p className="text-foreground text-lg font-bold">
+            <div className="mt-6 grid grid-cols-2 gap-3 sm:gap-4 sm:grid-cols-4">
+              <div className="border-border rounded-md border p-2 sm:p-3">
+                <p className="text-muted-foreground text-[10px] sm:text-xs">Contacts</p>
+                <p className="text-foreground text-base font-bold sm:text-lg">
                   {formatLimit(activePlan.features.max_contacts)}
                 </p>
               </div>
-              <div className="border-border rounded-md border p-3">
-                <p className="text-muted-foreground text-xs">Team members</p>
-                <p className="text-foreground text-lg font-bold">
+              <div className="border-border rounded-md border p-2 sm:p-3">
+                <p className="text-muted-foreground text-[10px] sm:text-xs">Team members</p>
+                <p className="text-foreground text-base font-bold sm:text-lg">
                   {formatLimit(activePlan.features.max_team_members)}
                 </p>
               </div>
-              <div className="border-border rounded-md border p-3">
-                <p className="text-muted-foreground text-xs">Automations</p>
-                <p className="text-foreground text-lg font-bold">
+              <div className="border-border rounded-md border p-2 sm:p-3">
+                <p className="text-muted-foreground text-[10px] sm:text-xs">Automations</p>
+                <p className="text-foreground text-base font-bold sm:text-lg">
                   {formatLimit(activePlan.features.max_automations)}
                 </p>
               </div>
-              <div className="border-border rounded-md border p-3">
-                <p className="text-muted-foreground text-xs">Pipelines</p>
-                <p className="text-foreground text-lg font-bold">
+              <div className="border-border rounded-md border p-2 sm:p-3">
+                <p className="text-muted-foreground text-[10px] sm:text-xs">Pipelines</p>
+                <p className="text-foreground text-base font-bold sm:text-lg">
                   {formatLimit(activePlan.features.max_pipelines)}
                 </p>
               </div>
             </div>
           )}
-
-          <div className="mt-6 flex items-center gap-3">
-            {isCancelling ? (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleReactivate}
-                disabled={actionLoading}
-              >
-                {actionLoading ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <RotateCcw className="mr-2 h-4 w-4" />
-                )}
-                Reactivate subscription
-              </Button>
-            ) : currentPlan !== 'starter' ? (
-              <Button
-                variant="outline"
-                size="sm"
-                className="text-destructive hover:text-destructive"
-                onClick={() => setCancelDialogOpen(true)}
-                disabled={actionLoading}
-              >
-                <XCircle className="mr-2 h-4 w-4" /> Cancel subscription
-              </Button>
-            ) : null}
-          </div>
         </CardContent>
       </Card>
 
@@ -1036,7 +1008,7 @@ export default function BillingPage() {
       </Dialog>
 
       {/* Plan cards */}
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-foreground text-lg font-semibold">
           {currentPlan === 'starter' ? 'Upgrade Plan' : 'Change Plan'}
         </h2>
@@ -1078,7 +1050,7 @@ export default function BillingPage() {
           </span>
         </div>
       </div>
-      <div className="relative isolate grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="relative isolate grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         {plans.map((plan) => {
           const isCurrent = plan.id === currentPlan;
           return (
@@ -1091,28 +1063,28 @@ export default function BillingPage() {
               )}
             >
               {plan.recommended && (
-                <div className="bg-primary text-primary-foreground absolute -top-3 left-1/2 z-50 flex -translate-x-1/2 items-center gap-1 rounded-full px-3 py-1 text-xs font-medium shadow-md">
-                  <Star className="h-3 w-3" /> Recommended
+                <div className="bg-primary text-primary-foreground absolute -top-2.5 left-1/2 z-50 flex -translate-x-1/2 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium shadow-md sm:-top-3 sm:px-3 sm:py-1 sm:text-xs">
+                  <Star className="h-2.5 w-2.5 sm:h-3 sm:w-3" /> Recommended
                 </div>
               )}
-              <CardHeader className="items-center text-center">
-                <CardTitle className="text-foreground">{plan.name}</CardTitle>
-                <CardDescription className="text-foreground text-2xl font-bold">
+              <CardHeader className="items-center px-3 py-3 text-center sm:px-6 sm:py-6">
+                <CardTitle className="text-foreground text-sm sm:text-base">{plan.name}</CardTitle>
+                <CardDescription className="text-foreground text-lg font-bold sm:text-2xl">
                   {formatPrice(plan, billingPeriod)}
                 </CardDescription>
                 {billingPeriod === 'annual' && plan.price_kes > 0 && (
-                  <p className="text-primary text-xs">
+                  <p className="text-primary hidden text-xs sm:block">
                     Save{' '}
                     {Math.round(plan.price_kes * 12 * 0.18).toLocaleString()}/yr
                   </p>
                 )}
                 {plan.features.ai_credits_per_month > 0 && (
-                  <div className="mt-2 flex flex-col items-center gap-0.5">
-                    <span className="text-primary text-sm font-semibold">
+                  <div className="mt-1 flex flex-col items-center gap-0.5 sm:mt-2">
+                    <span className="text-primary text-xs font-semibold sm:text-sm">
                       {plan.features.ai_credits_per_month.toLocaleString()}{' '}
                       credits/mo
                     </span>
-                    <span className="text-muted-foreground text-xs">
+                    <span className="text-muted-foreground hidden text-[10px] sm:inline sm:text-xs">
                       ~
                       {plan.features.ai_conversations_per_month.toLocaleString()}{' '}
                       AI replies
@@ -1121,56 +1093,56 @@ export default function BillingPage() {
                 )}
                 {plan.features.ai_credit_check_exempt &&
                   plan.id === 'starter' && (
-                    <div className="mt-2 flex flex-col items-center gap-0.5">
-                      <span className="text-primary text-sm font-semibold">
+                    <div className="mt-1 flex flex-col items-center gap-0.5 sm:mt-2">
+                      <span className="text-primary text-xs font-semibold sm:text-sm">
                         No AI credit check
                       </span>
-                      <span className="text-muted-foreground text-xs">
+                      <span className="text-muted-foreground hidden text-[10px] sm:inline sm:text-xs">
                         First package
                       </span>
                     </div>
                   )}
               </CardHeader>
-              <CardContent className="flex-1">
-                <p className="text-muted-foreground mb-4 text-center text-sm">
+              <CardContent className="flex-1 px-3 py-3 sm:px-6 sm:py-6">
+                <p className="text-muted-foreground mb-3 text-center text-xs sm:mb-4 sm:text-sm">
                   {plan.description}
                 </p>
-                <ul className="flex flex-col gap-2 text-sm">
-                  <li className="flex items-center gap-2">
-                    <Check className="text-primary h-4 w-4 shrink-0" />
+                <ul className="flex flex-col gap-1.5 text-xs sm:gap-2 sm:text-sm">
+                  <li className="flex items-center gap-1.5 sm:gap-2">
+                    <Check className="text-primary h-3 w-3 shrink-0 sm:h-4 sm:w-4" />
                     <span>
                       {formatLimit(plan.features?.max_team_members)} seat
                       {plan.features?.max_team_members !== 1 ? 's' : ''}
                     </span>
                   </li>
-                  <li className="flex items-center gap-2">
-                    <Check className="text-primary h-4 w-4 shrink-0" />
+                  <li className="flex items-center gap-1.5 sm:gap-2">
+                    <Check className="text-primary h-3 w-3 shrink-0 sm:h-4 sm:w-4" />
                     <span>
                       {formatLimit(plan.features?.max_contacts)} contacts
                     </span>
                   </li>
-                  <li className="flex items-center gap-2">
-                    <Check className="text-primary h-4 w-4 shrink-0" />
+                  <li className="flex items-center gap-1.5 sm:gap-2">
+                    <Check className="text-primary h-3 w-3 shrink-0 sm:h-4 sm:w-4" />
                     <span>
                       {formatLimit(plan.features?.max_automations)} automations
                     </span>
                   </li>
-                  <li className="flex items-center gap-2">
-                    <Check className="text-primary h-4 w-4 shrink-0" />
+                  <li className="flex items-center gap-1.5 sm:gap-2">
+                    <Check className="text-primary h-3 w-3 shrink-0 sm:h-4 sm:w-4" />
                     <span>{formatLimit(plan.features?.max_flows)} flows</span>
                   </li>
-                  <li className="flex items-center gap-2">
-                    <Check className="text-primary h-4 w-4 shrink-0" />
+                  <li className="flex items-center gap-1.5 sm:gap-2">
+                    <Check className="text-primary h-3 w-3 shrink-0 sm:h-4 sm:w-4" />
                     <span>
                       {formatLimit(plan.features?.max_pipelines)} pipeline
                       {plan.features?.max_pipelines !== 1 ? 's' : ''}
                     </span>
                   </li>
-                  <li className="flex items-center gap-2">
+                  <li className="flex items-center gap-1.5 sm:gap-2">
                     {plan.features?.has_ai_assistant ? (
-                      <Check className="text-primary h-4 w-4 shrink-0" />
+                      <Check className="text-primary h-3 w-3 shrink-0 sm:h-4 sm:w-4" />
                     ) : (
-                      <Lock className="text-muted-foreground h-4 w-4 shrink-0" />
+                      <Lock className="text-muted-foreground h-3 w-3 shrink-0 sm:h-4 sm:w-4" />
                     )}
                     <span
                       className={
@@ -1182,11 +1154,11 @@ export default function BillingPage() {
                       AI assistant
                     </span>
                   </li>
-                  <li className="flex items-center gap-2">
+                  <li className="flex items-center gap-1.5 sm:gap-2">
                     {plan.features?.has_knowledge_base ? (
-                      <Check className="text-primary h-4 w-4 shrink-0" />
+                      <Check className="text-primary h-3 w-3 shrink-0 sm:h-4 sm:w-4" />
                     ) : (
-                      <Lock className="text-muted-foreground h-4 w-4 shrink-0" />
+                      <Lock className="text-muted-foreground h-3 w-3 shrink-0 sm:h-4 sm:w-4" />
                     )}
                     <span
                       className={
@@ -1198,11 +1170,11 @@ export default function BillingPage() {
                       Knowledge base
                     </span>
                   </li>
-                  <li className="flex items-center gap-2">
+                  <li className="flex items-center gap-1.5 sm:gap-2">
                     {plan.features?.has_analytics ? (
-                      <Check className="text-primary h-4 w-4 shrink-0" />
+                      <Check className="text-primary h-3 w-3 shrink-0 sm:h-4 sm:w-4" />
                     ) : (
-                      <Lock className="text-muted-foreground h-4 w-4 shrink-0" />
+                      <Lock className="text-muted-foreground h-3 w-3 shrink-0 sm:h-4 sm:w-4" />
                     )}
                     <span
                       className={
@@ -1214,11 +1186,11 @@ export default function BillingPage() {
                       Analytics
                     </span>
                   </li>
-                  <li className="flex items-center gap-2">
+                  <li className="flex items-center gap-1.5 sm:gap-2">
                     {plan.features?.has_priority_support ? (
-                      <Check className="text-primary h-4 w-4 shrink-0" />
+                      <Check className="text-primary h-3 w-3 shrink-0 sm:h-4 sm:w-4" />
                     ) : (
-                      <Lock className="text-muted-foreground h-4 w-4 shrink-0" />
+                      <Lock className="text-muted-foreground h-3 w-3 shrink-0 sm:h-4 sm:w-4" />
                     )}
                     <span
                       className={
@@ -1232,7 +1204,7 @@ export default function BillingPage() {
                   </li>
                 </ul>
               </CardContent>
-              <CardFooter>
+              <CardFooter className="px-3 py-3 sm:px-6 sm:py-6">
                 {isCurrent ? (
                   <Button variant="outline" disabled className="w-full">
                     Current Plan
@@ -1326,6 +1298,34 @@ export default function BillingPage() {
             </CardContent>
           </Card>
         </>
+      )}
+
+      {/* Subscription management - subtle footer action */}
+      {(isCancelling || currentPlan !== 'starter') && (
+        <div className="mt-8 border-t pt-6">
+          {isCancelling ? (
+            <button
+              onClick={handleReactivate}
+              disabled={actionLoading}
+              className="text-muted-foreground hover:text-foreground flex items-center gap-2 text-sm transition-colors"
+            >
+              {actionLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RotateCcw className="h-4 w-4" />
+              )}
+              Reactivate subscription
+            </button>
+          ) : (
+            <button
+              onClick={() => setCancelDialogOpen(true)}
+              disabled={actionLoading}
+              className="text-muted-foreground hover:text-destructive flex items-center gap-2 text-sm transition-colors"
+            >
+              <XCircle className="h-4 w-4" /> Cancel subscription
+            </button>
+          )}
+        </div>
       )}
     </div>
   );

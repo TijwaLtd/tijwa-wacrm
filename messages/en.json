@@ -373,6 +373,7 @@
       "addFirstContact": "Add your first contact",
       "unnamed": "Unnamed",
       "editAction": "Edit",
+      "viewAction": "View",
       "deleteAction": "Delete",
       "showingPagination": "Showing {start}-{end} of {total}",
       "pageCount": "Page {page} of {total}",

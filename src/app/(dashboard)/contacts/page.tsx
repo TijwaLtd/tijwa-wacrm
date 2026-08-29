@@ -926,6 +926,17 @@ export default function ContactsPage() {
                         align="end"
                         className="bg-popover border-border"
                       >
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openDetail(contact.id);
+                          }}
+                          className="text-popover-foreground focus:bg-muted focus:text-foreground"
+                        >
+                          <Eye className="size-4" />
+                          {t('viewAction')}
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator className="bg-border" />
                         {contact.account_id &&
                         contact.account_id !== accountId ? (
                           <Tooltip>
@@ -1093,6 +1104,17 @@ export default function ContactsPage() {
                         align="end"
                         className="bg-popover border-border"
                       >
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openDetail(contact.id);
+                          }}
+                          className="text-popover-foreground focus:bg-muted focus:text-foreground"
+                        >
+                          <Eye className="size-4" />
+                          {t('viewAction')}
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator className="bg-border" />
                         <DropdownMenuItem
                           onClick={(e) => {
                             e.stopPropagation();
