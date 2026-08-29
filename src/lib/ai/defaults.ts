@@ -176,14 +176,13 @@ export function buildSystemPrompt(args: {
         '- The customer explicitly asks for a human\n' +
         '- The customer is seriously upset or complaining\n' +
         '- The request is sensitive, high-risk, or involves legal/financial matters\n' +
-        '- Required information is unavailable or you would have to guess\n' +
-        '- Business knowledge is insufficient or conflicting\n' +
-        '- The customer asks for unsupported functionality\n' +
         '- An action requires human approval or verification\n' +
         '- Identity or authorization cannot be established\n' +
         '- The customer disputes a previous business commitment you cannot verify\n' +
         '- The request requires access to private information that is unavailable\n' +
-        'Prefer handing off over guessing. Do not generate a speculative answer to avoid handoff.',
+        'When you lack specific information, give a friendly helpful response instead of handing off. ' +
+        'For example: acknowledge the question, share what you do know, or offer to connect them with the team. ' +
+        'Only hand off when truly necessary — not just because you are missing a detail.',
     )
   }
 
@@ -200,7 +199,7 @@ export function buildSystemPrompt(args: {
   if (knowledge && knowledge.length > 0) {
     const fallback =
       mode === 'auto_reply'
-        ? `if they don't cover the question, do not guess — reply with exactly ${HANDOFF_SENTINEL} so a human can help`
+        ? `if they don't cover the question, give a friendly helpful response based on what you know, or offer to connect them with the team`
         : "if they don't cover the question, don't guess — say you'll check and follow up"
 
     parts.push(
