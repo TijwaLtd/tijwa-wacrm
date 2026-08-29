@@ -132,6 +132,10 @@ vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(async () => supabaseMock),
 }))
 
+vi.mock('@/lib/subscription/check', () => ({
+  requireActiveSubscription: vi.fn(async () => {}),
+}))
+
 vi.mock('@/lib/flows/admin-client', () => ({
   supabaseAdmin: () => ({
     from: () => {

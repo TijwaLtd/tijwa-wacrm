@@ -162,7 +162,10 @@ vi.mock('@supabase/supabase-js', () => ({
     },
     rpc: (name: string, args: Record<string, unknown>) => {
       h.state.rpcCalls.push({ name, args })
-      return Promise.resolve({ data: null, error: null })
+      const result = Promise.resolve({ data: null, error: null })
+      return Object.assign(result, {
+        maybeSingle: () => Promise.resolve({ data: null, error: null }),
+      })
     },
   }),
 }))

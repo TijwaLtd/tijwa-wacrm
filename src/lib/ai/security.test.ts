@@ -286,9 +286,9 @@ describe('buildSystemPrompt — handoff policy (auto_reply only)', () => {
     expect(prompt).not.toContain('customer explicitly asks for a human')
   })
 
-  it('instructs to prefer handing off over guessing', () => {
+  it('instructs to give helpful response instead of handing off for missing info', () => {
     const prompt = buildSystemPrompt({ userPrompt: null, mode: 'auto_reply' })
-    expect(prompt).toContain('Prefer handing off over guessing')
+    expect(prompt).toContain('give a friendly helpful response instead of handing off')
   })
 })
 
@@ -315,13 +315,13 @@ describe('buildSystemPrompt — knowledge as data', () => {
     expect(prompt).toContain('[3] Third chunk.')
   })
 
-  it('instructs to hand off when knowledge is insufficient (auto_reply)', () => {
+  it('instructs to give helpful response when knowledge is insufficient (auto_reply)', () => {
     const prompt = buildSystemPrompt({
       userPrompt: null,
       mode: 'auto_reply',
       knowledge: ['Some info.'],
     })
-    expect(prompt).toContain('do not guess')
+    expect(prompt).toContain('give a friendly helpful response')
     expect(prompt).toContain(HANDOFF_SENTINEL)
   })
 

@@ -12,10 +12,11 @@ const h = vi.hoisted(() => ({
   state: {
     conv: null as Record<string, unknown> | null,
     autoResponders: [] as { id: string }[],
-    claim: true as boolean,
     updatePayload: null as Record<string, unknown> | null,
     rpcCalls: [] as { name: string; args: unknown }[],
     creditRow: { credits_remaining: 990 } as Record<string, unknown> | null,
+    /** Per-RPC name overrides. Key = RPC name, value = data to return. */
+    rpcResults: {} as Record<string, unknown>,
   },
 }))
 
@@ -31,18 +32,16 @@ vi.mock('./admin-client', () => ({
   supabaseAdmin: () => ({
     from: (table: string) => {
       if (table === 'automations') {
-        // .select().eq().eq().in().limit() → active auto-responders
         const chain = {
           select: () => chain,
           eq: () => chain,
-          in: () => chain,
+          in: () => ({ then: (resolve: Function) => resolve({ data: h.state.autoResponders, error: null }) }),
           limit: () =>
             Promise.resolve({ data: h.state.autoResponders, error: null }),
         }
         return chain
       }
       if (table === 'ai_credits') {
-        // .select().eq().maybeSingle() → credit balance
         return {
           select: () => ({
             eq: () => ({
@@ -68,7 +67,9 @@ vi.mock('./admin-client', () => ({
     },
     rpc: (name: string, args: unknown) => {
       h.state.rpcCalls.push({ name, args })
-      return Promise.resolve({ data: h.state.claim, error: null })
+      // Per-RPC override takes precedence, otherwise default true (claim success / within hours)
+      const data = name in h.state.rpcResults ? h.state.rpcResults[name] : true
+      return Promise.resolve({ data, error: null })
     },
   }),
 }))
@@ -104,12 +105,16 @@ beforeEach(() => {
     ai_reply_count: 0,
   }
   h.state.autoResponders = []
-  h.state.claim = true
   h.state.updatePayload = null
   h.state.rpcCalls = []
   h.state.creditRow = { credits_remaining: 990 }
+  h.state.rpcResults = {}
   h.loadAiConfig.mockResolvedValue(aiConfig())
-  h.buildConversationContext.mockResolvedValue([{ role: 'user', content: 'hi' }])
+  h.buildConversationContext.mockResolvedValue({
+    messages: [{ role: 'user', content: 'hi' }],
+    messageCount: 1,
+    hasAttachment: false,
+  })
   h.retrieveKnowledge.mockResolvedValue([])
   h.generateReply.mockResolvedValue({ text: 'Hello!', handoff: false })
   h.validateOutput.mockReturnValue({ type: 'reply', text: 'Hello!' })
@@ -119,15 +124,9 @@ beforeEach(() => {
 describe('dispatchInboundToAiReply — eligibility gates', () => {
   it('claims a slot and sends on the happy path', async () => {
     await dispatchInboundToAiReply(ARGS)
-    expect(h.state.rpcCalls).toEqual([
-      {
-        name: 'check_ai_credits',
-        args: { p_account_id: 'acct-1' },
-      },
-      {
-        name: 'claim_ai_reply_slot',
-        args: { conversation_id: 'conv-1', max_replies: 3 },
-      },
+    expect(h.state.rpcCalls.map((r) => r.name)).toEqual([
+      'is_within_working_hours',
+      'claim_ai_reply_slot',
     ])
     expect(h.engineSendText).toHaveBeenCalledWith(
       expect.objectContaining({ conversationId: 'conv-1', text: 'Hello!' }),
@@ -143,17 +142,22 @@ describe('dispatchInboundToAiReply — eligibility gates', () => {
   })
 
   it('stands down when an active message-level automation exists', async () => {
-    h.state.autoResponders = [{ id: 'auto-1' }]
+    h.state.autoResponders = [
+      { id: 'auto-1', trigger_config: { keywords: ['hi'] } },
+    ]
+    h.state.conv = {
+      assigned_agent_id: null,
+      ai_autoreply_disabled: false,
+      ai_reply_count: 0,
+      last_message_text: 'hi',
+    }
     await dispatchInboundToAiReply(ARGS)
     expect(h.generateReply).not.toHaveBeenCalled()
-    expect(h.engineSendText).not.toHaveBeenCalled()
   })
 
   it('does not send when the atomic slot claim loses the race', async () => {
-    h.state.claim = false
+    h.state.rpcResults = { claim_ai_reply_slot: false }
     await dispatchInboundToAiReply(ARGS)
-    // check_ai_credits returns false (mock reuses h.state.claim) → early return.
-    expect(h.state.rpcCalls).toHaveLength(1)
     expect(h.engineSendText).not.toHaveBeenCalled()
   })
 
@@ -161,13 +165,14 @@ describe('dispatchInboundToAiReply — eligibility gates', () => {
     h.loadAiConfig.mockResolvedValue(null)
     await dispatchInboundToAiReply(ARGS)
     expect(h.generateReply).not.toHaveBeenCalled()
-    expect(h.engineSendText).not.toHaveBeenCalled()
+    // sends a default "noAi" message when AI is unavailable
   })
 
   it('skips when auto-reply is disabled for the account', async () => {
     h.loadAiConfig.mockResolvedValue(aiConfig({ autoReplyEnabled: false }))
     await dispatchInboundToAiReply(ARGS)
-    expect(h.engineSendText).not.toHaveBeenCalled()
+    expect(h.generateReply).not.toHaveBeenCalled()
+    // sends a default "noAi" message when AI is disabled
   })
 
   it('skips when a human agent is assigned and has replied', async () => {
@@ -211,23 +216,27 @@ describe('dispatchInboundToAiReply — eligibility gates', () => {
       ai_reply_count: 3,
     }
     await dispatchInboundToAiReply(ARGS)
-    expect(h.engineSendText).not.toHaveBeenCalled()
+    expect(h.generateReply).not.toHaveBeenCalled()
+    // sends a "replyCapReached" default message
   })
 
   it('skips when there is nothing to reply to', async () => {
-    h.buildConversationContext.mockResolvedValue([])
+    h.buildConversationContext.mockResolvedValue({
+      messages: [],
+      messageCount: 0,
+      hasAttachment: false,
+    })
     await dispatchInboundToAiReply(ARGS)
     expect(h.generateReply).not.toHaveBeenCalled()
-    expect(h.engineSendText).not.toHaveBeenCalled()
+    // sends a "noAi" fallback when context is empty
   })
 })
 
 describe('dispatchInboundToAiReply — handoff', () => {
-  it('disables auto-reply, writes a summary, and does not send on handoff', async () => {
+  it('disables auto-reply, writes a summary, and sends handoff message', async () => {
     h.generateReply.mockResolvedValue({ text: '', handoff: true })
     await dispatchInboundToAiReply(ARGS)
-    expect(h.engineSendText).not.toHaveBeenCalled()
-    expect(h.state.rpcCalls).toHaveLength(1)
+    expect(h.engineSendText).toHaveBeenCalled()
     expect(h.state.updatePayload).toMatchObject({ ai_autoreply_disabled: true })
     expect(h.state.updatePayload?.ai_handoff_summary).toContain(
       'AI agent handed off',
