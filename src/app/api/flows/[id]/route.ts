@@ -119,11 +119,12 @@ export async function PUT(
     // Delete-then-insert. Not transactional but the runner handles
     // mid-edit reads safely (a node_not_found ends the run cleanly).
     // Explicit account_id filter for defense-in-depth.
+    // RLS on `flows` already scopes the parent row to this account;
+    // `flow_nodes` has no `account_id` column — only filter on `flow_id`.
     const { error: delErr } = await admin
       .from('flow_nodes')
       .delete()
       .eq('flow_id', id)
-      .eq('account_id', accountId)
     if (delErr) {
       return NextResponse.json({ error: delErr.message }, { status: 500 })
     }

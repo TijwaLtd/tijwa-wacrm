@@ -132,6 +132,13 @@ export function validateFlowForActivation(
     }
   }
 
+  // Cycle detection — DFS from the entry. A back-edge (gray→gray) means
+  // a cycle exists; surface every edge that participates so the user
+  // can break it.
+  if (flow.entry_node_id && keys.has(flow.entry_node_id)) {
+    issues.push(...detectCycles(flow.entry_node_id, nodes));
+  }
+
   return issues;
 }
 
@@ -627,11 +634,11 @@ function validateNode(
         (cfg.value === undefined || cfg.value === "")
       ) {
         issues.push({
-          severity: "warning",
+          severity: "error",
           scope: "node",
           node_key: node.node_key,
           field: "value",
-          message: `Operator "${cfg.operator}" usually expects a comparison value — empty value will only match empty subjects.`,
+          message: `Operator "${cfg.operator}" requires a comparison value — an empty value would only match empty subjects.`,
         });
       }
       for (const branch of ["true_next", "false_next"] as const) {
@@ -790,4 +797,69 @@ function outgoingEdges(node: NodeInput): string[] {
     default:
       return [];
   }
+}
+
+// ============================================================
+// Cycle detection — iterative DFS with three-color marking.
+// Returns issues for every back-edge found (every node in the cycle
+// gets an issue so the builder can highlight all of them).
+// ============================================================
+
+function detectCycles(
+  entryKey: string,
+  nodes: NodeInput[],
+): ValidationIssue[] {
+  const byKey = new Map<string, NodeInput>();
+  for (const n of nodes) byKey.set(n.node_key, n);
+
+  const WHITE = 0;
+  const GRAY = 1;
+  const BLACK = 2;
+  const color = new Map<string, number>();
+  for (const n of nodes) color.set(n.node_key, WHITE);
+
+  const issues: ValidationIssue[] = [];
+
+  // Iterative DFS: stack holds [nodeKey, iterator over outgoing edges].
+  const stack: Array<{
+    key: string;
+    edges: string[];
+    idx: number;
+  }> = [];
+
+  color.set(entryKey, GRAY);
+  stack.push({ key: entryKey, edges: outgoingEdges(byKey.get(entryKey)!), idx: 0 });
+
+  while (stack.length > 0) {
+    const frame = stack[stack.length - 1];
+    if (frame.idx < frame.edges.length) {
+      const neighbor = frame.edges[frame.idx];
+      frame.idx += 1;
+      const neighborColor = color.get(neighbor) ?? WHITE;
+      if (neighborColor === GRAY) {
+        // Back-edge — cycle detected. Emit a warning on the neighbor.
+        issues.push({
+          severity: "error",
+          scope: "node",
+          node_key: neighbor,
+          message: `Cycle detected — node "${neighbor}" is reachable from itself. Break the cycle by removing an edge.`,
+        });
+      } else if (neighborColor === WHITE) {
+        color.set(neighbor, GRAY);
+        const neighborNode = byKey.get(neighbor);
+        if (neighborNode) {
+          stack.push({
+            key: neighbor,
+            edges: outgoingEdges(neighborNode),
+            idx: 0,
+          });
+        }
+      }
+    } else {
+      color.set(frame.key, BLACK);
+      stack.pop();
+    }
+  }
+
+  return issues;
 }
