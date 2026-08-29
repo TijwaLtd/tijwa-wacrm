@@ -15,6 +15,7 @@ const h = vi.hoisted(() => ({
     claim: true as boolean,
     updatePayload: null as Record<string, unknown> | null,
     rpcCalls: [] as { name: string; args: unknown }[],
+    creditRow: { credits_remaining: 990 } as Record<string, unknown> | null,
   },
 }))
 
@@ -39,6 +40,17 @@ vi.mock('./admin-client', () => ({
             Promise.resolve({ data: h.state.autoResponders, error: null }),
         }
         return chain
+      }
+      if (table === 'ai_credits') {
+        // .select().eq().maybeSingle() → credit balance
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: () =>
+                Promise.resolve({ data: h.state.creditRow, error: null }),
+            }),
+          }),
+        }
       }
       // conversations
       return {
@@ -95,6 +107,7 @@ beforeEach(() => {
   h.state.claim = true
   h.state.updatePayload = null
   h.state.rpcCalls = []
+  h.state.creditRow = { credits_remaining: 990 }
   h.loadAiConfig.mockResolvedValue(aiConfig())
   h.buildConversationContext.mockResolvedValue([{ role: 'user', content: 'hi' }])
   h.retrieveKnowledge.mockResolvedValue([])
@@ -157,14 +170,28 @@ describe('dispatchInboundToAiReply — eligibility gates', () => {
     expect(h.engineSendText).not.toHaveBeenCalled()
   })
 
-  it('skips when a human agent is assigned', async () => {
+  it('skips when a human agent is assigned and has replied', async () => {
     h.state.conv = {
       assigned_agent_id: 'agent-9',
+      human_replied: true,
       ai_autoreply_disabled: false,
       ai_reply_count: 0,
     }
     await dispatchInboundToAiReply(ARGS)
     expect(h.engineSendText).not.toHaveBeenCalled()
+  })
+
+  it('AI steps in when human assigned but has not replied', async () => {
+    h.state.conv = {
+      assigned_agent_id: 'agent-9',
+      human_replied: false,
+      ai_autoreply_disabled: false,
+      ai_reply_count: 0,
+    }
+    await dispatchInboundToAiReply(ARGS)
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationId: 'conv-1', text: 'Hello!' }),
+    )
   })
 
   it('skips when auto-reply was disabled on this conversation', async () => {

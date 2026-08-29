@@ -185,50 +185,30 @@ export async function dispatchInboundToAiReply(
       return
     }
 
-    // ── CHECK HUMAN TIMEOUT ───────────────────────────────────
-    // If human is assigned but hasn't replied, check if timeout elapsed.
-    // If timeout → re-enable AI and let it handle.
-    if (conv.assigned_agent_id && conv.human_assigned_at && !conv.human_replied) {
-      const { data: settings } = await db
-        .from('tenant_settings')
-        .select('ai_human_timeout_minutes')
-        .eq('account_id', accountId)
-        .maybeSingle()
-
-      const timeoutMinutes = settings?.ai_human_timeout_minutes ?? 5
-      const assignedAt = new Date(conv.human_assigned_at)
-      const now = new Date()
-      const minutesSinceAssigned = (now.getTime() - assignedAt.getTime()) / (1000 * 60)
-
-      if (minutesSinceAssigned >= timeoutMinutes) {
-        // Timeout elapsed — human hasn't replied, re-enable AI
-        console.log(`[ai auto-reply] human timeout (${timeoutMinutes}min) elapsed for conversation ${conversationId} — re-enabling AI`)
-        await db
-          .from('conversations')
-          .update({
-            ai_autoreply_disabled: false,
-            human_replied: false,
-            human_assigned_at: null,
-          })
-          .eq('id', conversationId)
-
-        // Clear assigned agent so AI can handle
-        conv.assigned_agent_id = null
-        conv.ai_autoreply_disabled = false
-      } else {
-        // Human is assigned, hasn't replied yet, but timeout hasn't elapsed
-        // Stay quiet — give human more time
-        console.log('[dispatchInboundToAiReply] human assigned, timeout not elapsed, skipping')
+    // ── CHECK HUMAN ASSIGNMENT ────────────────────────────────
+    // If human is assigned and has actively replied, AI stays quiet.
+    // If human is assigned but hasn't replied yet, AI steps in immediately
+    // so the customer isn't left waiting.
+    if (conv.assigned_agent_id) {
+      if (conv.human_replied) {
+        // Human is actively handling — AI stays out
+        console.log('[dispatchInboundToAiReply] human assigned and replied, skipping AI')
         return
       }
+      // Human assigned but hasn't replied — clear assignment so AI handles
+      console.log(`[dispatchInboundToAiReply] human assigned but hasn't replied — clearing assignment for AI on conversation ${conversationId}`)
+      await db
+        .from('conversations')
+        .update({
+          assigned_agent_id: null,
+          human_assigned_at: null,
+          human_replied: false,
+        })
+        .eq('id', conversationId)
+      conv.assigned_agent_id = null
     }
 
     // ── CHECK CONVERSATION STATE ──────────────────────────────
-    if (conv.assigned_agent_id) {
-      // Human assigned and has replied (or just assigned, within timeout)
-      console.log('[dispatchInboundToAiReply] human assigned, skipping')
-      return
-    }
     if (conv.ai_autoreply_disabled) {
       console.log('[dispatchInboundToAiReply] ai_autoreply_disabled=true, skipping')
       return
