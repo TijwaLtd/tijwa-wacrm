@@ -184,7 +184,7 @@ export async function POST(request: Request) {
     console.log('[whatsapp/config POST] Existing config:', existing ? 'yes (id: ' + existing.id + ')' : 'no')
 
     // Reject if another account has already claimed this phone_number_id.
-    // wacrm is single-tenant-per-WhatsApp-number — letting two accounts
+    // tijwa-crm is single-tenant-per-WhatsApp-number — letting two accounts
     // bind the same number causes the webhook's `.single()` lookup to
     // throw PGRST116 ("multiple rows"), silently dropping every
     // inbound message. See issue #136. We use supabaseAdmin() here
@@ -208,7 +208,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            'This WhatsApp phone number is already linked to another account on this instance. Each phone number can only be connected to one wacrm user.',
+            'This WhatsApp phone number is already linked to another account on this instance. Each phone number can only be connected to one tijwa-crm user.',
         },
         { status: 409 }
       )

@@ -1,4 +1,4 @@
-# tijwa-wacrm — WhatsApp CRM
+# tijwa-crm — WhatsApp CRM
 
 > WhatsApp CRM by Tijwa Limited — shared inbox, contacts, sales pipelines, broadcasts, and no-code automations.
 
@@ -46,17 +46,17 @@
 
 Full documentation — Supabase migrations, WhatsApp Business
 API config, and production deploy — lives at
-**[wacrm.tijwa.com/docs](https://wacrm.tijwa.com/docs)**.
+**[tijwa-crm.tijwa.com/docs](https://tijwa-crm.tijwa.com/docs)**.
 
 Key pages:
-- [Getting started](https://wacrm.tijwa.com/docs/getting-started)
-- [Supabase setup](https://wacrm.tijwa.com/docs/supabase-setup)
-- [WhatsApp setup](https://wacrm.tijwa.com/docs/whatsapp-setup)
-- [Environment variables](https://wacrm.tijwa.com/docs/environment-variables)
-- [Architecture](https://wacrm.tijwa.com/docs/architecture)
-- [Troubleshooting](https://wacrm.tijwa.com/docs/troubleshooting)
+- [Getting started](https://tijwa-crm.tijwa.com/docs/getting-started)
+- [Supabase setup](https://tijwa-crm.tijwa.com/docs/supabase-setup)
+- [WhatsApp setup](https://tijwa-crm.tijwa.com/docs/whatsapp-setup)
+- [Environment variables](https://tijwa-crm.tijwa.com/docs/environment-variables)
+- [Architecture](https://tijwa-crm.tijwa.com/docs/architecture)
+- [Troubleshooting](https://tijwa-crm.tijwa.com/docs/troubleshooting)
 
 ## License
 
 Proprietary. © 2026 Tijwa Limited. All rights reserved.
-# tijwa-wacrm
+# tijwa-crm

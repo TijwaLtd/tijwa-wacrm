@@ -14,7 +14,7 @@
  *
  * Choosing a single static module over a DB-backed gallery for v1
  * because: (a) the set is small and changes with code releases, not
- * data; (b) keeps templates portable across self-hosted instances
+ * data; (b) keeps templates portable across deployments
  * without migrations; (c) editing in source is the lowest-friction
  * way to add the next template.
  */

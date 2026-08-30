@@ -9,8 +9,7 @@
 -- SECURITY DEFINER changes the privileges a function runs *with*, not
 -- who may *call* it: the caller still needs EXECUTE. On Postgres
 -- instances where the default PUBLIC execute privilege on public-schema
--- functions has been revoked (standard on hardened / self-hosted
--- Supabase), `service_role` therefore cannot invoke it. The AI
+-- functions has been revoked (standard on hardened Supabase), `service_role` therefore cannot invoke it. The AI
 -- auto-reply path runs entirely under the service-role client (the
 -- inbound webhook has no auth.uid()), so `db.rpc('claim_ai_reply_slot')`
 -- fails with permission-denied, the caller bails before sending, and the

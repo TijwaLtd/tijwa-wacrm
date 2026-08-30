@@ -3,7 +3,7 @@
 The repo ships a multi-stage `Dockerfile` (Next.js standalone output,
 runs as a non-root user) and a `docker-compose.yml` with a single
 `app` service. Supabase is external — point the app at your hosted
-(or self-hosted) Supabase project via env vars; no database container
+(or your own) Supabase project via env vars; no database container
 is included.
 
 ## Quick start
@@ -48,9 +48,9 @@ is included.
 docker build \
   --build-arg NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co \
   --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key \
-  -t wacrm .
+  -t tijwa-crm .
 
-docker run -d --env-file .env.local -e PORT=3000 -p 3000:3000 wacrm
+docker run -d --env-file .env.local -e PORT=3000 -p 3000:3000 tijwa-crm
 ```
 
 ## Notes

@@ -1,6 +1,6 @@
-# wacrm Industry Modules - Planning Document
+# tijwa-crm Industry Modules - Planning Document
 
-> How wacrm supports different business types: Restaurant, Property Manager, Agent, and more.
+> How tijwa-crm supports different business types: Restaurant, Property Manager, Agent, and more.
 
 ---
 
@@ -121,7 +121,7 @@ All modules accessible via REST API:
 
 ### 3.1 Overview
 
-Restaurants use wacrm to:
+Restaurants use tijwa-crm to:
 - **Take orders** via WhatsApp (no app needed)
 - **Manage menu** and availability
 - **Track orders** from placement to delivery
@@ -399,7 +399,7 @@ CUSTOMER                         RESTAURANT CRM
 
 ### 4.1 Overview
 
-Property managers use wacrm to:
+Property managers use tijwa-crm to:
 - **Broadcast listings** to leads/customers
 - **Track inquiries** from WhatsApp
 - **Schedule viewings** via chat
@@ -714,7 +714,7 @@ CUSTOMER                         PROPERTY MANAGER CRM
 
 ### 5.1 Overview
 
-Real estate agents use wacrm as:
+Real estate agents use tijwa-crm as:
 - **Lead management** (inquiries from all sources)
 - **Deal pipeline** (Kanban: Inquiry → Viewing → Offer → Closed)
 - **Client communication** via WhatsApp

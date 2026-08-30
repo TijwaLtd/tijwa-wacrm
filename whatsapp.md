@@ -56,7 +56,7 @@ What can I help you with?          [View Topics]
 ```
 Customer sends WhatsApp message
   → Meta webhook fires
-  → wacrm verifies signature (HMAC-SHA256)
+  → tijwa-crm verifies signature (HMAC-SHA256)
   → Message parsed and stored in `messages` table
   → Conversation resolved (existing or new)
   → Flows checked (does a flow match this trigger?)

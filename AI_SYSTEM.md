@@ -2,12 +2,12 @@
 
 ## Overview
 
-wacrm's AI feature is a **bring-your-own-key (BYOK)** assistant that:
+tijwa-crm's AI feature is a **bring-your-own-key (BYOK)** assistant that:
 1. **Drafts replies** for agents in the inbox (agent-initiated)
 2. **Auto-replies** to inbound WhatsApp messages when configured (automated)
 3. Uses a **knowledge base** (RAG) to ground responses in business-specific context
 
-**Key principle:** The account holder provides their own OpenAI or Anthropic API key. wacrm never bills for AI usage — costs accrue directly to the user's provider account.
+**Key principle:** The account holder provides their own OpenAI or Anthropic API key. tijwa-crm never bills for AI usage — costs accrue directly to the user's provider account.
 
 ---
 
@@ -304,7 +304,7 @@ Knowledge base excerpts (if retrieved):
 ## Key Design Decisions
 
 ### 1. Why 'simple' FTS tokenization?
-wacrm serves global markets (BR, LATAM, India). English-specific stemming/stopwords would hurt recall. `'simple'` lowercases and tokenizes without language-specific rules — degrades gracefully everywhere.
+tijwa-crm serves global markets (BR, LATAM, India). English-specific stemming/stopwords would hurt recall. `'simple'` lowercases and tokenizes without language-specific rules — degrades gracefully everywhere.
 
 ### 2. Why HNSW not IVFFlat for vectors?
 IVFFlat requires training on existing data. A new account starts with zero chunks — trained against empty table, centroids are meaningless. HNSW is accurate from row 1 with no training.

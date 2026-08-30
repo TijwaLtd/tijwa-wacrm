@@ -1,6 +1,6 @@
-# wacrm Multi-Tenant SaaS Migrations
+# tijwa-crm Multi-Tenant SaaS Migrations
 
-> Complete migration files and testing guide for converting wacrm from single-tenant (one business per deployment) to multi-tenant SaaS (many businesses per deployment).
+> Complete migration files and testing guide for converting tijwa-crm from single-tenant (one business per deployment) to multi-tenant SaaS (many businesses per deployment).
 
 ---
 
@@ -2765,7 +2765,7 @@ Access: Authenticated users with no memberships
 ┌─────────────────────────────────────────────────────┐
 │                    Welcome!                          │
 │                                                     │
-│   You need a workspace to use wacrm.               │
+│   You need a workspace to use tijwa-crm.               │
 │   Create one for yourself or join an existing.       │
 │                                                     │
 │   ┌──────────────────┐  ┌──────────────────────┐  │
@@ -2774,7 +2774,7 @@ Access: Authenticated users with no memberships
 │                                                     │
 │   ┌─────────────────────────────────────────────┐  │
 │   │  Workspace name: [________________]          │  │
-│   │  Subdomain: [________].wacrm.com            │  │
+│   │  Subdomain: [________].tijwa-crm.com            │  │
 │   │                   [Create my workspace]       │  │
 │   └─────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────┘
@@ -3270,8 +3270,8 @@ SMTP_PASS=SG.xxx
 EMAIL_FROM=noreply@yourdomain.com
 
 # Application
-NEXT_PUBLIC_APP_URL=https://wacrm.com
-DEFAULT_TENANT_SUBDOMAIN=wacrm
+NEXT_PUBLIC_APP_URL=https://tijwa-crm.com
+DEFAULT_TENANT_SUBDOMAIN=tijwa-crm
 ```
 
 ---

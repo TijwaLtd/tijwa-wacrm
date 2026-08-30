@@ -1,6 +1,6 @@
-# wacrm — Project Documentation
+# tijwa-crm — Project Documentation
 
-> **Self-hostable CRM template for WhatsApp** — shared inbox, contacts,
+> **CRM template for WhatsApp** — shared inbox, contacts,
 > sales pipelines, broadcasts, and no-code automations. Built on Next.js 16
 > and Supabase.
 
@@ -35,7 +35,7 @@
 
 ## 1. Project Overview
 
-**wacrm** is a template/starting point for building a self-hosted WhatsApp CRM. It provides:
+**tijwa-crm** is a template/starting point for building a WhatsApp CRM. It provides:
 
 - **Shared inbox** on the official WhatsApp Business API — multiple agents working one number
 - **Contacts + tags + custom fields**, CSV import, deduplication
@@ -73,7 +73,7 @@ This is a **template**, not a product. You fork it and customize it for your nee
 ## 3. Project Structure
 
 ```
-wacrm/
+tijwa-crm/
 ├── src/
 │   ├── app/                    # Next.js App Router
 │   │   ├── (auth)/            # Auth pages (login, signup, forgot-password)
@@ -563,7 +563,7 @@ Located in `src/app/api/`:
 | `broadcast_send` | Write | Launch broadcast |
 
 **Configuration**:
-- `WACRM_BASE_URL` — wacrm instance URL
+- `WACRM_BASE_URL` — tijwa-crm instance URL
 - `WACRM_API_KEY` — API key for authentication
 - `WACRM_ENABLE_WRITES` — Enable write operations (default: false for read-only)
 
@@ -787,7 +787,7 @@ pnpm lint       # ESLint
 
 ### Recommended: Hostinger
 
-wacrm is optimized for Hostinger's Managed Node.js hosting:
+tijwa-crm is optimized for Hostinger's Managed Node.js hosting:
 - One-click Git deploy
 - Free SSL + domain
 - Managed Node.js
@@ -809,10 +809,11 @@ docker-compose up -d
 
 ### Other Platforms
 
-wacrm runs anywhere Node.js does:
+tijwa-crm runs anywhere Node.js does:
 - Vercel
 - Railway
 - Self-hosted VPS
+- Any VPS
 
 ---
 
@@ -821,7 +822,7 @@ wacrm runs anywhere Node.js does:
 - [docs/public-api.md](./docs/public-api.md) — Public REST API reference
 - [docs/mcp.md](./docs/mcp.md) — MCP server setup
 - [docs/docker.md](./docs/docker.md) — Docker deployment
-- [wacrm.tijwa.com/docs](https://wacrm.tijwa.com/docs) — Full documentation site
+- [tijwa-crm.tijwa.com/docs](https://tijwa-crm.tijwa.com/docs) — Full documentation site
 
 ---
 
@@ -831,9 +832,9 @@ wacrm runs anywhere Node.js does:
 
 ## 17. Multi-Tenant SaaS Conversion Guide
 
-> **Status**: This section documents how to convert wacrm from a **single-tenant template** (one deployment = one business) into a **multi-tenant SaaS application** (one deployment = many businesses sharing the infrastructure).
+> **Status**: This section documents how to convert tijwa-crm from a **single-tenant template** (one deployment = one business) into a **multi-tenant SaaS application** (one deployment = many businesses sharing the infrastructure).
 
-wacrm is currently architected as a **template for one business per deployment**. The database uses `account_id` for team member isolation within a business, but each deployment serves a single business. This section covers converting it to a true SaaS where multiple businesses (tenants) share one deployment with complete data isolation.
+tijwa-crm is currently architected as a **template for one business per deployment**. The database uses `account_id` for team member isolation within a business, but each deployment serves a single business. This section covers converting it to a true SaaS where multiple businesses (tenants) share one deployment with complete data isolation.
 
 ---
 
@@ -841,7 +842,7 @@ wacrm is currently architected as a **template for one business per deployment**
 
 ```
 ┌─────────────────────────────────────────────────┐
-│  wacrm Deployment (single business)              │
+│  tijwa-crm Deployment (single business)              │
 │                                                 │
 │  auth.users ──► profiles ──► accounts            │
 │                               │                 │
@@ -867,7 +868,7 @@ wacrm is currently architected as a **template for one business per deployment**
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  wacrm SaaS Deployment (many businesses)                    │
+│  tijwa-crm SaaS Deployment (many businesses)                    │
 │                                                             │
 │  ┌─────────────────────────────────────────────────────┐   │
 │  │ Tenant: acme-corp                                    │   │
@@ -1060,9 +1061,9 @@ You need to determine **which tenant** a request belongs to. Three common strate
 #### Option A: Subdomain-Based (Recommended)
 
 ```
-acme.wacrm.com    → tenant: acme
-startup.wacrm.com → tenant: startup
-wacrm.com         → tenant: default (for marketing, pricing, etc.)
+acme.tijwa-crm.com    → tenant: acme
+startup.tijwa-crm.com → tenant: startup
+tijwa-crm.com         → tenant: default (for marketing, pricing, etc.)
 ```
 
 **Middleware implementation:**
@@ -1110,8 +1111,8 @@ export async function middleware(request: NextRequest) {
 #### Option B: Path-Based
 
 ```
-wacrm.com/acme/contacts     → tenant: acme
-wacrm.com/startup/contacts  → tenant: startup
+tijwa-crm.com/acme/contacts     → tenant: acme
+tijwa-crm.com/startup/contacts  → tenant: startup
 ```
 
 ```typescript
@@ -1207,7 +1208,7 @@ export async function GET(request: NextRequest) {
   const { data, error } = await supabase
     .from('contacts')
     .select('*')
-    .eq('account_id', accountId);  // Already standard in wacrm
+    .eq('account_id', accountId);  // Already standard in tijwa-crm
   
   // ...
 }
@@ -1238,7 +1239,7 @@ export function TenantSwitcher({
   const handleSwitch = (accountId: string) => {
     onSelect(accountId);
     // Persist to cookie/localStorage for SSR
-    document.cookie = `wacrm_active_account=${accountId}; path=/; max-age=31536000`;
+    document.cookie = `tijwa-crm_active_account=${accountId}; path=/; max-age=31536000`;
     // Refresh to reload data with new tenant context
     router.refresh();
   };
@@ -1317,7 +1318,7 @@ export async function middleware(request: NextRequest) {
   }
   
   // Determine tenant:
-  // 1. From subdomain (e.g., acme.wacrm.com)
+  // 1. From subdomain (e.g., acme.tijwa-crm.com)
   // 2. From cookie (tenant switcher)
   // 3. From user's default/first account
   
@@ -1336,7 +1337,7 @@ export async function middleware(request: NextRequest) {
   if (!tenantId) {
     // Check cookie for explicitly selected tenant
     const cookies = request.cookies.getAll();
-    const tenantCookie = cookies.find(c => c.name === 'wacrm_active_account');
+    const tenantCookie = cookies.find(c => c.name === 'tijwa-crm_active_account');
     if (tenantCookie?.value) {
       tenantId = tenantCookie.value;
     }
@@ -1569,7 +1570,7 @@ ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS
 ```
 
 **Auth flow:**
-1. User visits `acme.wacrm.com/login`
+1. User visits `acme.tijwa-crm.com/login`
 2. If tenant has SSO configured, redirect to SSO provider
 3. SSO provider authenticates user
 4. Callback includes SAML assertion or OAuth token
@@ -1584,8 +1585,8 @@ ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS
 
 ```env
 # Multi-tenant configuration
-NEXT_PUBLIC_APP_URL=https://wacrm.com
-DEFAULT_TENANT_SUBDOMAIN=wacrm
+NEXT_PUBLIC_APP_URL=https://tijwa-crm.com
+DEFAULT_TENANT_SUBDOMAIN=tijwa-crm
 
 # Stripe (for billing)
 STRIPE_SECRET_KEY=sk_live_...
@@ -1648,13 +1649,13 @@ const limit = TENANT_RATE_LIMITS[settings?.plan] ?? TENANT_RATE_LIMITS.starter;
 | **Separate schemas** | Stronger isolation | Migration management harder |
 | **Separate databases** | Complete isolation, per-tenant scaling | Very high ops cost |
 
-wacrm's RLS-based approach supports **shared database** efficiently.
+tijwa-crm's RLS-based approach supports **shared database** efficiently.
 
 ---
 
 ### 17.10 Migration Path (From Current State)
 
-To convert an existing wacrm installation to multi-tenant SaaS:
+To convert an existing tijwa-crm installation to multi-tenant SaaS:
 
 1. **Phase 1: Database**
    - Run migration to create `account_memberships` table
@@ -1680,7 +1681,7 @@ To convert an existing wacrm installation to multi-tenant SaaS:
    - Add domain verification
 
 5. **Phase 5: Launch**
-   - Configure DNS wildcards (*.wacrm.com)
+   - Configure DNS wildcards (*.tijwa-crm.com)
    - Set up onboarding flow for new tenants
    - Add tenant creation UI
 

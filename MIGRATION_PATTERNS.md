@@ -1,6 +1,6 @@
 # Supabase Migration Patterns Guide
 
-This document captures the established patterns used in wacrm's database migrations. All new migrations MUST follow these conventions.
+This document captures the established patterns used in tijwa-crm's database migrations. All new migrations MUST follow these conventions.
 
 ---
 

@@ -219,7 +219,7 @@ export interface AuditOutboxItem {
 // Database definition
 // ============================================================
 
-const DB_NAME = "wacrm-local";
+const DB_NAME = "tijwa-crm-local";
 
 export const db = new Dexie(DB_NAME) as Dexie & {
   conversations: EntityTable<LocalConversation, "id">;

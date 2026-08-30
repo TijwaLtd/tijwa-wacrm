@@ -50,7 +50,7 @@ export function AccountAccessAlert() {
       <AlertDescription>
         {accountStatus === "unlinked" ? t("unlinkedBody") : t("errorBody")}
         {accountStatusDetail ? (
-          // The raw reason, so a self-hoster reading a bug report has
+          // The raw reason, so an admin reading a bug report has
           // something to act on instead of just "it's broken".
           <span className="mt-1 block font-mono text-xs opacity-70">
             {accountStatusDetail}

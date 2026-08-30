@@ -1,8 +1,8 @@
 {
-  "name": "tijwa-wacrm",
+  "name": "tijwa-crm",
   "version": "0.8.0",
   "private": true,
-  "description": "Self-hostable CRM template for WhatsApp built on Next.js and Supabase — shared inbox, contacts, sales pipelines, broadcasts, and no-code automations.",
+  "description": "Proprietary WhatsApp CRM built on Next.js and Supabase — shared inbox, contacts, sales pipelines, broadcasts, and no-code automations.",
   "license": "MIT",
   "author": "achiando",
   "homepage": "https://github.com/achiando/tijwa-wacrm",
@@ -21,7 +21,6 @@
     "supabase",
     "automation",
     "broadcast",
-    "self-hosted",
     "template"
   ],
   "engines": {

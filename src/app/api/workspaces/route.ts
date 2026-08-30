@@ -87,7 +87,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Workspace name must be less than 63 characters" }, { status: 400 });
   }
 
-  // Generate subdomain from name (workspace.wacrm.com pattern)
+  // Generate subdomain from name (workspace.tijwa-crm.com pattern)
   let subdomain = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
   // Auto-generate unique subdomain if the raw one is taken

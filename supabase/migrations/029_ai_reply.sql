@@ -135,7 +135,7 @@ $$ LANGUAGE sql SECURITY DEFINER SET search_path = public;
 -- DEFINER alone is not enough — it sets the privileges the function runs
 -- *with*, not who may call it. Without this grant the RPC fails with
 -- permission-denied on instances where the default PUBLIC execute
--- privilege has been revoked (hardened / self-hosted Supabase), and the
+-- privilege has been revoked (hardened Supabase), and the
 -- bot silently never replies. Only the service role claims slots, so we
 -- grant to it alone (mirrors 007 / 012). See migration 031 / issue #345.
 GRANT EXECUTE ON FUNCTION public.claim_ai_reply_slot(uuid, integer) TO service_role;
