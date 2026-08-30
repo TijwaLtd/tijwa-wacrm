@@ -28,6 +28,23 @@ import {
   Workflow,
   X,
   Zap,
+  Package,
+  Warehouse,
+  ShoppingCart,
+  UtensilsCrossed,
+  Bed,
+  Calendar,
+  CalendarCheck,
+  ConciergeBell,
+  Wrench,
+  Clock,
+  GraduationCap,
+  Heart,
+  HandHelping,
+  Library,
+  HandCoins,
+  Home,
+  CalendarDays,
 } from 'lucide-react';
 import type { AccountRole } from '@/lib/auth/roles';
 
@@ -105,6 +122,27 @@ const reportNavItems: NavItem[] = [
   { href: '/audit', labelKey: 'audit', icon: FileText },
 ];
 
+// Icon mapping for capability navigation
+const CAPABILITY_ICONS: Record<string, typeof LayoutDashboard> = {
+  Package,
+  Warehouse,
+  ShoppingCart,
+  UtensilsCrossed,
+  Bed,
+  Calendar,
+  CalendarCheck,
+  ConciergeBell,
+  Wrench,
+  Clock,
+  GraduationCap,
+  Heart,
+  HandHelping,
+  Library,
+  HandCoins,
+  Home,
+  CalendarDays,
+};
+
 interface SidebarProps {
   /** Controlled on mobile by the Header's hamburger button. Ignored on lg+. */
   open?: boolean;
@@ -116,9 +154,14 @@ import { useTranslations } from 'next-intl';
 export function Sidebar({ open = false, onClose }: SidebarProps) {
   const t = useTranslations('Sidebar');
   const pathname = usePathname();
-  const { profile, profileLoading, account, accountRole, signOut } = useAuth();
+  const { profile, profileLoading, account, accountRole, capabilities, signOut } = useAuth();
   const totalUnread = useTotalUnread();
   const canViewAudit = accountRole ? canViewAuditRole(accountRole) : false;
+
+  // Derive navigation items from persisted capabilities in auth context
+  const capabilityNavItems = capabilities
+    .filter((cap) => cap.is_enabled && cap.navigation)
+    .map((cap) => cap.navigation!);
   // Only surface the account-name strip when it actually carries
   // information. A solo user's personal account is named after them
   // (the 017 signup trigger seeds it from `full_name`), so showing it
@@ -258,6 +301,77 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
               );
             })}
           </ul>
+
+          {/* Capability-based navigation */}
+          {capabilityNavItems.length > 0 && (
+            <>
+              <div className="border-border my-4 border-t" />
+              <div className="px-3 py-1.5">
+                <div className="text-muted-foreground flex items-center gap-2 text-[10px] font-semibold tracking-wider uppercase">
+                  <Package className="h-3 w-3" />
+                  {t('catalog')}
+                </div>
+              </div>
+              <ul className="flex flex-col gap-1">
+                {capabilityNavItems
+                  .filter(item => item.section === 'catalog')
+                  .map((item) => {
+                    const isActive = pathname.startsWith(item.route);
+                    const Icon = CAPABILITY_ICONS[item.icon] || Package;
+                    return (
+                      <li key={item.route}>
+                        <Link
+                          href={item.route}
+                          className={cn(
+                            'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors lg:py-2',
+                            isActive
+                              ? 'bg-primary/10 text-primary'
+                              : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                          )}
+                        >
+                          <Icon className="h-4 w-4" />
+                          <span className="flex-1">{item.label}</span>
+                        </Link>
+                      </li>
+                    );
+                  })}
+              </ul>
+              {capabilityNavItems.some(item => item.section === 'operations') && (
+                <>
+                  <div className="px-3 py-1.5 mt-4">
+                    <div className="text-muted-foreground flex items-center gap-2 text-[10px] font-semibold tracking-wider uppercase">
+                      <Zap className="h-3 w-3" />
+                      {t('operations')}
+                    </div>
+                  </div>
+                  <ul className="flex flex-col gap-1">
+                    {capabilityNavItems
+                      .filter(item => item.section === 'operations')
+                      .map((item) => {
+                        const isActive = pathname.startsWith(item.route);
+                        const Icon = CAPABILITY_ICONS[item.icon] || Zap;
+                        return (
+                          <li key={item.route}>
+                            <Link
+                              href={item.route}
+                              className={cn(
+                                'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors lg:py-2',
+                                isActive
+                                  ? 'bg-primary/10 text-primary'
+                                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                              )}
+                            >
+                              <Icon className="h-4 w-4" />
+                              <span className="flex-1">{item.label}</span>
+                            </Link>
+                          </li>
+                        );
+                      })}
+                  </ul>
+                </>
+              )}
+            </>
+          )}
 
           <div className="border-border my-4 border-t" />
 

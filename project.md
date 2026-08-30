@@ -1710,3 +1710,158 @@ The **core architecture is well-prepared** — `account_id` on every table and R
 5. Adding tenant-specific branding
 
 This is a significant but well-structured conversion that maintains all existing functionality while enabling SaaS multi-tenancy.
+
+---
+
+## 18. Business Operations Architecture (Phase 1)
+
+### 18.1 Architecture Principles
+
+1. **Capability-driven, not business-type-driven** — Business type recommends capabilities; capabilities determine features
+2. **Never replace existing systems** — Flows, Automations, Templates, Connections, Audit exist and must be extended, never duplicated
+3. **Multi-tenant isolation** — All data uses `account_id` with RLS via `has_role_in_account()` or `is_account_member()`
+4. **Capabilities are persisted in auth context** — All UI reads from `useAuth()` hook, no individual API fetches per component
+
+### 18.2 Database Schema
+
+#### business_capabilities (system-level, immutable by orgs)
+```sql
+business_capabilities (
+  id UUID PRIMARY KEY,
+  key TEXT UNIQUE,           -- e.g. 'bookings', 'menu', 'products'
+  name TEXT,
+  description TEXT,
+  category TEXT,             -- commerce, food_hospitality, services, education, ngo, property, events, general
+  is_default_enabled BOOLEAN,
+  supported_actions JSONB,
+  recommended_business_types JSONB,  -- ['hotel', 'hotel_restaurant']
+  navigation JSONB           -- {label, icon, route, section}
+)
+```
+
+#### account_capabilities (organization-level configuration)
+```sql
+account_capabilities (
+  id UUID PRIMARY KEY,
+  account_id UUID REFERENCES accounts(id),
+  capability_key TEXT REFERENCES business_capabilities(key),
+  is_enabled BOOLEAN,
+  config JSONB,
+  UNIQUE(account_id, capability_key)
+)
+```
+
+### 18.3 Business Types
+
+```typescript
+type BusinessType = 
+  | 'retailer' | 'wholesaler' | 'restaurant' | 'hotel' | 'hotel_restaurant'
+  | 'service_business' | 'professional_services' | 'education' | 'ngo_nonprofit'
+  | 'property_real_estate' | 'healthcare' | 'events' | 'other';
+```
+
+### 18.4 Capability Categories
+
+```typescript
+type CapabilityCategory = 
+  | 'commerce' | 'food_hospitality' | 'services' | 'education'
+  | 'ngo' | 'property' | 'events' | 'general';
+```
+
+### 18.5 Business Type → Capability Mappings
+
+| Business Type | Recommended Capabilities |
+|--------------|-------------------------|
+| retailer | products, product_catalog, inventory, orders, inquiries |
+| wholesaler | products, product_catalog, inventory, orders, wholesale, pricing, inquiries |
+| restaurant | menu, food_orders, reservations, events, inquiries |
+| hotel | accommodation, bookings, hospitality_services, events, inquiries |
+| hotel_restaurant | accommodation, bookings, menu, food_orders, hospitality_services, events, inquiries |
+| service_business | services, appointments, service_requests, inquiries |
+| education | courses, education_programs, applications, events, resources, inquiries |
+| ngo_nonprofit | programs, ngo_services, applications, events, resources, donations, inquiries |
+| property_real_estate | property_listings, property_inquiries, viewings, inquiries |
+| events | events, registrations, bookings, inquiries |
+
+### 18.6 File Locations
+
+| Component | Path |
+|-----------|------|
+| Capability registry | `src/lib/business/capabilities.ts` |
+| Capability API | `src/app/api/business/capabilities/route.ts` |
+| Account capabilities API | `src/app/api/business/capabilities/account/route.ts` |
+| Workspace creation API | `src/app/api/workspaces/route.ts` |
+| Business settings UI | `src/components/settings/business-settings.tsx` |
+| Settings sections | `src/components/settings/settings-sections.ts` |
+| Onboarding flow | `src/app/onboarding/_components/workspace-form.tsx` |
+| Auth context | `src/hooks/use-auth.tsx` |
+| Sidebar navigation | `src/components/layout/sidebar.tsx` |
+| Audit events | `src/lib/audit/events.ts` |
+| Database migration | `supabase/migrations/067_business_classification_and_capabilities.sql` |
+
+### 18.7 Auth Context API
+
+```typescript
+// From useAuth()
+{
+  // Existing
+  accountId: string | null;
+  accountRole: AccountRole | null;
+  workspaces: Workspace[];
+  
+  // New - Business Classification
+  businessType: BusinessType | null;
+  capabilities: CapabilityItem[];           // Full capability data
+  enabledCapabilities: string[];            // Just the keys
+  refreshCapabilities: () => Promise<void>;
+}
+
+// CapabilityItem shape
+interface CapabilityItem {
+  key: string;
+  name: string;
+  description: string | null;
+  category: string;
+  is_enabled: boolean;
+  navigation: CapabilityNavigation | null;
+}
+
+// CapabilityNavigation shape
+interface CapabilityNavigation {
+  label: string;
+  icon: string;         // Lucide icon name
+  route: string;        // e.g. '/bookings'
+  section: 'catalog' | 'operations' | 'settings';
+}
+```
+
+### 18.8 Capability Flow
+
+```
+1. User creates workspace → selects business_type
+2. API creates account → calls getRecommendedCapabilityKeys()
+3. Upserts account_capabilities with recommended ones enabled
+4. Auth context fetches capabilities via /api/business/capabilities/account
+5. Sidebar reads capabilities from auth context → renders nav items
+6. Settings page can toggle capabilities → refreshes auth context
+```
+
+### 18.9 Adding New Capabilities
+
+1. Add to `business_capabilities` table in migration
+2. Add navigation metadata if it needs sidebar items:
+   ```sql
+   INSERT INTO business_capabilities (key, name, description, category, is_default_enabled, recommended_business_types, navigation)
+   VALUES ('my_feature', 'My Feature', 'Description', 'category', FALSE, '["hotel"]'::jsonb, '{"label": "My Feature", "icon": "IconName", "route": "/my-feature", "section": "operations"}'::jsonb);
+   ```
+3. Add icon to `CAPABILITY_ICONS` map in `sidebar.tsx`
+4. Add to `BUSINESS_TYPES` recommendations in `capabilities.ts` if needed
+
+### 18.10 Future Phases
+
+| Phase | Focus | Key Features |
+|-------|-------|-------------|
+| Phase 1 | Business Classification | ✅ Complete |
+| Phase 2 | Offerings/Catalog | Generic offerings table, capability-aware catalog types, Flow/Automation triggers |
+| Phase 3 | Operational Actions | Actions plug into existing Flow engine, events become automation triggers |
+| Phase 4 | External Integrations | Use existing api_keys/webhook architecture, Connection → Provider → Supported capabilities |

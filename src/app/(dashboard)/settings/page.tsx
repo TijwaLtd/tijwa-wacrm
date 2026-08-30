@@ -24,6 +24,7 @@ import { ScheduleSettings } from '@/components/settings/schedule-settings';
 import { MembersTab } from '@/components/settings/members-tab';
 import { ApiKeysSettings } from '@/components/settings/api-keys-settings';
 import { WorkspaceSettings } from '@/components/settings/workspace-settings';
+import { BusinessSettings } from '@/components/settings/business-settings';
 import {
   resolveSection,
   type SettingsSection,
@@ -92,6 +93,7 @@ function SettingsPageInner() {
     schedule: <ScheduleSettings />,
     members: <MembersTab />,
     workspace: <WorkspaceSettings />,
+    business: <BusinessSettings />,
     api: <ApiKeysSettings />,
   };
 

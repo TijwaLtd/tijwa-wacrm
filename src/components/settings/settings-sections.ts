@@ -14,6 +14,7 @@ import {
   User,
   UsersRound,
   Zap,
+  Briefcase,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -42,6 +43,7 @@ export const SETTINGS_SECTIONS = [
   'schedule',
   'members',
   'workspace',
+  'business',
   'api',
 ] as const;
 
@@ -74,6 +76,7 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   schedule: { id: 'schedule', label: 'Working hours', icon: Calendar, group: 'workspace' },
   members: { id: 'members', label: 'Team members', icon: UsersRound, group: 'workspace' },
   workspace: { id: 'workspace', label: 'Workspace', icon: Building2, group: 'workspace' },
+  business: { id: 'business', label: 'Business type', icon: Briefcase, group: 'workspace' },
   api: { id: 'api', label: 'API keys', icon: KeyRound, group: 'workspace' },
 };
 

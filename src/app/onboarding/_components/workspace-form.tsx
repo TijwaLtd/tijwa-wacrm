@@ -2,21 +2,38 @@
 
 import { useState, useRef } from 'react';
 import { useTranslations } from 'next-intl';
-import { Loader2, Upload, ArrowRight, ArrowLeft, Check, Building2 } from 'lucide-react';
+import { Loader2, Upload, ArrowRight, ArrowLeft, Check, Building2, Store, Hotel, UtensilsCrossed, GraduationCap, Heart, Home, Calendar, Briefcase } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import Image from 'next/image';
 import { cn } from '@/lib/utils';
+import { BUSINESS_TYPES, type BusinessType } from '@/lib/business/capabilities';
 
 interface WorkspaceFormProps {
   mode: 'create' | 'join';
   onModeSwitch?: () => void;
 }
 
-const STEPS = ['details', 'review'] as const;
+const STEPS = ['details', 'business-type', 'review'] as const;
 type Step = typeof STEPS[number];
+
+const BUSINESS_TYPE_ICONS: Record<BusinessType, typeof Building2> = {
+  retailer: Store,
+  wholesaler: Store,
+  restaurant: UtensilsCrossed,
+  hotel: Hotel,
+  hotel_restaurant: Hotel,
+  service_business: Briefcase,
+  professional_services: Briefcase,
+  education: GraduationCap,
+  ngo_nonprofit: Heart,
+  property_real_estate: Home,
+  healthcare: Briefcase,
+  events: Calendar,
+  other: Building2,
+};
 
 export function WorkspaceForm({ mode, onModeSwitch }: WorkspaceFormProps) {
   const t = useTranslations('Onboarding.workspace');
@@ -29,6 +46,7 @@ export function WorkspaceForm({ mode, onModeSwitch }: WorkspaceFormProps) {
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [inviteCode, setInviteCode] = useState('');
+  const [businessType, setBusinessType] = useState<BusinessType | null>(null);
 
   const stepIndex = STEPS.indexOf(step);
 
@@ -55,12 +73,17 @@ export function WorkspaceForm({ mode, onModeSwitch }: WorkspaceFormProps) {
 
   const canProceed = () => {
     if (step === 'details') return name.trim().length >= 2;
+    if (step === 'business-type') return businessType !== null;
     return true;
   };
 
   const handleNext = () => {
     if (step === 'details' && name.trim().length < 2) {
       setError(t('nameMinLength'));
+      return;
+    }
+    if (step === 'business-type' && !businessType) {
+      setError('Please select a business type');
       return;
     }
     setError(null);
@@ -105,6 +128,7 @@ export function WorkspaceForm({ mode, onModeSwitch }: WorkspaceFormProps) {
         body: JSON.stringify({
           name: name.trim(),
           logo_url: logoUrl,
+          business_type: businessType,
         }),
       });
 
@@ -223,10 +247,12 @@ export function WorkspaceForm({ mode, onModeSwitch }: WorkspaceFormProps) {
       <div className="space-y-2">
         <h2 className="text-lg font-semibold text-foreground">
           {step === 'details' && t('stepDetailsTitle')}
+          {step === 'business-type' && 'What type of organization?'}
           {step === 'review' && t('stepReviewTitle')}
         </h2>
         <p className="text-sm text-muted-foreground">
           {step === 'details' && t('stepDetailsDesc')}
+          {step === 'business-type' && 'Select your organization type to get started with the right features.'}
           {step === 'review' && t('stepReviewDesc')}
         </p>
       </div>
@@ -318,6 +344,34 @@ export function WorkspaceForm({ mode, onModeSwitch }: WorkspaceFormProps) {
           </div>
         )}
 
+        {step === 'business-type' && (
+          <div className="flex flex-col gap-4">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              {BUSINESS_TYPES.map((type) => {
+                const Icon = BUSINESS_TYPE_ICONS[type.value];
+                const isSelected = businessType === type.value;
+                return (
+                  <button
+                    key={type.value}
+                    type="button"
+                    onClick={() => setBusinessType(type.value)}
+                    className={cn(
+                      'flex flex-col items-center gap-2 rounded-lg border p-4 text-center transition-all',
+                      isSelected
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-border hover:border-primary/50 hover:bg-muted/50'
+                    )}
+                  >
+                    <Icon className={cn('h-6 w-6', isSelected ? 'text-primary' : 'text-muted-foreground')} />
+                    <span className="text-sm font-medium">{type.label}</span>
+                    <span className="text-xs text-muted-foreground line-clamp-2">{type.description}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {step === 'review' && (
           <div className="flex flex-col gap-4">
             <div className="flex items-center gap-4 rounded-lg border border-border p-4">
@@ -340,6 +394,22 @@ export function WorkspaceForm({ mode, onModeSwitch }: WorkspaceFormProps) {
                 <p className="text-sm text-muted-foreground">{slugifiedName}.wacrm.com</p>
               </div>
             </div>
+            {businessType && (
+              <div className="flex items-center gap-3 rounded-lg border border-border p-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+                  {(() => {
+                    const Icon = BUSINESS_TYPE_ICONS[businessType];
+                    return <Icon className="h-5 w-5 text-primary" />;
+                  })()}
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-foreground">
+                    {BUSINESS_TYPES.find(bt => bt.value === businessType)?.label}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Business Type</p>
+                </div>
+              </div>
+            )}
             <p className="text-sm text-muted-foreground">
               {t('reviewNote')}
             </p>

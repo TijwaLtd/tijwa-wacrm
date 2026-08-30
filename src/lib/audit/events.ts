@@ -11,6 +11,7 @@ export const AuditCategory = {
   DATA: 'DATA',
   AUTHENTICATION: 'AUTHENTICATION',
   ADMIN: 'ADMIN',
+  BUSINESS: 'BUSINESS',
 } as const;
 
 export type AuditCategoryValue = (typeof AuditCategory)[keyof typeof AuditCategory];
@@ -38,6 +39,20 @@ export const AuditEventType = {
   // Data export (reserved for future use)
   CONTACT_EXPORT_REQUESTED: 'CONTACT_EXPORT_REQUESTED',
   CONTACT_EXPORT_COMPLETED: 'CONTACT_EXPORT_COMPLETED',
+
+  // Business classification and capabilities
+  BUSINESS_TYPE_CHANGED: 'BUSINESS_TYPE_CHANGED',
+  CAPABILITY_ENABLED: 'CAPABILITY_ENABLED',
+  CAPABILITY_DISABLED: 'CAPABILITY_DISABLED',
+
+  // Offerings/Catalog
+  OFFERING_CREATED: 'OFFERING_CREATED',
+  OFFERING_UPDATED: 'OFFERING_UPDATED',
+  OFFERING_ARCHIVED: 'OFFERING_ARCHIVED',
+  OFFERING_RESTORED: 'OFFERING_RESTORED',
+  CATEGORY_CREATED: 'CATEGORY_CREATED',
+  CATEGORY_UPDATED: 'CATEGORY_UPDATED',
+  CATEGORY_DELETED: 'CATEGORY_DELETED',
 } as const;
 
 export type AuditEventTypeValue = (typeof AuditEventType)[keyof typeof AuditEventType];
@@ -57,6 +72,16 @@ export const EVENT_CATEGORY_MAP: Record<AuditEventTypeValue, AuditCategoryValue>
   CONTACT_DELETED: AuditCategory.CONTACT,
   CONTACT_EXPORT_REQUESTED: AuditCategory.DATA,
   CONTACT_EXPORT_COMPLETED: AuditCategory.DATA,
+  BUSINESS_TYPE_CHANGED: AuditCategory.BUSINESS,
+  CAPABILITY_ENABLED: AuditCategory.BUSINESS,
+  CAPABILITY_DISABLED: AuditCategory.BUSINESS,
+  OFFERING_CREATED: AuditCategory.BUSINESS,
+  OFFERING_UPDATED: AuditCategory.BUSINESS,
+  OFFERING_ARCHIVED: AuditCategory.BUSINESS,
+  OFFERING_RESTORED: AuditCategory.BUSINESS,
+  CATEGORY_CREATED: AuditCategory.BUSINESS,
+  CATEGORY_UPDATED: AuditCategory.BUSINESS,
+  CATEGORY_DELETED: AuditCategory.BUSINESS,
 };
 
 /** Event types that the frontend is allowed to report via POST /api/audit/events. */

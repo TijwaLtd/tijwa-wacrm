@@ -20,6 +20,17 @@ import {
   isAccountRole,
   type AccountRole,
 } from "@/lib/auth/roles";
+import type { BusinessType, CapabilityNavigation } from "@/lib/business/capabilities";
+
+// Full capability item stored in auth context
+interface CapabilityItem {
+  key: string;
+  name: string;
+  description: string | null;
+  category: string;
+  is_enabled: boolean;
+  navigation: CapabilityNavigation | null;
+}
 
 interface Workspace {
   account_id: string;
@@ -29,6 +40,7 @@ interface Workspace {
   plan?: string;
   subscription_status?: string;
   subdomain?: string | null;
+  business_type?: BusinessType | null;
 }
 
 interface Profile {
@@ -75,6 +87,12 @@ interface AuthContextValue {
   canManageMembers: boolean;
   canEditSettings: boolean;
   canSendMessages: boolean;
+
+  // Business type and capabilities
+  businessType: BusinessType | null;
+  capabilities: CapabilityItem[];
+  enabledCapabilities: string[];
+  refreshCapabilities: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -95,6 +113,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [statusDetail, setStatusDetail] = useState<string | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
+  const [businessType, setBusinessType] = useState<BusinessType | null>(null);
+  const [capabilities, setCapabilities] = useState<CapabilityItem[]>([]);
+  const [enabledCapabilities, setEnabledCapabilities] = useState<string[]>([]);
 
   const lastFetchedUserIdRef = useRef<string | null>(null);
 
@@ -102,6 +123,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Set cookie and update state
     document.cookie = `wacrm_active_account=${accountId}; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax`;
     setActiveAccountId(accountId);
+  }, []);
+
+  const fetchCapabilities = useCallback(async (accountId: string | null) => {
+    if (!accountId) {
+      setBusinessType(null);
+      setCapabilities([]);
+      setEnabledCapabilities([]);
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/business/capabilities/account?account_id=${accountId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setBusinessType(data.business_type);
+        setCapabilities(data.capabilities);
+        setEnabledCapabilities(data.enabled_keys);
+      }
+    } catch (err) {
+      console.error("[AuthProvider] fetchCapabilities error:", err);
+    }
   }, []);
 
   const fetchWorkspaces = useCallback(async (userId: string, currentActiveId: string | null): Promise<{ workspaces: Workspace[]; activeId: string | null }> => {
@@ -195,7 +237,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (activeWs) {
           const { data: accountData } = await supabase
             .from("accounts")
-            .select("id, name, default_currency")
+            .select("id, name, default_currency, business_type")
             .eq("id", resolvedActiveId)
             .maybeSingle();
 
@@ -205,11 +247,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               name: accountData.name,
               default_currency: accountData.default_currency ?? DEFAULT_CURRENCY,
             });
+            setBusinessType(accountData.business_type);
           }
+
+          // Fetch capabilities
+          await fetchCapabilities(resolvedActiveId);
         }
       } else {
         setActiveAccountId(null);
         setAccount(null);
+        setBusinessType(null);
+        setCapabilities([]);
+        setEnabledCapabilities([]);
       }
 
     } catch (err) {
@@ -219,7 +268,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setProfileLoading(false);
     }
-  }, [fetchWorkspaces]);
+  }, [fetchWorkspaces, fetchCapabilities]);
 
   useEffect(() => {
     const supabase = createClient();
@@ -317,6 +366,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await fetchProfile(user.id, activeId);
   }, [user?.id, fetchProfile]);
 
+  const refreshCapabilities = useCallback(async () => {
+    const cookieMatch = document.cookie.match(/wacrm_active_account=([^;]+)/);
+    const activeId = cookieMatch ? cookieMatch[1] : null;
+    await fetchCapabilities(activeId);
+  }, [fetchCapabilities]);
+
   const activeWorkspace = useMemo(() => {
     return workspaces.find(w => w.account_id === activeAccountId) ?? null;
   }, [workspaces, activeAccountId]);
@@ -366,6 +421,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         accountStatus,
         accountStatusDetail: statusDetail,
         ...derived,
+        businessType,
+        capabilities,
+        enabledCapabilities,
+        refreshCapabilities,
       }}
     >
       {children}
@@ -400,6 +459,10 @@ export function useAuth(): AuthContextValue {
       canManageMembers: false,
       canEditSettings: false,
       canSendMessages: false,
+      businessType: null,
+      capabilities: [],
+      enabledCapabilities: [],
+      refreshCapabilities: async () => {},
     };
   }
   return ctx;

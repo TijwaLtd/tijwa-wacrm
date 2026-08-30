@@ -13,6 +13,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
+import { isValidBusinessType, type BusinessType } from "@/lib/business/capabilities";
 
 // GET /api/workspaces - List all workspaces for current user
 // Uses serviceClient to bypass RLS (avoids infinite recursion on account_memberships)
@@ -78,6 +79,7 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => null);
   const name = typeof body?.name === "string" ? body.name.trim() : "";
+  const businessType = typeof body?.business_type === "string" ? body.business_type : null;
 
   if (!name || name.length < 2) {
     return NextResponse.json({ error: "Workspace name must be at least 2 characters" }, { status: 400 });
@@ -85,6 +87,11 @@ export async function POST(request: Request) {
 
   if (name.length > 63) {
     return NextResponse.json({ error: "Workspace name must be less than 63 characters" }, { status: 400 });
+  }
+
+  // Validate business type if provided
+  if (businessType && !isValidBusinessType(businessType)) {
+    return NextResponse.json({ error: "Invalid business type" }, { status: 400 });
   }
 
   // Generate subdomain from name (workspace.tijwa-crm.com pattern)
@@ -125,6 +132,38 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "A workspace with this name already exists." }, { status: 409 });
     }
     return NextResponse.json({ error: "Failed to create workspace: " + accountError.message }, { status: 500 });
+  }
+
+  // Update business type if provided
+  if (businessType && accountId) {
+    await supabase
+      .from("accounts")
+      .update({ business_type: businessType })
+      .eq("id", accountId);
+
+    // Enable all capabilities by default
+    const serviceClient = createServiceClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    );
+
+    const { data: allCapabilities } = await serviceClient
+      .from("business_capabilities")
+      .select("key");
+
+    if (allCapabilities) {
+      const capabilityUpserts = allCapabilities.map((cap) => ({
+        account_id: accountId,
+        capability_key: cap.key,
+        is_enabled: true,
+      }));
+
+      await serviceClient
+        .from("account_capabilities")
+        .upsert(capabilityUpserts, {
+          onConflict: "account_id,capability_key",
+        });
+    }
   }
 
   // Fetch the created workspace with all details
