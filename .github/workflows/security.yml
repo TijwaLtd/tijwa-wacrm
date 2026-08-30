@@ -1,0 +1,95 @@
+name: Security Audit
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 0 * * 1'
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.24.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run pnpm audit (root)
+        id: pnpm-audit-root
+        run: pnpm audit --audit-level=moderate --json > audit-root.json
+        continue-on-error: true
+
+      - name: Run pnpm audit (mcp-server)
+        id: pnpm-audit-mcp
+        run: cd mcp-server && pnpm audit --audit-level=moderate --json > ../audit-mcp.json
+        continue-on-error: true
+
+      - name: Run OSV Scanner
+        id: osv
+        uses: google/osv-scanner-action@v2
+        with:
+          scan-args: >-
+            --recursive
+            --skip-git
+            .
+
+      - name: Upload audit reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-audit-reports
+          path: |
+            audit-root.json
+            audit-mcp.json
+            osv-scanner-report/
+          retention-days: 30
+
+      - name: Fail on vulnerabilities
+        if: always()
+        run: node -e "
+          const fs = require('fs');
+          let hasVulnerability = false;
+          const reports = ['audit-root.json', 'audit-mcp.json'];
+          
+          for (const reportPath of reports) {
+            try {
+              const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+              const count = Object.keys(report.advisories || {}).length;
+              if (count > 0) {
+                console.error('::error::' + count + ' vulnerabilities found in ' + reportPath);
+                for (const [id, advisory] of Object.entries(report.advisories)) {
+                  console.error(advisory.severity.toUpperCase() + ': ' + advisory.module_name + ' - ' + advisory.title);
+                }
+                hasVulnerability = true;
+              }
+            } catch (e) {
+              console.error('::warning::Could not parse ' + reportPath);
+            }
+          }
+
+          try {
+            const osvReport = fs.readFileSync('osv-scanner-report/results.json', 'utf8');
+            const osvData = JSON.parse(osvReport);
+            const osvCount = (osvData.results || []).reduce((acc, r) => acc + (r.packages || []).length, 0);
+            if (osvCount > 0) {
+              console.error('::error::' + osvCount + ' OSV vulnerabilities/malicious packages found');
+              hasVulnerability = true;
+            }
+          } catch (e) {
+            console.error('::warning::Could not parse OSV scanner report');
+          }
+
+          process.exit(hasVulnerability ? 1 : 0);
+        "

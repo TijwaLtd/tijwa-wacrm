@@ -1,5 +1,22 @@
-onlyBuiltDependencies:
-  - "@parcel/watcher"
-  - "@swc/core"
-  - "sharp"
-  - "unrs-resolver"
+packages:
+  - "."
+  - "mcp-server"
+
+overrides:
+  postcss: ^8.5.23
+  sharp: ^0.35.3
+
+allowBuilds:
+  "@parcel/watcher": true
+  "@swc/core": true
+  sharp: true
+  unrs-resolver: true
+
+blockExoticSubdeps: true
+minimumReleaseAge: 1440
+trustPolicy: no-downgrade
+trustPolicyExclude:
+  - "eslint-import-resolver-typescript@3.10.1"
+  - "semver@6.3.1"
+  - "undici-types@6.21.0"
+engineStrict: true
