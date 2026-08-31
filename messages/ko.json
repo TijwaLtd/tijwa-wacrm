@@ -1689,7 +1689,8 @@
       "api": "API 키",
       "departments": "부서",
       "skills": "상담원 스킬",
-      "schedule": "운영 시간"
+      "schedule": "운영 시간",
+      "business": "비즈니스"
     },
     "groups": {
       "account": "계정",

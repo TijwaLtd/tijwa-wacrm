@@ -1,16 +1,20 @@
 // ============================================================
 // Capability Node Handler
 //
-// Maps operation_key → inline Supabase query + WhatsApp formatter.
+// Maps operation_key → service call + WhatsApp formatter.
 // The engine calls `executeCapabilityNode()` with the operation_key
-// and params; this file resolves it to a DB query, formats the
-// result for WhatsApp display, and returns structured data that
-// the engine stores in flow_runs.vars.
+// and params; this file resolves it to a CatalogueService or
+// direct DB call, formats the result for WhatsApp display, and
+// returns structured data that the engine stores in flow_runs.vars.
 //
-// Pattern: same as API routes — uses supabaseAdmin() directly.
+// Catalogue operations delegate to CatalogueService (single source
+// of truth). Order/booking operations use direct DB calls (same
+// pattern as API routes).
 // ============================================================
 
 import { supabaseAdmin } from "./admin-client";
+import { CatalogueService } from "../business/catalogue-service";
+import type { OfferingType } from "../business/offerings";
 
 type AdminClient = ReturnType<typeof supabaseAdmin>;
 
@@ -31,80 +35,48 @@ export interface NodeHandlerResult {
 }
 
 // ============================================================
-// Formatting helpers
+// Formatting helpers (orders/bookings only)
 // ============================================================
 
 function formatPrice(amount: number, currency: string): string {
   return `${currency} ${amount.toFixed(2)}`;
 }
 
-function truncate(text: string, maxLen: number): string {
-  if (text.length <= maxLen) return text;
-  return text.slice(0, maxLen - 3) + "...";
-}
-
 // ============================================================
-// Operation handlers — each maps one operation_key
+// Operation handlers — Catalogue operations (via CatalogueService)
 // ============================================================
 
 async function listCatalog(
-  db: AdminClient,
+  catalogue: CatalogueService,
   accountId: string,
   params: Record<string, unknown>,
 ): Promise<NodeHandlerResult> {
   const limit = typeof params.limit === "number" ? params.limit : 10;
   const page = typeof params.page === "number" ? params.page : 0;
-  const type = typeof params.type === "string" ? params.type : null;
-  const category = typeof params.category === "string" ? params.category : null;
-  const search = typeof params.search === "string" ? params.search : null;
+  const type = typeof params.type === "string" ? (params.type as OfferingType) : undefined;
+  const category = typeof params.category === "string" ? params.category : undefined;
+  const search = typeof params.search === "string" ? params.search : undefined;
 
-  let query = db
-    .from("offerings")
-    .select("*, category:offering_categories(name, slug)", { count: "exact" })
-    .eq("account_id", accountId)
-    .eq("status", "active");
-
-  if (type) query = query.eq("type", type);
-  if (category) {
-    query = query.eq("category.slug", category);
-  }
-  if (search) {
-    query = query.or(`name.ilike.%${search}%,short_description.ilike.%${search}%`);
-  }
-
-  const { data, error, count } = await query
-    .order("created_at", { ascending: false })
-    .range(page * limit, (page + 1) * limit - 1);
-
-  if (error) throw error;
-
-  const items = data ?? [];
-  const currency = items[0]?.currency ?? "USD";
-
-  // Format for WhatsApp display
-  const lines = items.map((item: Record<string, unknown>, i: number) => {
-    const name = String(item.name ?? "Untitled");
-    const price = item.price != null ? formatPrice(Number(item.price), currency) : "Price on request";
-    const desc = item.short_description ? truncate(String(item.short_description), 60) : "";
-    return `${i + 1}. *${name}* — ${price}${desc ? "\n   " + desc : ""}`;
+  const result = await catalogue.getItems(accountId, {
+    type,
+    category,
+    search,
+    limit,
+    page,
   });
 
-  const listText = lines.length > 0
-    ? lines.join("\n\n")
-    : "No items available.";
-
   return {
-    items,
-    total: count ?? 0,
-    page,
-    count: items.length,
-    has_more: (count ?? 0) > (page + 1) * limit,
-    list: listText,
+    items: result.items,
+    total: result.total,
+    page: result.page,
+    count: result.items.length,
+    has_more: result.has_more,
+    list: catalogue.formatItemList(result.items),
   };
 }
 
 async function getCatalogItem(
-  db: AdminClient,
+  catalogue: CatalogueService,
   accountId: string,
   params: Record<string, unknown>,
 ): Promise<NodeHandlerResult> {
@@ -114,35 +86,14 @@ async function getCatalogItem(
 
   if (!id) return { item: null, detail: "Item not found." };
 
-  const { data, error } = await db
-    .from("offerings")
-    .select("*, category:offering_categories(name, slug), media:offering_media(*)")
-    .eq("account_id", accountId)
-    .eq("id", id)
-    .maybeSingle();
+  const item = await catalogue.getItem(accountId, id);
+  if (!item) return { item: null, detail: "Item not found." };
 
-  if (error) throw error;
-
-  if (!data) return { item: null, detail: "Item not found." };
-
-  const currency = String(data.currency ?? "USD");
-  const name = String(data.name ?? "Untitled");
-  const price = data.price != null ? formatPrice(Number(data.price), currency) : "Price on request";
-  const desc = data.description ?? data.short_description ?? "";
-  const category = (data.category as Record<string, unknown> | null)?.name ?? "";
-
-  const detail = [
-    `*${name}*`,
-    category ? `Category: ${category}` : null,
-    `Price: ${price}`,
-    desc ? `\n${truncate(String(desc), 300)}` : null,
-  ].filter(Boolean).join("\n");
-
-  return { item: data, detail };
+  return { item, detail: catalogue.formatItemDetail(item) };
 }
 
 async function searchCatalog(
-  db: AdminClient,
+  catalogue: CatalogueService,
   accountId: string,
   params: Record<string, unknown>,
 ): Promise<NodeHandlerResult> {
@@ -151,65 +102,36 @@ async function searchCatalog(
 
   if (!query.trim()) return { items: [], total: 0, list: "No results found." };
 
-  const { data, error, count } = await db
-    .from("offerings")
-    .select("*, category:offering_categories(name, slug)", { count: "exact" })
-    .eq("account_id", accountId)
-    .eq("status", "active")
-    .or(`name.ilike.%${query}%,short_description.ilike.%${query}%,description.ilike.%${query}%`)
-    .order("created_at", { ascending: false })
-    .limit(limit);
+  const result = await catalogue.searchItems(accountId, { query, limit });
 
-  if (error) throw error;
-
-  const items = data ?? [];
-  const currency = items[0]?.currency ?? "USD";
-
-  const lines = items.map((item: Record<string, unknown>, i: number) => {
-    const name = String(item.name ?? "Untitled");
-    const price = item.price != null ? formatPrice(Number(item.price), currency) : "Price on request";
-    return `${i + 1}. *${name}* — ${price}`;
-  });
-
-  const list = lines.length > 0
-    ? `Results for "${query}":\n\n${lines.join("\n")}`
-    : `No results found for "${query}".`;
-
-  return { items, total: count ?? 0, list };
+  return {
+    items: result.items,
+    total: result.total,
+    list: catalogue.formatSearchResults(result.items, query),
+  };
 }
 
 async function getCategories(
-  db: AdminClient,
+  catalogue: CatalogueService,
   accountId: string,
   params: Record<string, unknown>,
 ): Promise<NodeHandlerResult> {
   const parentId = typeof params.parent_id === "string" ? params.parent_id : null;
 
-  let query = db
-    .from("offering_categories")
-    .select("*")
-    .order("sort_order", { ascending: true });
-
-  if (parentId) {
-    query = query.eq("parent_id", parentId);
-  } else {
-    query = query.is("parent_id", null);
-  }
-
-  const { data, error } = await query;
-  if (error) throw error;
-
-  const items = data ?? [];
-  const lines = items.map((cat: Record<string, unknown>, i: number) => {
-    return `${i + 1}. ${String(cat.name ?? "Unnamed")}`;
+  const items = await catalogue.getCategories(accountId, {
+    parent_id: parentId,
   });
 
   return {
     items,
     count: items.length,
-    list: lines.length > 0 ? lines.join("\n") : "No categories available.",
+    list: catalogue.formatCategoryList(items),
   };
 }
+
+// ============================================================
+// Operation handlers — Order/Booking (direct DB)
+// ============================================================
 
 async function createOrder(
   db: AdminClient,
@@ -447,7 +369,9 @@ async function createBooking(
     total > 0 ? `Total: *${formatPrice(total, currency)}*` : null,
     "",
     "We'll confirm your booking shortly.",
-  ].filter(Boolean).join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   return { booking, success: true, message };
 }
@@ -486,7 +410,9 @@ async function getBooking(
     `Date: ${data.start_date}${data.end_date ? ` — ${data.end_date}` : ""}`,
     `Guests: ${data.guests}`,
     `Total: *${formatPrice(Number(data.total ?? 0), String(data.currency ?? "USD"))}*`,
-  ].filter(Boolean).join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   return { booking: data, detail };
 }
@@ -530,6 +456,71 @@ async function listBookings(
   };
 }
 
+// ============================================================
+// Dispatcher — maps operation_key to handler
+// ============================================================
+
+const HANDLERS: Record<
+  string,
+  (
+    catalogue: CatalogueService,
+    db: AdminClient,
+    accountId: string,
+    params: Record<string, unknown>,
+  ) => Promise<NodeHandlerResult>
+> = {
+  // Catalog / Products
+  "catalog.list": (c, _db, accountId, params) => listCatalog(c, accountId, params),
+  "catalog.get": (c, _db, accountId, params) => getCatalogItem(c, accountId, params),
+  "catalog.search": (c, _db, accountId, params) => searchCatalog(c, accountId, params),
+  "catalog.categories": (c, _db, accountId, params) => getCategories(c, accountId, params),
+
+  // Menu (same catalog table, filtered by type=menu_item)
+  "menu.list": (c, _db, accountId, params) =>
+    listCatalog(c, accountId, { ...params, type: "menu_item" }),
+  "menu.get": (c, _db, accountId, params) => getCatalogItem(c, accountId, params),
+  "menu.search": (c, _db, accountId, params) => searchCatalog(c, accountId, params),
+
+  // Orders
+  "orders.create": (_c, db, accountId, params) => createOrder(db, accountId, params),
+  "orders.get": (_c, db, accountId, params) => getOrder(db, accountId, params),
+  "orders.list": (_c, db, accountId, params) => listOrders(db, accountId, params),
+
+  // Bookings
+  "bookings.create": (_c, db, accountId, params) => createBooking(db, accountId, params),
+  "bookings.get": (_c, db, accountId, params) => getBooking(db, accountId, params),
+  "bookings.list": (_c, db, accountId, params) => listBookings(db, accountId, params),
+  "bookings.checkAvailability": (_c, db, accountId, params) =>
+    checkAvailability(db, accountId, params),
+
+  // Courses (same catalog table, filtered by type=course)
+  "courses.list": (c, _db, accountId, params) =>
+    listCatalog(c, accountId, { ...params, type: "course" }),
+  "courses.get": (c, _db, accountId, params) => getCatalogItem(c, accountId, params),
+  "courses.search": (c, _db, accountId, params) => searchCatalog(c, accountId, params),
+
+  // Programs (same catalog table, filtered by type=program)
+  "programs.list": (c, _db, accountId, params) =>
+    listCatalog(c, accountId, { ...params, type: "program" }),
+  "programs.get": (c, _db, accountId, params) => getCatalogItem(c, accountId, params),
+
+  // Properties (same catalog table, filtered by type=property)
+  "properties.list": (c, _db, accountId, params) =>
+    listCatalog(c, accountId, { ...params, type: "property" }),
+  "properties.get": (c, _db, accountId, params) => getCatalogItem(c, accountId, params),
+  "properties.search": (c, _db, accountId, params) => searchCatalog(c, accountId, params),
+
+  // Services (same catalog table, filtered by type=service)
+  "services.list": (c, _db, accountId, params) =>
+    listCatalog(c, accountId, { ...params, type: "service" }),
+  "services.get": (c, _db, accountId, params) => getCatalogItem(c, accountId, params),
+  "services.search": (c, _db, accountId, params) => searchCatalog(c, accountId, params),
+};
+
+// ============================================================
+// Availability — still uses direct DB (booking check)
+// ============================================================
+
 async function checkAvailability(
   db: AdminClient,
   accountId: string,
@@ -566,65 +557,6 @@ async function checkAvailability(
 }
 
 // ============================================================
-// Dispatcher — maps operation_key to handler
-// ============================================================
-
-const HANDLERS: Record<
-  string,
-  (db: AdminClient, accountId: string, params: Record<string, unknown>) => Promise<NodeHandlerResult>
-> = {
-  // Catalog / Products
-  "catalog.list": listCatalog,
-  "catalog.get": getCatalogItem,
-  "catalog.search": searchCatalog,
-  "catalog.categories": getCategories,
-
-  // Menu (same catalog table, filtered by type=menu_item)
-  "menu.list": (db, accountId, params) =>
-    listCatalog(db, accountId, { ...params, type: "menu_item" }),
-  "menu.get": getCatalogItem,
-  "menu.search": (db, accountId, params) =>
-    searchCatalog(db, accountId, { ...params }),
-
-  // Orders
-  "orders.create": createOrder,
-  "orders.get": getOrder,
-  "orders.list": listOrders,
-
-  // Bookings
-  "bookings.create": createBooking,
-  "bookings.get": getBooking,
-  "bookings.list": listBookings,
-  "bookings.checkAvailability": checkAvailability,
-
-  // Courses (same catalog table, filtered by type=course)
-  "courses.list": (db, accountId, params) =>
-    listCatalog(db, accountId, { ...params, type: "course" }),
-  "courses.get": getCatalogItem,
-  "courses.search": (db, accountId, params) =>
-    searchCatalog(db, accountId, { ...params }),
-
-  // Programs (same catalog table, filtered by type=program)
-  "programs.list": (db, accountId, params) =>
-    listCatalog(db, accountId, { ...params, type: "program" }),
-  "programs.get": getCatalogItem,
-
-  // Properties (same catalog table, filtered by type=property)
-  "properties.list": (db, accountId, params) =>
-    listCatalog(db, accountId, { ...params, type: "property" }),
-  "properties.get": getCatalogItem,
-  "properties.search": (db, accountId, params) =>
-    searchCatalog(db, accountId, { ...params }),
-
-  // Services (same catalog table, filtered by type=service)
-  "services.list": (db, accountId, params) =>
-    listCatalog(db, accountId, { ...params, type: "service" }),
-  "services.get": getCatalogItem,
-  "services.search": (db, accountId, params) =>
-    searchCatalog(db, accountId, { ...params }),
-};
-
-// ============================================================
 // Public entry point
 // ============================================================
 
@@ -646,5 +578,6 @@ export async function executeCapabilityNode(
   }
 
   const db = supabaseAdmin();
-  return handler(db, params.accountId, params.input_params);
+  const catalogue = new CatalogueService(db);
+  return handler(catalogue, db, params.accountId, params.input_params);
 }

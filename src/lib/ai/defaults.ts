@@ -156,6 +156,17 @@ export function buildSystemPrompt(args: {
       'Do NOT use: markdown links, headings, bullet lists, numbered lists, emojis, or ALL CAPS for emphasis.\n' +
       'Use plain line breaks for readability.',
 
+    // ---- CATALOGUE ACCESS ----
+    'CATALOGUE ACCESS:\n' +
+      'When a customer asks about products, services, menu items, courses, rooms, properties, or offerings:\n' +
+      '- Search the business catalogue for matching items using the catalogue service\n' +
+      '- Present real data from the catalogue — names, descriptions, prices, availability\n' +
+      '- NEVER invent product names, prices, or availability — use only catalogue data\n' +
+      '- If no items match, say so honestly\n' +
+      '- If multiple items match, list them with key details (name, price, brief description)\n' +
+      '- For specific items, provide full details including description and price\n' +
+      'The catalogue is the single source of truth for all business offerings.',
+
     // ---- OUTPUT ----
     'OUTPUT:\n' +
       'Return ONLY the customer-facing message. ' +

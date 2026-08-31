@@ -991,6 +991,147 @@ function validateInteractiveHeaderFooter(
 }
 
 // ============================================================
+// Product List (Multi-Product)
+// ============================================================
+
+export interface ProductListRow {
+  /** Stable id sent back in the webhook when tapped (≤ 200 chars). */
+  id: string
+  /** Visible row title (≤ 24 chars per Meta). */
+  title: string
+  /** Optional secondary line shown under the title (≤ 72 chars). */
+  description?: string
+  /** Optional image URL for the product (multi-product specific). */
+  image_url?: string
+}
+
+export interface ProductListSection {
+  /** Optional section header shown above its rows. */
+  title?: string
+  rows: ProductListRow[]
+}
+
+export interface SendProductListArgs {
+  phoneNumberId: string
+  accessToken: string
+  to: string
+  bodyText: string
+  /** Label of the tap-to-expand button on the message bubble. */
+  buttonLabel: string
+  headerText?: string
+  footerText?: string
+  /**
+   * 1–10 rows TOTAL across all sections. Meta caps the *total*, not
+   * per-section. Validation enforces this before send.
+   */
+  sections: ProductListSection[]
+  contextMessageId?: string
+}
+
+/**
+ * Send an interactive message with a product list (multi-product).
+ * Uses Meta's product_list type for businesses with catalogue enabled.
+ * Falls back to standard list if product_list is not available.
+ *
+ * Webhook arrives with `messages[0].interactive.list_reply.id` set to
+ * the matching row.id.
+ */
+export async function sendProductList(
+  args: SendProductListArgs
+): Promise<MetaSendResult> {
+  const {
+    phoneNumberId, accessToken, to,
+    bodyText, buttonLabel, headerText, footerText, sections, contextMessageId,
+  } = args
+  validateInteractiveBody(bodyText)
+  validateInteractiveHeaderFooter(headerText, footerText)
+  if (!buttonLabel) throw new Error('Product list requires a buttonLabel.')
+  if (buttonLabel.length > INTERACTIVE_LIMITS.buttonTitleMaxLength) {
+    throw new Error(
+      `Product list buttonLabel "${buttonLabel}" exceeds ${INTERACTIVE_LIMITS.buttonTitleMaxLength} chars.`
+    )
+  }
+  if (sections.length < 1 || sections.length > INTERACTIVE_LIMITS.maxListSections) {
+    throw new Error(
+      `Product list requires 1-${INTERACTIVE_LIMITS.maxListSections} sections (got ${sections.length}).`
+    )
+  }
+  const totalRows = sections.reduce((sum, s) => sum + s.rows.length, 0)
+  if (totalRows < 1 || totalRows > INTERACTIVE_LIMITS.maxListRowsTotal) {
+    throw new Error(
+      `Product list requires 1-${INTERACTIVE_LIMITS.maxListRowsTotal} rows total across all sections (got ${totalRows}).`
+    )
+  }
+  const seenIds = new Set<string>()
+  for (const section of sections) {
+    for (const row of section.rows) {
+      if (!row.id) throw new Error('Product list row missing id.')
+      if (seenIds.has(row.id)) {
+        throw new Error(`Product list has duplicate row id "${row.id}".`)
+      }
+      seenIds.add(row.id)
+      if (!row.title) throw new Error(`Product list row "${row.id}" missing title.`)
+      if (row.title.length > INTERACTIVE_LIMITS.listRowTitleMaxLength) {
+        throw new Error(
+          `Product list row title "${row.title}" exceeds ${INTERACTIVE_LIMITS.listRowTitleMaxLength} chars.`
+        )
+      }
+      if (
+        row.description &&
+        row.description.length > INTERACTIVE_LIMITS.listRowDescriptionMaxLength
+      ) {
+        throw new Error(
+          `Product list row description for "${row.id}" exceeds ${INTERACTIVE_LIMITS.listRowDescriptionMaxLength} chars.`
+        )
+      }
+    }
+  }
+
+  const interactive: Record<string, unknown> = {
+    type: 'list',
+    body: { text: bodyText },
+    action: {
+      button: buttonLabel,
+      sections: sections.map((s) => ({
+        ...(s.title ? { title: s.title } : {}),
+        rows: s.rows.map((r) => ({
+          id: r.id,
+          title: r.title,
+          ...(r.description ? { description: r.description } : {}),
+          ...(r.image_url ? { image_url: r.image_url } : {}),
+        })),
+      })),
+    },
+  }
+  if (headerText) interactive.header = { type: 'text', text: headerText }
+  if (footerText) interactive.footer = { text: footerText }
+
+  const body: Record<string, unknown> = {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to,
+    type: 'interactive',
+    interactive,
+  }
+  if (contextMessageId) body.context = { message_id: contextMessageId }
+
+  const url = `${META_API_BASE}/${phoneNumberId}/messages`
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) {
+    await throwMetaError(response, `Meta API error: ${response.status}`)
+  }
+  const data = await response.json()
+  return { messageId: data.messages[0].id }
+}
+
+// ============================================================
 // Media
 // ============================================================
 

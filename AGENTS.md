@@ -233,6 +233,11 @@ type CapabilityCategory =
 - `src/lib/business/offerings.ts` - Offering types, capability→offering mapping, helpers
 - `src/lib/business/offering-ai.ts` - AI image search service (independent, CLIP + vision)
 - `src/lib/business/orders.ts` - Orders & bookings types, status constants, helpers
+- `src/lib/business/catalogue-service.ts` - Centralized catalogue service (single source of truth)
+- `src/lib/business/catalogue-types.ts` - Normalized catalogue types
+- `src/lib/business/catalogue-adapter.ts` - Interface for internal/external catalogue sources
+- `src/lib/business/catalogue-presentation.ts` - WhatsApp presentation strategy
+- `src/lib/business/catalogue-handler.ts` - Independent catalogue intent handler
 
 ### API Routes
 - `src/app/api/business/capabilities/route.ts` - CRUD for capabilities
@@ -274,16 +279,17 @@ type CapabilityCategory =
 - `src/components/layout/sidebar.tsx` - Reads capabilities from auth context, renders nav items
 
 ### Audit
-- `src/lib/audit/events.ts` - Added BUSINESS_TYPE_CHANGED, CAPABILITY_ENABLED, CAPABILITY_DISABLED, OFFERING_CREATED, OFFERING_UPDATED, OFFERING_ARCHIVED, OFFERING_RESTORED, CATEGORY_CREATED, CATEGORY_UPDATED, CATEGORY_DELETED
+- `src/lib/audit/events.ts` - Added BUSINESS_TYPE_CHANGED, CAPABILITY_ENABLED, CAPABILITY_DISABLED, OFFERING_CREATED, OFFERING_UPDATED, OFFERING_ARCHIVED, OFFERING_RESTORED, CATEGORY_CREATED, CATEGORY_UPDATED, CATEGORY_DELETED, CATALOGUE_ITEM_VIEWED, CATALOGUE_SEARCH_PERFORMED, CATALOGUE_SOURCE_CONNECTED, CATALOGUE_BROWSE_PERFORMED
 
 ### Database
 - `supabase/migrations/067_business_classification_and_capabilities.sql`
 - `supabase/migrations/068_offerings_catalog_foundation.sql` (use `ON CONFLICT DO NOTHING` for categories seed)
 - `supabase/migrations/069_orders_and_bookings.sql`
 - `supabase/migrations/070_capability_nodes_and_defaults.sql`
+- `supabase/migrations/071_catalogue_service.sql`
 
 ### Phase 3.5 - Capability Nodes & Default Flows
-- `src/lib/flows/node-handler.ts` - Capability node handler (inline DB queries)
+- `src/lib/flows/node-handler.ts` - Capability node handler (delegates to CatalogueService)
 - `src/lib/flows/capability-templates.ts` - Default flow templates per capability
 - `src/lib/business/capability-nodes.ts` - Node registry (types, constants, helpers)
 - `src/lib/flows/types.ts` - Added `capability_action` to FlowNodeConfig
@@ -393,6 +399,19 @@ getRecommendedCapabilityKeys('events')        → ['events', 'registrations', 'b
 - `is_system_default` column on flows — non-deletable system flows
 - Flow templates use `capability_action` nodes to fetch data from catalog/orders/bookings
 
+### Phase 3.6: Catalogue Service ✅ COMPLETE
+- `catalogue-service.ts` — Centralized service layer for all catalogue operations
+- `catalogue-types.ts` — Normalized types (CatalogueItem, CatalogueCategory, etc.)
+- `catalogue-adapter.ts` — Interface for internal/external data sources
+- `catalogue-presentation.ts` — WhatsApp presentation strategy (multi-product, list, buttons, text)
+- `catalogue-handler.ts` — Independent catalogue intent handler (for messages not consumed by flows/automations)
+- `sendProductList()` added to `meta-api.ts` — Multi-product WhatsApp messages
+- Node handler refactored to delegate to CatalogueService (thin wrapper pattern)
+- AI system prompt updated with catalogue access instructions
+- Audit events: CATALOGUE_ITEM_VIEWED, CATALOGUE_SEARCH_PERFORMED, CATALOGUE_SOURCE_CONNECTED, CATALOGUE_BROWSE_PERFORMED
+- Migration 071: catalogue_sources, catalogue_availability, offerings.source_id, tenant_settings.catalogue_config
+- Architecture: ONE catalogue service, ONE presentation mechanism, no duplicate data access paths
+
 ### Phase 4: External Integrations
 - Use existing `api_keys` and webhook architecture
 - Connection → Provider → Supported capabilities
@@ -408,4 +427,6 @@ getRecommendedCapabilityKeys('events')        → ['events', 'registrations', 'b
 4. **Hotel needs independent capabilities** - accommodation, menu, bookings are separate
 5. **Existing Flows/Automations are preserved** - Future business actions plug into them
 6. **RLS is mandatory** - All new tables have tenant isolation
-7. **Capability nodes use inline DB queries** - Same pattern as API routes (supabaseAdmin), no separate service layer
+7. **Catalogue Service is single source of truth** - All catalogue data access goes through `CatalogueService`, never direct DB queries in handlers
+8. **Presentation Service decides format** - WhatsApp presentation strategy (multi-product, list, buttons, text) is centralized in `catalogue-presentation.ts`
+9. **No duplicate catalogue paths** - Node handler, AI, and independent handler all use `CatalogueService`

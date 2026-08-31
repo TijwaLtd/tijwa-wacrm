@@ -1614,7 +1614,8 @@
       "api": "API keys",
       "departments": "Departments",
       "skills": "Agent skills",
-      "schedule": "Working hours"
+      "schedule": "Working hours",
+      "business": "Business"
     },
     "groups": {
       "account": "Account",

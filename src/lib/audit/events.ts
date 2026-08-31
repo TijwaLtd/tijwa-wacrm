@@ -53,6 +53,12 @@ export const AuditEventType = {
   CATEGORY_CREATED: 'CATEGORY_CREATED',
   CATEGORY_UPDATED: 'CATEGORY_UPDATED',
   CATEGORY_DELETED: 'CATEGORY_DELETED',
+
+  // Catalogue service
+  CATALOGUE_ITEM_VIEWED: 'CATALOGUE_ITEM_VIEWED',
+  CATALOGUE_SEARCH_PERFORMED: 'CATALOGUE_SEARCH_PERFORMED',
+  CATALOGUE_SOURCE_CONNECTED: 'CATALOGUE_SOURCE_CONNECTED',
+  CATALOGUE_BROWSE_PERFORMED: 'CATALOGUE_BROWSE_PERFORMED',
 } as const;
 
 export type AuditEventTypeValue = (typeof AuditEventType)[keyof typeof AuditEventType];
@@ -82,6 +88,10 @@ export const EVENT_CATEGORY_MAP: Record<AuditEventTypeValue, AuditCategoryValue>
   CATEGORY_CREATED: AuditCategory.BUSINESS,
   CATEGORY_UPDATED: AuditCategory.BUSINESS,
   CATEGORY_DELETED: AuditCategory.BUSINESS,
+  CATALOGUE_ITEM_VIEWED: AuditCategory.BUSINESS,
+  CATALOGUE_SEARCH_PERFORMED: AuditCategory.BUSINESS,
+  CATALOGUE_SOURCE_CONNECTED: AuditCategory.BUSINESS,
+  CATALOGUE_BROWSE_PERFORMED: AuditCategory.BUSINESS,
 };
 
 /** Event types that the frontend is allowed to report via POST /api/audit/events. */
