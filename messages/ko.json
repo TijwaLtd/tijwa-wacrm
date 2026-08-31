@@ -10,6 +10,8 @@
     "list": {
       "title": "자동화",
       "subtitle": "WhatsApp® 이벤트에 자동으로 반응하는 워크플로를 만드세요.",
+      "tabRules": "자동화",
+      "tabFlows": "플로우",
       "create": "자동화 만들기",
       "retry": "다시 시도",
       "templatesTitle": "빠른 시작 템플릿",

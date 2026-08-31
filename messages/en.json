@@ -846,6 +846,8 @@
     "list": {
       "title": "Automations",
       "subtitle": "Build workflows that react to WhatsApp® events automatically.",
+      "tabRules": "Automations",
+      "tabFlows": "Flows",
       "create": "Create Automation",
       "retry": "Retry",
       "templatesTitle": "Quick-start templates",

@@ -15,7 +15,6 @@ import {
   Settings as SettingsIcon,
   User,
   Users,
-  Workflow,
   Zap,
   Bell,
   MoreVertical,
@@ -61,7 +60,6 @@ const moreNavItems = [
   { href: '/knowledge', labelKey: 'knowledge', icon: BookOpen },
   // { href: '/pipelines', labelKey: 'pipelines', icon: GitBranch }, // TODO: enable when pipelines are supported
   { href: '/automations', labelKey: 'automations', icon: Zap },
-  { href: '/flows', labelKey: 'flows', icon: Workflow },
   { href: '/billing', labelKey: 'billing', icon: CreditCard },
 ];
 
