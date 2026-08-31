@@ -99,6 +99,8 @@ export function useIdleTimeout({
   }, [enabled, startTimer, clearTimers, isWarningOpen]);
 
   const staySignedIn = useCallback(() => {
+    // Guard: if the warning isn't open, this is a stale call — ignore it.
+    if (!warningShownRef.current) return;
     warningShownRef.current = false;
     startTimer();
   }, [startTimer]);

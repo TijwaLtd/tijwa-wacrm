@@ -39,10 +39,22 @@ export function IdleTimeoutWarning() {
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <Button variant="outline" onClick={staySignedIn}>
+          <Button
+            variant="outline"
+            onClick={(e) => {
+              e.stopPropagation();
+              staySignedIn();
+            }}
+          >
             Stay signed in
           </Button>
-          <Button variant="destructive" onClick={handleSignOutNow}>
+          <Button
+            variant="destructive"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleSignOutNow();
+            }}
+          >
             Sign out now
           </Button>
         </DialogFooter>
