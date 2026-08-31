@@ -38,7 +38,7 @@ const pageTitles: Record<string, string> = {
   '/inbox': 'inbox',
   '/notifications': 'notifications',
   '/contacts': 'contacts',
-  '/pipelines': 'pipelines',
+  // '/pipelines': 'pipelines', // TODO: enable when pipelines are supported
   '/broadcasts': 'broadcasts',
   '/automations': 'automations',
   '/settings': 'settings',
@@ -59,7 +59,7 @@ function getPageTitleKey(pathname: string): string {
 const moreNavItems = [
   { href: '/contacts', labelKey: 'contacts', icon: Users },
   { href: '/knowledge', labelKey: 'knowledge', icon: BookOpen },
-  { href: '/pipelines', labelKey: 'pipelines', icon: GitBranch },
+  // { href: '/pipelines', labelKey: 'pipelines', icon: GitBranch }, // TODO: enable when pipelines are supported
   { href: '/automations', labelKey: 'automations', icon: Zap },
   { href: '/flows', labelKey: 'flows', icon: Workflow },
   { href: '/billing', labelKey: 'billing', icon: CreditCard },

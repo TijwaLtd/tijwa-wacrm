@@ -107,7 +107,7 @@ const navItems: NavItem[] = [
   { href: '/inbox', labelKey: 'inbox', icon: MessageSquare },
   { href: '/contacts', labelKey: 'contacts', icon: Users },
   { href: '/knowledge', labelKey: 'knowledge', icon: BookOpen },
-  { href: '/pipelines', labelKey: 'pipelines', icon: GitBranch },
+  // { href: '/pipelines', labelKey: 'pipelines', icon: GitBranch }, // TODO: enable when pipelines are supported
   { href: '/broadcasts', labelKey: 'broadcasts', icon: Radio },
   { href: '/automations', labelKey: 'automations', icon: Zap },
   { href: '/flows', labelKey: 'flows', icon: Workflow, beta: true },
