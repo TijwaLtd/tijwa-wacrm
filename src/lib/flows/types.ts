@@ -177,6 +177,32 @@ export interface SetTagNodeConfig {
 export type EndNodeConfig = Record<string, never>;
 
 /**
+ * Executes a capability-backed business operation. The handler
+ * resolves the operation_key to a service function, fetches data
+ * from the catalog/orders/bookings tables, and stores the result
+ * in flow_runs.vars[output_var]. Always auto-advances.
+ */
+export interface CapabilityActionNodeConfig {
+  /**
+   * Operation identifier — maps to a service handler.
+   * Format: `domain.action` (e.g. `catalog.list`, `orders.create`).
+   */
+  operation_key: string;
+  /**
+   * Parameters to pass to the handler. Values can reference
+   * run.vars via `{{vars.key}}` syntax (resolved at runtime).
+   */
+  input_params: Record<string, string>;
+  /**
+   * Key under which to store the result in flow_runs.vars.
+   * The result is a JSON-serializable object.
+   */
+  output_var: string;
+  /** Node to advance to after the operation completes. */
+  next_node_key: string;
+}
+
+/**
  * Total union — every concrete node_type the v1 engine understands.
  * Add new node types here and the engine's switch will flag missing
  * cases via TypeScript's exhaustiveness check.
@@ -194,6 +220,7 @@ export type FlowNodeConfig =
   | { node_type: "condition"; config: ConditionNodeConfig }
   | { node_type: "set_tag"; config: SetTagNodeConfig }
   | { node_type: "handoff"; config: HandoffNodeConfig }
+  | { node_type: "capability_action"; config: CapabilityActionNodeConfig }
   | { node_type: "end"; config: EndNodeConfig };
 
 export type FlowNodeType = FlowNodeConfig["node_type"];
@@ -240,6 +267,12 @@ export interface FlowRow {
   fallback_policy: FlowFallbackPolicy;
   execution_count: number;
   last_executed_at: string | null;
+  /** System default flows are non-deletable and non-editable. */
+  is_system_default: boolean;
+  /** Stable key identifying which capability template this flow was installed from. */
+  system_template_key: string | null;
+  /** Version of the system template for future upgrades. */
+  template_version: number;
   created_at: string;
   updated_at: string;
 }

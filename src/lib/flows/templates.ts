@@ -20,6 +20,7 @@
  */
 
 import type {
+  CapabilityActionNodeConfig,
   CollectInputNodeConfig,
   ConditionNodeConfig,
   HandoffNodeConfig,
@@ -39,6 +40,7 @@ export type FlowTemplateNodeType =
   | "condition"
   | "set_tag"
   | "handoff"
+  | "capability_action"
   | "end";
 
 export interface FlowTemplateNode {
@@ -52,6 +54,7 @@ export interface FlowTemplateNode {
     | CollectInputNodeConfig
     | ConditionNodeConfig
     | HandoffNodeConfig
+    | CapabilityActionNodeConfig
     | Record<string, unknown>;
 }
 

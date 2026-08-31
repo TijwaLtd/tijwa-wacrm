@@ -42,7 +42,9 @@ import {
 import { decideFallback, resolveFallbackPolicy } from "./fallback";
 import { addContactTagAndDispatch } from "@/lib/contacts/tag-events";
 import { removeContactTag } from "@/lib/contacts/tag-write";
+import { executeCapabilityNode } from "./node-handler";
 import {
+  type CapabilityActionNodeConfig,
   type CollectInputNodeConfig,
   type ConditionNodeConfig,
   type DispatchInboundInput,
@@ -118,7 +120,8 @@ export function isAutoAdvancing(node_type: string): boolean {
     node_type === "send_message" ||
     node_type === "send_media" ||
     node_type === "condition" ||
-    node_type === "set_tag"
+    node_type === "set_tag" ||
+    node_type === "capability_action"
   );
 }
 
@@ -734,6 +737,56 @@ async function advanceFromNodeKey(
           reason: "set_tag_failed",
           detail: err instanceof Error ? err.message : String(err),
         });
+      }
+      currentKey = cfg.next_node_key;
+      continue;
+    }
+    if (node.node_type === "capability_action") {
+      const cfg = node.config as unknown as CapabilityActionNodeConfig;
+      try {
+        // Resolve input params — replace {{vars.key}} references with actual values
+        const resolvedParams: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(cfg.input_params)) {
+          if (typeof value === "string") {
+            resolvedParams[key] = interpolateVars(value, run.vars);
+          } else {
+            resolvedParams[key] = value;
+          }
+        }
+
+        const result = await executeCapabilityNode({
+          operation_key: cfg.operation_key,
+          input_params: resolvedParams,
+          accountId: run.account_id,
+          contactId: run.contact_id ?? undefined,
+          vars: run.vars,
+        });
+
+        // Store result in vars
+        run.vars[cfg.output_var] = result;
+        const { error: varsErr } = await db
+          .from("flow_runs")
+          .update({ vars: run.vars })
+          .eq("id", run.id);
+        if (varsErr) {
+          await logEvent(db, run.id, "error", node.node_key, {
+            reason: "vars_update_failed",
+            detail: varsErr.message,
+          });
+        }
+
+        await logEvent(db, run.id, "node_entered", node.node_key, {
+          node_type: "capability_action",
+          operation_key: cfg.operation_key,
+          output_var: cfg.output_var,
+        });
+      } catch (err) {
+        await logEvent(db, run.id, "error", node.node_key, {
+          reason: "capability_action_failed",
+          detail: err instanceof Error ? err.message : String(err),
+        });
+        await endRun(db, run.id, "failed", "capability_action_failed");
+        return { outcome: "completed" };
       }
       currentKey = cfg.next_node_key;
       continue;

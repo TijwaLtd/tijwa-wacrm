@@ -8,7 +8,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 # TIJWA BUSINESS OPERATIONS ARCHITECTURE
 
-## Phase 1 + 2 + 3 Implementation Complete
+## Phase 1 + 2 + 3 + 3.5 Implementation Complete
 
 ### Critical Architecture Rules
 
@@ -170,6 +170,45 @@ bookings (
 )
 ```
 
+### New Tables (Phase 3.5 - Capability Nodes & Default Flows)
+```sql
+-- Registry of business operation nodes per capability
+capability_nodes (
+  id UUID PRIMARY KEY,
+  capability_key TEXT REFERENCES business_capabilities(key),
+  node_key TEXT NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT,
+  category TEXT,             -- read, search, check, action, communication
+  input_schema JSONB,
+  output_schema JSONB,
+  handler TEXT NOT NULL,
+  is_enabled BOOLEAN DEFAULT TRUE,
+  UNIQUE(capability_key, node_key)
+)
+
+-- Tracks installed default flow templates per account
+flow_template_installs (
+  id UUID PRIMARY KEY,
+  account_id UUID REFERENCES accounts(id),
+  system_template_key TEXT NOT NULL,
+  flow_id UUID REFERENCES flows(id),
+  template_version INTEGER DEFAULT 1,
+  installed_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(account_id, system_template_key)
+)
+```
+
+### New Columns on flows (Phase 3.5)
+```sql
+flows (
+  ...existing columns...
+  is_system_default BOOLEAN DEFAULT FALSE,   -- Non-deletable system flows
+  system_template_key TEXT UNIQUE,            -- Stable template identifier
+  template_version INTEGER DEFAULT 1          -- For future upgrades
+)
+```
+
 ### Business Types
 ```typescript
 type BusinessType = 
@@ -241,6 +280,15 @@ type CapabilityCategory =
 - `supabase/migrations/067_business_classification_and_capabilities.sql`
 - `supabase/migrations/068_offerings_catalog_foundation.sql` (use `ON CONFLICT DO NOTHING` for categories seed)
 - `supabase/migrations/069_orders_and_bookings.sql`
+- `supabase/migrations/070_capability_nodes_and_defaults.sql`
+
+### Phase 3.5 - Capability Nodes & Default Flows
+- `src/lib/flows/node-handler.ts` - Capability node handler (inline DB queries)
+- `src/lib/flows/capability-templates.ts` - Default flow templates per capability
+- `src/lib/business/capability-nodes.ts` - Node registry (types, constants, helpers)
+- `src/lib/flows/types.ts` - Added `capability_action` to FlowNodeConfig
+- `src/lib/flows/engine.ts` - Added `capability_action` case in advance loop
+- `src/lib/flows/templates.ts` - Added `capability_action` to FlowTemplateNodeType
 
 ---
 
@@ -327,15 +375,23 @@ getRecommendedCapabilityKeys('events')        → ['events', 'registrations', 'b
 
 ## FUTURE PHASES
 
-### Phase 2: Offerings/Catalog
+### Phase 2: Offerings/Catalog ✅ COMPLETE
 - Generic `offerings` table (not product-specific)
 - Capability-aware catalog types
 - Integration with existing Flow/Automation triggers
 
-### Phase 3: Operational Actions
+### Phase 3: Operational Actions ✅ COMPLETE
 - Actions plug into existing Flow engine
 - Events become automation triggers
 - No new automation system - extend existing
+
+### Phase 3.5: Capability Nodes & Default Flows ✅ COMPLETE
+- `capability_nodes` registry — maps capabilities to flow operations
+- `capability_action` node type — executes business operations in flows
+- Node handler dispatches to inline Supabase queries (same pattern as API routes)
+- Default flow templates per capability — auto-installed on enable
+- `is_system_default` column on flows — non-deletable system flows
+- Flow templates use `capability_action` nodes to fetch data from catalog/orders/bookings
 
 ### Phase 4: External Integrations
 - Use existing `api_keys` and webhook architecture
@@ -352,3 +408,4 @@ getRecommendedCapabilityKeys('events')        → ['events', 'registrations', 'b
 4. **Hotel needs independent capabilities** - accommodation, menu, bookings are separate
 5. **Existing Flows/Automations are preserved** - Future business actions plug into them
 6. **RLS is mandatory** - All new tables have tenant isolation
+7. **Capability nodes use inline DB queries** - Same pattern as API routes (supabaseAdmin), no separate service layer
