@@ -46,7 +46,13 @@ export async function POST(request: Request) {
     }
 
     const businessType = account.business_type as BusinessType;
-    const currency = account.default_currency || "KES";
+    const currency = account.default_currency;
+    if (!currency) {
+      return NextResponse.json(
+        { error: "Set a default currency in Settings > Deals & currency before seeding data." },
+        { status: 400 },
+      );
+    }
 
     const seedData = getSeedDataForBusinessType(businessType);
 
