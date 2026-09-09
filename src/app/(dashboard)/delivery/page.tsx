@@ -224,8 +224,8 @@ export default function DeliveryPage() {
     detailFields: (row) => {
       const meta = row.metadata as Record<string, unknown> | null;
       return [
-        { icon: Clock, label: new Date(row.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) },
-        { icon: MapPin, label: (meta?.dropoff_location as string) || 'No dropoff' },
+        { icon: Clock, label: 'Time', value: new Date(row.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) },
+        { icon: MapPin, label: 'Dropoff', value: (meta?.dropoff_location as string) || 'No dropoff' },
       ];
     },
     actions: (row) => {

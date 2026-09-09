@@ -96,12 +96,22 @@ export async function providerHttpError(
  * Collapse consecutive same-role turns into one (joined with blank
  * lines). Anthropic requires strictly alternating roles; merging is
  * also harmless for OpenAI and keeps the transcript compact.
+ *
+ * Assistant messages carrying tool_calls and tool-result messages are
+ * never merged — OpenAI requires a strict tool_call → tool_result
+ * pairing that merging would destroy.
  */
 export function mergeConsecutive(messages: ChatMessage[]): ChatMessage[] {
   const out: ChatMessage[] = []
   for (const m of messages) {
+    // Never merge tool-call or tool-result messages
+    if (m.role === 'tool' || m.tool_calls) {
+      out.push({ ...m })
+      continue
+    }
     const last = out[out.length - 1]
-    if (last && last.role === m.role) {
+    // Only merge if the last entry is also a plain assistant/user message
+    if (last && last.role === m.role && !last.tool_calls) {
       last.content = `${last.content}\n\n${m.content}`
     } else {
       out.push({ role: m.role, content: m.content })
