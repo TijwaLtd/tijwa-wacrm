@@ -124,6 +124,7 @@ export async function POST(request: Request) {
     p_subdomain: subdomain,
     p_owner_user_id: user.id,
     p_logo_url: logoUrl,
+    p_business_type: businessType || 'other',
   });
 
   if (accountError) {
@@ -134,14 +135,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Failed to create workspace: " + accountError.message }, { status: 500 });
   }
 
-  // Update business type if provided
-  if (businessType && accountId) {
-    await supabase
-      .from("accounts")
-      .update({ business_type: businessType })
-      .eq("id", accountId);
-
-    // Enable all capabilities by default
+  // Enable all capabilities by default for the new workspace
+  if (accountId) {
     const serviceClient = createServiceClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,

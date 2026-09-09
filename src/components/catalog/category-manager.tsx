@@ -145,11 +145,11 @@ export function CategoryManager({ open, onOpenChange }: CategoryManagerProps) {
                         {isGlobal ? (
                           <span className="text-[10px] text-muted-foreground bg-muted rounded px-1.5 py-0.5">Global</span>
                         ) : (
-                          <div className="hidden group-hover:flex items-center gap-1">
-                            <button onClick={() => { setEditingCategory(cat); setFormOpen(true); }} className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground">
+                          <div className="flex items-center gap-1">
+                            <button onClick={() => { setEditingCategory(cat); setFormOpen(true); }} className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground active:scale-95 transition-transform" title="Edit">
                               <Pencil className="h-3.5 w-3.5" />
                             </button>
-                            <button onClick={() => setDeleteConfirm(cat)} className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-destructive">
+                            <button onClick={() => setDeleteConfirm(cat)} className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-destructive active:scale-95 transition-transform" title="Delete">
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
                           </div>
@@ -162,11 +162,11 @@ export function CategoryManager({ open, onOpenChange }: CategoryManagerProps) {
                           {!child.account_id ? (
                             <span className="text-[10px] text-muted-foreground bg-muted rounded px-1.5 py-0.5">Global</span>
                           ) : (
-                            <div className="hidden group-hover:flex items-center gap-1">
-                              <button onClick={() => { setEditingCategory(child); setFormOpen(true); }} className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground">
+                            <div className="flex items-center gap-1">
+                              <button onClick={() => { setEditingCategory(child); setFormOpen(true); }} className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground active:scale-95 transition-transform" title="Edit">
                                 <Pencil className="h-3.5 w-3.5" />
                               </button>
-                              <button onClick={() => setDeleteConfirm(child)} className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-destructive">
+                              <button onClick={() => setDeleteConfirm(child)} className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-destructive active:scale-95 transition-transform" title="Delete">
                                 <Trash2 className="h-3.5 w-3.5" />
                               </button>
                             </div>

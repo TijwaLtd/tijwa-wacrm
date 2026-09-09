@@ -385,9 +385,10 @@ export function CatalogForm({ open, onOpenChange, offering, onSuccess }: Catalog
                     <button
                       type="button"
                       onClick={() => removePendingImage(idx)}
-                      className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                      className="absolute -right-1.5 -top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90 text-xs transition-transform active:scale-95"
+                      title="Remove image"
                     >
-                      <X className="h-3 w-3" />
+                      <X className="h-3.5 w-3.5" />
                     </button>
                   </div>
                 ))}
@@ -397,7 +398,7 @@ export function CatalogForm({ open, onOpenChange, offering, onSuccess }: Catalog
             <button
               type="button"
               onClick={() => fileInputImageRef.current?.click()}
-              className="flex h-20 w-20 items-center justify-center rounded-lg border-2 border-dashed border-border hover:border-primary hover:bg-muted/50"
+              className="flex h-20 w-20 items-center justify-center rounded-lg border-2 border-dashed border-border hover:border-primary hover:bg-muted/50 transition-colors"
             >
               <Upload className="h-5 w-5 text-muted-foreground" />
             </button>
@@ -457,9 +458,9 @@ export function CatalogForm({ open, onOpenChange, offering, onSuccess }: Catalog
               <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 {OFFERING_TYPES[type].label} Details
               </Label>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {metaFields.map((field) => (
-                  <div key={field.key} className={field.type === 'textarea' ? 'col-span-2' : ''}>
+                  <div key={field.key} className={field.type === 'textarea' ? 'sm:col-span-2' : ''}>
                     <Label className="text-muted-foreground text-xs">{field.label}</Label>
                     {field.type === 'textarea' ? (
                       <Textarea
@@ -485,7 +486,7 @@ export function CatalogForm({ open, onOpenChange, offering, onSuccess }: Catalog
           )}
 
           {/* Price Row */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-2">
               <Label className="text-muted-foreground">Price Type</Label>
               <select

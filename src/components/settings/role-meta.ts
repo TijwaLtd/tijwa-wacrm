@@ -3,21 +3,20 @@ import {
   Shield,
   UserCog,
   UserIcon,
+  Briefcase,
+  Truck,
+  Package,
+  Calendar,
+  Stethoscope,
+  GraduationCap,
+  UtensilsCrossed,
+  Wrench,
   type LucideIcon,
 } from 'lucide-react';
 
 import type { AccountRole } from '@/lib/auth/roles';
 import type { ChipVariant } from './settings-chip';
 
-/**
- * Single source of truth for per-role chip metadata across settings
- * surfaces (the Overview identity chip and the Members roster/invite
- * chips). Previously duplicated in both files; hoisted here so a label,
- * icon, or colour change lands once.
- *
- * `variant` drives the token-based <SettingsChip>; `className` is the
- * inline Tailwind string the Members tab applies to its own spans.
- */
 export const ROLE_META: Record<
   AccountRole,
   { icon: LucideIcon; label: string; variant: ChipVariant; className: string }
@@ -34,18 +33,64 @@ export const ROLE_META: Record<
     variant: 'admin',
     className: 'border-primary/40 bg-primary/10 text-primary',
   },
+  manager: {
+    icon: Briefcase,
+    label: 'manager',
+    variant: 'admin',
+    className: 'border-blue-500/40 bg-blue-500/10 text-blue-400',
+  },
   agent: {
     icon: UserCog,
     label: 'agent',
     variant: 'muted',
     className: 'border-border bg-muted text-muted-foreground',
   },
+  driver: {
+    icon: Truck,
+    label: 'driver',
+    variant: 'ok',
+    className: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400',
+  },
+  rider: {
+    icon: Package,
+    label: 'rider',
+    variant: 'ok',
+    className: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400',
+  },
+  receptionist: {
+    icon: Calendar,
+    label: 'receptionist',
+    variant: 'muted',
+    className: 'border-purple-500/40 bg-purple-500/10 text-purple-400',
+  },
+  doctor: {
+    icon: Stethoscope,
+    label: 'doctor',
+    variant: 'admin',
+    className: 'border-cyan-500/40 bg-cyan-500/10 text-cyan-400',
+  },
+  instructor: {
+    icon: GraduationCap,
+    label: 'instructor',
+    variant: 'muted',
+    className: 'border-indigo-500/40 bg-indigo-500/10 text-indigo-400',
+  },
+  waiter: {
+    icon: UtensilsCrossed,
+    label: 'waiter',
+    variant: 'muted',
+    className: 'border-orange-500/40 bg-orange-500/10 text-orange-400',
+  },
+  cleaner: {
+    icon: Wrench,
+    label: 'cleaner',
+    variant: 'muted',
+    className: 'border-slate-500/40 bg-slate-500/10 text-slate-400',
+  },
   viewer: {
     icon: UserIcon,
     label: 'viewer',
     variant: 'muted',
-    // Outline-only so it stays quieter than the filled Agent chip in
-    // both modes — bg-card would blend into a card surface in light mode.
     className: 'border-border bg-transparent text-muted-foreground',
   },
 };

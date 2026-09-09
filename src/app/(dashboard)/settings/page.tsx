@@ -25,6 +25,7 @@ import { MembersTab } from '@/components/settings/members-tab';
 import { ApiKeysSettings } from '@/components/settings/api-keys-settings';
 import { WorkspaceSettings } from '@/components/settings/workspace-settings';
 import { BusinessSettings } from '@/components/settings/business-settings';
+import { PricingSettings } from '@/components/settings/pricing-settings';
 import {
   resolveSection,
   type SettingsSection,
@@ -94,6 +95,7 @@ function SettingsPageInner() {
     members: <MembersTab />,
     workspace: <WorkspaceSettings />,
     business: <BusinessSettings />,
+    pricing: <PricingSettings />,
     api: <ApiKeysSettings />,
   };
 

@@ -231,6 +231,14 @@ export async function dispatchInboundToAiReply(
       return
     }
 
+    // Fetch business type for tone adaptation
+    const { data: account } = await db
+      .from('accounts')
+      .select('business_type')
+      .eq('id', accountId)
+      .maybeSingle()
+    const businessType = account?.business_type || null
+
     const acctLimit = checkRateLimit(
       `ai-autoreply:${accountId}`,
       RATE_LIMITS.aiAutoReplyAccount,
@@ -245,12 +253,15 @@ export async function dispatchInboundToAiReply(
       accountId,
       config,
       latestUserMessage(ctx.messages),
+      5,
+      { imageUrl: ctx.latestImageUrl },
     )
 
     const systemPrompt = buildSystemPrompt({
       userPrompt: config.systemPrompt,
       mode: 'auto_reply',
       knowledge,
+      businessType,
     })
 
     const { text, handoff, usage } = await generateReply({

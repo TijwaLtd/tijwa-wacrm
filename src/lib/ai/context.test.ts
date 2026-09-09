@@ -65,7 +65,7 @@ describe('buildConversationContext', () => {
     expect(ctx.messages).toEqual([{ role: 'user', content: 'hello' }, { role: 'user', content: 'check this' }])
   })
 
-  it('includes media messages with captions but excludes captionless media', async () => {
+  it('includes media messages with captions and fallback text for captionless media', async () => {
     const ctx = await buildConversationContext(
       fakeDb([
         { sender_type: 'customer', content_text: null, content_type: 'image', media_url: 'https://example.com/img.jpg' },
@@ -73,7 +73,10 @@ describe('buildConversationContext', () => {
       ]),
       'conv-1',
     )
-    expect(ctx.messages).toEqual([{ role: 'user', content: 'what is this?' }])
+    expect(ctx.messages).toEqual([
+      { role: 'user', content: 'what is this?' },
+      { role: 'user', content: '[Customer sent an image]' },
+    ])
     expect(ctx.hasAttachment).toBe(true)
   })
 })

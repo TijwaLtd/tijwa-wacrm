@@ -64,7 +64,7 @@ export async function PATCH(
 
     if (!isAccountRole(role)) {
       return NextResponse.json(
-        { error: "'role' must be one of owner, admin, agent, viewer" },
+        { error: "'role' must be a valid role (e.g. admin, manager, agent, driver, viewer)" },
         { status: 400 },
       );
     }

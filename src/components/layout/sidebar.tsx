@@ -58,25 +58,61 @@ const ROLE_CHIP: Record<
   owner: {
     icon: Crown,
     labelKey: 'roleOwner',
-    // Amber: scarce, immutable, "the boss" — gets visual emphasis.
     className: 'border-amber-500/40 bg-amber-500/10 text-amber-300',
   },
   admin: {
     icon: Shield,
     labelKey: 'roleAdmin',
-    // Primary-tinted: significant but not as scarce as owner.
     className: 'border-primary/40 bg-primary/10 text-primary',
+  },
+  manager: {
+    icon: Shield,
+    labelKey: 'roleManager',
+    className: 'border-blue-500/40 bg-blue-500/10 text-blue-300',
   },
   agent: {
     icon: UserCog,
     labelKey: 'roleAgent',
-    // Neutral slate: the operational default.
     className: 'border-border bg-muted text-foreground',
+  },
+  driver: {
+    icon: UserCog,
+    labelKey: 'roleDriver',
+    className: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300',
+  },
+  rider: {
+    icon: UserCog,
+    labelKey: 'roleRider',
+    className: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300',
+  },
+  receptionist: {
+    icon: UserCog,
+    labelKey: 'roleReceptionist',
+    className: 'border-purple-500/40 bg-purple-500/10 text-purple-300',
+  },
+  doctor: {
+    icon: UserCog,
+    labelKey: 'roleDoctor',
+    className: 'border-cyan-500/40 bg-cyan-500/10 text-cyan-300',
+  },
+  instructor: {
+    icon: UserCog,
+    labelKey: 'roleInstructor',
+    className: 'border-indigo-500/40 bg-indigo-500/10 text-indigo-300',
+  },
+  waiter: {
+    icon: UserCog,
+    labelKey: 'roleWaiter',
+    className: 'border-orange-500/40 bg-orange-500/10 text-orange-300',
+  },
+  cleaner: {
+    icon: UserCog,
+    labelKey: 'roleCleaner',
+    className: 'border-slate-500/40 bg-slate-500/10 text-slate-300',
   },
   viewer: {
     icon: User,
     labelKey: 'roleViewer',
-    // Muted slate: read-only role; visually quieter than agent.
     className: 'border-border bg-card text-muted-foreground',
   },
 };

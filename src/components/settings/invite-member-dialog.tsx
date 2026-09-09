@@ -39,7 +39,18 @@ import {
 import { useTranslations } from 'next-intl';
 import { useAuth } from '@/hooks/use-auth';
 
-type InviteRole = 'admin' | 'agent' | 'viewer';
+type InviteRole =
+  | 'admin'
+  | 'manager'
+  | 'agent'
+  | 'receptionist'
+  | 'instructor'
+  | 'doctor'
+  | 'waiter'
+  | 'driver'
+  | 'rider'
+  | 'cleaner'
+  | 'viewer';
 
 interface InviteMemberDialogProps {
   open: boolean;
@@ -287,12 +298,20 @@ export function InviteMemberDialog({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="admin">{tRoles('admin')}</SelectItem>
+                    <SelectItem value="manager">{tRoles('manager')}</SelectItem>
                     <SelectItem value="agent">{tRoles('agent')}</SelectItem>
+                    <SelectItem value="receptionist">{tRoles('receptionist')}</SelectItem>
+                    <SelectItem value="doctor">{tRoles('doctor')}</SelectItem>
+                    <SelectItem value="instructor">{tRoles('instructor')}</SelectItem>
+                    <SelectItem value="waiter">{tRoles('waiter')}</SelectItem>
+                    <SelectItem value="driver">{tRoles('driver')}</SelectItem>
+                    <SelectItem value="rider">{tRoles('rider')}</SelectItem>
+                    <SelectItem value="cleaner">{tRoles('cleaner')}</SelectItem>
                     <SelectItem value="viewer">{tRoles('viewer')}</SelectItem>
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  {tRoles(`${role}Hint` as 'adminHint' | 'agentHint' | 'viewerHint')}
+                  {tRoles(`${role}Hint` as any)}
                 </p>
               </div>
 

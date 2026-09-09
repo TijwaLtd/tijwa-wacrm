@@ -1,19 +1,23 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { 
+  getEligibleTeamMembers, 
+  scoreTeamMembers, 
+  getRoleForBusinessType,
+  shouldUseOrderAssignment,
+  buildMetadataFilters,
+  type EligibilityCriteria,
+  type ScoringFactors,
+} from './team-assign';
 
 /**
- * Smart auto-assign an inbound conversation to a team member.
+ * Smart auto-assign an inbound conversation or order to a team member.
  *
  * Routing priority:
  *  1. Check working hours — if outside, queue (no assignment)
- *  2. Detect department from conversation_topics (AI-detected)
- *  3. Filter agents by: department membership, presence, capacity
- *  4. Score agents: skills match + presence + load balance
- *  5. Pick highest-scoring agent
- *
- * Modes (legacy, still respected):
- *  - manual:        no-op
- *  - round_robin:   cycles through eligible agents
- *  - load_balanced: fewest active conversations wins
+ *  2. Get business type to determine assignment strategy
+ *  3. For logistics: order-to-driver assignment with freight/zone matching
+ *  4. For services: conversation-to-provider assignment with skill matching
+ *  5. For others: standard conversation-to-agent assignment with departments
  *
  * Called from the webhook handler after a new conversation is created
  * or when an unassigned conversation receives a new inbound message.
@@ -22,8 +26,9 @@ export async function autoAssignConversation(
   db: SupabaseClient,
   accountId: string,
   conversationId: string,
+  orderId?: string,
 ): Promise<string | null> {
-  // 1. Read auto-assign config
+  // 1. Read auto-assign config and business type
   const { data: settings, error: settingsErr } = await db
     .from('tenant_settings')
     .select('auto_assign_mode, last_assigned_agent_id, auto_assign_config')
@@ -35,9 +40,14 @@ export async function autoAssignConversation(
   const mode = settings.auto_assign_mode as string;
   if (mode === 'manual') return null;
 
-  const config = typeof settings.auto_assign_config === 'object' && settings.auto_assign_config !== null
-    ? settings.auto_assign_config as AssignConfig
-    : DEFAULT_CONFIG;
+  // Get business type
+  const { data: account } = await db
+    .from('accounts')
+    .select('business_type')
+    .eq('id', accountId)
+    .maybeSingle();
+
+  const businessType = account?.business_type || null;
 
   // 2. Check working hours
   const { data: withinHours } = await db.rpc('is_within_working_hours', {
@@ -45,12 +55,189 @@ export async function autoAssignConversation(
   });
 
   if (withinHours === false) {
-    // Outside working hours — don't auto-assign, let AI handle or queue
     console.log('[auto-assign] outside working hours, skipping assignment');
     return null;
   }
 
-  // 3. Get conversation's detected department (if any)
+  // 3. Business-type-specific routing
+  const role = getRoleForBusinessType(businessType || '');
+  
+  // For logistics with orders, use order-to-driver assignment
+  if (shouldUseOrderAssignment(businessType || '') && orderId) {
+    return assignOrderToTeamMember(db, accountId, orderId, businessType || '');
+  }
+
+  // For service businesses, use conversation-to-provider assignment
+  if (role !== 'agent') {
+    return assignConversationToTeamMember(db, accountId, conversationId, role, businessType || '');
+  }
+
+  // Standard conversation assignment (existing logic)
+  return assignConversationStandard(db, accountId, conversationId, mode, settings);
+}
+
+// ============================================================================
+// Order-to-Team-Member Assignment (for logistics)
+// ============================================================================
+
+async function assignOrderToTeamMember(
+  db: SupabaseClient,
+  accountId: string,
+  orderId: string,
+  businessType: string,
+): Promise<string | null> {
+  // Get order details
+  const { data: order } = await db
+    .from('orders')
+    .select('*')
+    .eq('id', orderId)
+    .eq('account_id', accountId)
+    .maybeSingle();
+
+  if (!order) {
+    console.log('[auto-assign] order not found:', orderId);
+    return null;
+  }
+
+  const role = getRoleForBusinessType(businessType);
+  const metadataFilters = buildMetadataFilters(businessType, order);
+
+  // Get eligible team members
+  const members = await getEligibleTeamMembers(db, {
+    accountId,
+    role,
+    businessType,
+    metadataFilters,
+    isAvailable: true,
+  });
+
+  if (members.length === 0) {
+    console.log('[auto-assign] no eligible team members for order:', orderId);
+    return null;
+  }
+
+  // Score members
+  const scoringFactors: ScoringFactors = {
+    currentLoad: true,
+  };
+  
+  if (order.pickup_location_lat && order.pickup_location_lng) {
+    scoringFactors.proximity = {
+      lat: order.pickup_location_lat,
+      lng: order.pickup_location_lng,
+    };
+  }
+  
+  if (order.zone) {
+    scoringFactors.zoneMatch = order.zone;
+  }
+
+  const scored = scoreTeamMembers(members, businessType, scoringFactors);
+
+  // Assign to best member
+  const bestMember = scored[0];
+  
+  const { error: assignErr } = await db
+    .from('orders')
+    .update({
+      assigned_team_member_id: bestMember.user_id,
+      assigned_role: role,
+    })
+    .eq('id', orderId)
+    .eq('account_id', accountId);
+
+  if (assignErr) {
+    console.error('[auto-assign] failed to assign order:', assignErr);
+    return null;
+  }
+
+  console.log('[auto-assign] assigned order', orderId, 'to', bestMember.user_id, 'with role', role);
+  return bestMember.user_id;
+}
+
+// ============================================================================
+// Conversation-to-Team-Member Assignment (for service businesses)
+// ============================================================================
+
+async function assignConversationToTeamMember(
+  db: SupabaseClient,
+  accountId: string,
+  conversationId: string,
+  role: string,
+  businessType: string,
+): Promise<string | null> {
+  // Get conversation topic for skill matching
+  const { data: topicData } = await db
+    .from('conversation_topics')
+    .select('detected_topic')
+    .eq('conversation_id', conversationId)
+    .maybeSingle();
+
+  const metadataFilters: Record<string, unknown> = {};
+  const scoringFactors: ScoringFactors = {
+    currentLoad: true,
+  };
+
+  // If topic detected, use for skill matching
+  if (topicData?.detected_topic) {
+    scoringFactors.skillMatch = [topicData.detected_topic];
+  }
+
+  // Get eligible team members
+  const members = await getEligibleTeamMembers(db, {
+    accountId,
+    role,
+    businessType,
+    metadataFilters,
+    isAvailable: true,
+  });
+
+  if (members.length === 0) {
+    console.log('[auto-assign] no eligible team members for conversation:', conversationId);
+    return null;
+  }
+
+  // Score members
+  const scored = scoreTeamMembers(members, businessType, scoringFactors);
+
+  // Assign to best member
+  const bestMember = scored[0];
+  
+  const { error: assignErr } = await db
+    .from('conversations')
+    .update({
+      assigned_agent_id: bestMember.user_id,
+      human_assigned_at: new Date().toISOString(),
+      human_replied: false,
+    })
+    .eq('id', conversationId)
+    .eq('account_id', accountId);
+
+  if (assignErr) {
+    console.error('[auto-assign] failed to assign conversation:', assignErr);
+    return null;
+  }
+
+  console.log('[auto-assign] assigned conversation', conversationId, 'to', bestMember.user_id, 'with role', role);
+  return bestMember.user_id;
+}
+
+// ============================================================================
+// Standard Conversation Assignment (existing logic preserved)
+// ============================================================================
+
+async function assignConversationStandard(
+  db: SupabaseClient,
+  accountId: string,
+  conversationId: string,
+  mode: string,
+  settings: any,
+): Promise<string | null> {
+  const config = typeof settings.auto_assign_config === 'object' && settings.auto_assign_config !== null
+    ? settings.auto_assign_config as AssignConfig
+    : DEFAULT_CONFIG;
+
+  // Get conversation's detected department (if any)
   const { data: topicData } = await db
     .from('conversation_topics')
     .select('detected_department_id, detected_language, detected_topic')
@@ -59,14 +246,12 @@ export async function autoAssignConversation(
 
   const detectedDeptId = topicData?.detected_department_id ?? null;
 
-  // 4. Get eligible agents based on mode and department
+  // Get eligible agents based on mode and department
   let candidates: Candidate[];
 
   if (detectedDeptId) {
-    // Department-aware routing
     candidates = await getDepartmentCandidates(db, accountId, detectedDeptId);
   } else {
-    // No department detected — use all eligible agents
     candidates = await getAllCandidates(db, accountId);
   }
 
@@ -75,16 +260,13 @@ export async function autoAssignConversation(
     return null;
   }
 
-  // 5. Apply filters — prefer online agents, but assign even if all offline
-  // First try with skip_offline to prefer online agents
+  // Apply filters
   let filtered = candidates.filter((c) => {
     if (c.active_conversations >= config.max_active_per_agent) return false;
     if (config.skip_offline && !c.is_online) return false;
     return true;
   });
 
-  // If skip_offline filtered everyone out, fall back to all candidates
-  // (assign even when offline — conversation gets assigned, agent sees it when online)
   if (filtered.length === 0) {
     filtered = candidates.filter((c) => {
       return c.active_conversations < config.max_active_per_agent;
@@ -96,7 +278,7 @@ export async function autoAssignConversation(
     return null;
   }
 
-  // 6. Score and pick the best agent
+  // Score and pick the best agent
   let assignedUserId: string | null = null;
 
   if (mode === 'round_robin') {
@@ -104,13 +286,12 @@ export async function autoAssignConversation(
   } else if (mode === 'load_balanced') {
     assignedUserId = resolveLoadBalanced(filtered);
   } else {
-    // Default: weighted scoring
     assignedUserId = resolveWeighted(filtered, config, detectedDeptId);
   }
 
   if (!assignedUserId) return null;
 
-  // 7. Assign the conversation
+  // Assign the conversation
   const updatePayload: Record<string, unknown> = {
     assigned_agent_id: assignedUserId,
     human_assigned_at: new Date().toISOString(),
@@ -131,7 +312,7 @@ export async function autoAssignConversation(
     return null;
   }
 
-  // 8. Update round-robin tracking
+  // Update round-robin tracking
   if (mode === 'round_robin') {
     await db
       .from('tenant_settings')

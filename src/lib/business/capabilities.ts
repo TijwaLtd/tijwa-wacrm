@@ -28,6 +28,16 @@ export type BusinessType =
   | 'property_real_estate'
   | 'healthcare'
   | 'events'
+  | 'logistics_delivery'
+  | 'courier'
+  | 'transportation'
+  | 'cleaning_services'
+  | 'maintenance'
+  | 'beauty_wellness'
+  | 'fitness'
+  | 'automotive'
+  | 'pet_services'
+  | 'healthcare_clinic'
   | 'other';
 
 export const BUSINESS_TYPES: { value: BusinessType; label: string; description: string }[] = [
@@ -43,6 +53,16 @@ export const BUSINESS_TYPES: { value: BusinessType; label: string; description: 
   { value: 'property_real_estate', label: 'Property / Real Estate', description: 'Real estate and property' },
   { value: 'healthcare', label: 'Healthcare', description: 'Medical and health services' },
   { value: 'events', label: 'Events', description: 'Event planning and management' },
+  { value: 'logistics_delivery', label: 'Logistics / Delivery', description: 'Parcel delivery, courier, and logistics services' },
+  { value: 'courier', label: 'Courier', description: 'Express delivery and courier services' },
+  { value: 'transportation', label: 'Transportation', description: 'Transport and mobility services' },
+  { value: 'cleaning_services', label: 'Cleaning Services', description: 'Commercial and residential cleaning' },
+  { value: 'maintenance', label: 'Maintenance', description: 'Facility and equipment maintenance' },
+  { value: 'beauty_wellness', label: 'Beauty & Wellness', description: 'Salons, spas, and wellness services' },
+  { value: 'fitness', label: 'Fitness', description: 'Gyms and fitness centers' },
+  { value: 'automotive', label: 'Automotive', description: 'Auto repair and services' },
+  { value: 'pet_services', label: 'Pet Services', description: 'Veterinary and pet care services' },
+  { value: 'healthcare_clinic', label: 'Healthcare Clinic', description: 'Outpatient medical clinics' },
   { value: 'other', label: 'Other', description: 'Other type of organization' },
 ];
 
@@ -134,6 +154,16 @@ export function getRecommendedCapabilityKeys(businessType: BusinessType): string
     property_real_estate: ['property_listings', 'property_inquiries', 'viewings', 'inquiries'],
     healthcare: ['services', 'appointments', 'inquiries'],
     events: ['events', 'registrations', 'bookings', 'inquiries'],
+    logistics_delivery: ['delivery', 'orders', 'inquiries'],
+    courier: ['delivery', 'orders', 'inquiries'],
+    transportation: ['delivery', 'orders', 'inquiries'],
+    cleaning_services: ['services', 'appointments', 'inquiries'],
+    maintenance: ['services', 'appointments', 'inquiries'],
+    beauty_wellness: ['services', 'appointments', 'inquiries'],
+    fitness: ['services', 'appointments', 'inquiries'],
+    automotive: ['services', 'appointments', 'inquiries'],
+    pet_services: ['services', 'appointments', 'inquiries'],
+    healthcare_clinic: ['services', 'appointments', 'inquiries'],
     other: ['inquiries'],
   };
 

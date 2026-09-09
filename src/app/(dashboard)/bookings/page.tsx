@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { Loader2, Plus, Calendar, MoreHorizontal, Pencil, Trash2, X } from 'lucide-react';
+import { Loader2, Plus, Calendar, MoreHorizontal, Pencil, Trash2, Clock, CheckCircle2, UserCheck, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/hooks/use-auth';
 import { cn } from '@/lib/utils';
 import { type Booking, type BookingStatus, BOOKING_STATUSES, formatCurrency } from '@/lib/business/orders';
+import { ResponsiveDataListing, type ColumnDef, type CardMapper } from '@/components/shared/responsive-data-listing';
 
 const PAGE_SIZE = 25;
 
@@ -20,6 +21,8 @@ export default function BookingsPage() {
   const { activeAccountId } = useAuth();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<BookingStatus | ''>('');
   const [page, setPage] = useState(0);
   const [total, setTotal] = useState(0);
@@ -37,13 +40,16 @@ export default function BookingsPage() {
   const [formStatus, setFormStatus] = useState<BookingStatus>('pending');
   const [saving, setSaving] = useState(false);
 
-  const fetchBookings = useCallback(async () => {
+  const fetchBookings = useCallback(async (isLoadMore = false) => {
     if (!activeAccountId) return;
-    setLoading(true);
+    if (isLoadMore) setIsLoadingMore(true);
+    else setLoading(true);
+
     try {
+      const currentPage = isLoadMore ? page + 1 : 0;
       const params = new URLSearchParams({
         account_id: activeAccountId,
-        page: String(page),
+        page: String(currentPage),
         limit: String(PAGE_SIZE),
       });
       if (statusFilter) params.set('status', statusFilter);
@@ -51,20 +57,41 @@ export default function BookingsPage() {
       const res = await fetch(`/api/bookings?${params}`);
       if (res.ok) {
         const data = await res.json();
-        setBookings(data.bookings || []);
+        const newBookings = data.bookings || [];
         setTotal(data.total || 0);
+
+        if (isLoadMore) {
+          setBookings((prev) => [...prev, ...newBookings]);
+          setPage(currentPage);
+        } else {
+          setBookings(newBookings);
+          setPage(0);
+        }
       }
     } catch (err) {
       console.error('Failed to fetch bookings:', err);
     } finally {
       setLoading(false);
+      setIsLoadingMore(false);
     }
   }, [activeAccountId, page, statusFilter]);
 
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
-    fetchBookings();
-  }, [fetchBookings]);
+    fetchBookings(false);
+  }, [activeAccountId, statusFilter]);
+
+  const filteredBookings = bookings.filter((bk) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    // @ts-expect-error offering is joined from API
+    const offeringName = bk.offering?.name?.toLowerCase() || '';
+    return (
+      bk.booking_number.toLowerCase().includes(q) ||
+      offeringName.includes(q) ||
+      (bk.notes && bk.notes.toLowerCase().includes(q))
+    );
+  });
 
   const openForm = (booking?: Booking) => {
     if (booking) {
@@ -123,7 +150,7 @@ export default function BookingsPage() {
 
       toast.success(editingBooking ? 'Booking updated' : 'Booking created');
       setFormOpen(false);
-      fetchBookings();
+      fetchBookings(false);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to save');
     } finally {
@@ -139,7 +166,7 @@ export default function BookingsPage() {
       if (!res.ok) throw new Error('Failed to delete');
       toast.success('Booking deleted');
       setDeleteConfirm(null);
-      fetchBookings();
+      fetchBookings(false);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to delete');
     } finally {
@@ -159,162 +186,210 @@ export default function BookingsPage() {
     return `${s} — ${formatDate(end)}`;
   };
 
+  // Overview stats
+  const pendingCount = bookings.filter((b) => b.status === 'pending').length;
+  const confirmedCount = bookings.filter((b) => b.status === 'confirmed').length;
+  const checkedInCount = bookings.filter((b) => b.status === 'checked_in').length;
+
+  // Table Columns Definition
+  const columns: ColumnDef<Booking>[] = [
+    {
+      header: 'Booking #',
+      cell: (booking) => {
+        // @ts-expect-error offering is joined from API
+        const offeringName = booking.offering?.name;
+        return (
+          <div>
+            <Link
+              href={`/bookings/${booking.id}`}
+              className="text-sm font-semibold text-foreground hover:text-primary transition-colors font-mono"
+            >
+              {booking.booking_number}
+            </Link>
+            {offeringName && <p className="text-xs text-muted-foreground truncate max-w-[200px]">{offeringName}</p>}
+          </div>
+        );
+      },
+    },
+    {
+      header: 'Dates',
+      cell: (booking) => (
+        <span className="text-sm text-muted-foreground font-mono">
+          {formatDateRange(booking.start_date, booking.end_date)}
+        </span>
+      ),
+    },
+    {
+      header: 'Guests',
+      cell: (booking) => (
+        <span className="text-sm text-muted-foreground">{booking.guests} guest{booking.guests !== 1 ? 's' : ''}</span>
+      ),
+    },
+    {
+      header: 'Total Amount',
+      cell: (booking) => (
+        <span className="text-sm font-semibold text-foreground font-mono">
+          {formatCurrency(booking.total, booking.currency)}
+        </span>
+      ),
+    },
+    {
+      header: 'Status',
+      cell: (booking) => {
+        const statusMeta = BOOKING_STATUSES[booking.status];
+        return (
+          <span className={cn('inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold', statusMeta?.color)}>
+            {statusMeta?.label || booking.status}
+          </span>
+        );
+      },
+    },
+    {
+      header: 'Actions',
+      className: 'text-right',
+      headerClassName: 'text-right',
+      cell: (booking) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted focus:outline-none ml-auto">
+            <MoreHorizontal className="h-4 w-4" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-36">
+            <DropdownMenuItem>
+              <Link href={`/bookings/${booking.id}`} className="flex items-center w-full">
+                <Eye className="h-4 w-4 mr-2" /> View Details
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => openForm(booking)}>
+              <Pencil className="h-4 w-4 mr-2" /> Edit Booking
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setDeleteConfirm(booking)} className="text-destructive">
+              <Trash2 className="h-4 w-4 mr-2" /> Delete Booking
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    },
+  ];
+
+  // Mobile App Card Mapper
+  const cardMapper: CardMapper<Booking> = {
+    id: (booking) => booking.id,
+    title: (booking) => booking.booking_number,
+    // @ts-expect-error offering is joined from API
+    subtitle: (booking) => booking.offering?.name || formatDateRange(booking.start_date, booking.end_date),
+    fallbackIcon: () => <Calendar className="h-6 w-6 text-muted-foreground" />,
+    statusBadge: (booking) => {
+      const statusMeta = BOOKING_STATUSES[booking.status];
+      return (
+        <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider', statusMeta?.color)}>
+          {statusMeta?.label}
+        </span>
+      );
+    },
+    amount: (booking) => formatCurrency(booking.total, booking.currency),
+    detailFields: (booking) => [
+      { label: 'Date Range', value: formatDateRange(booking.start_date, booking.end_date), fullWidth: true },
+      { label: 'Guests', value: `${booking.guests} guest${booking.guests !== 1 ? 's' : ''}` },
+      // @ts-expect-error offering is joined from API
+      ...(booking.offering?.name ? [{ label: 'Booked Offering', value: booking.offering.name }] : []),
+    ],
+    description: (booking) => booking.notes,
+    detailHref: (booking) => `/bookings/${booking.id}`,
+    actions: (booking) => [
+      {
+        label: 'Edit',
+        icon: Pencil,
+        variant: 'outline',
+        onClick: () => openForm(booking),
+      },
+      {
+        label: 'Delete',
+        icon: Trash2,
+        variant: 'destructive',
+        onClick: () => setDeleteConfirm(booking),
+      },
+    ],
+  };
+
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Bookings</h1>
-          <p className="text-sm text-muted-foreground">Manage reservations and bookings</p>
+      {/* Top Overview Metric Cards */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
+          <div className="flex items-center justify-between text-muted-foreground">
+            <span className="text-xs font-medium">Total Bookings</span>
+            <Calendar className="h-4 w-4 text-primary" />
+          </div>
+          <p className="text-xl font-bold text-foreground mt-1.5">{total}</p>
         </div>
-        <Button onClick={() => openForm()} className="gap-2">
-          <Plus className="h-4 w-4" />
-          <span className="hidden sm:inline">New Booking</span>
-        </Button>
+
+        <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
+          <div className="flex items-center justify-between text-muted-foreground">
+            <span className="text-xs font-medium">Pending</span>
+            <Clock className="h-4 w-4 text-amber-500" />
+          </div>
+          <p className="text-xl font-bold text-foreground mt-1.5">{pendingCount}</p>
+        </div>
+
+        <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
+          <div className="flex items-center justify-between text-muted-foreground">
+            <span className="text-xs font-medium">Confirmed</span>
+            <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+          </div>
+          <p className="text-xl font-bold text-foreground mt-1.5">{confirmedCount}</p>
+        </div>
+
+        <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
+          <div className="flex items-center justify-between text-muted-foreground">
+            <span className="text-xs font-medium">Checked In</span>
+            <UserCheck className="h-4 w-4 text-blue-500" />
+          </div>
+          <p className="text-xl font-bold text-foreground mt-1.5">{checkedInCount}</p>
+        </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <select
-          value={statusFilter}
-          onChange={(e) => { setStatusFilter(e.target.value as BookingStatus | ''); setPage(0); }}
-          className="border-border bg-muted text-foreground rounded-md px-3 py-2 text-sm"
-        >
-          <option value="">All Statuses</option>
-          {Object.entries(BOOKING_STATUSES).map(([value, meta]) => (
-            <option key={value} value={value}>{meta.label}</option>
-          ))}
-        </select>
-      </div>
-
-      {/* Loading */}
-      {loading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-        </div>
-      ) : bookings.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-lg border border-border py-12">
-          <Calendar className="h-12 w-12 text-muted-foreground" />
-          <p className="mt-4 text-sm text-muted-foreground">No bookings yet</p>
-          <Button variant="outline" onClick={() => openForm()} className="mt-4 border-border">
-            <Plus className="h-4 w-4 mr-2" />
-            Create First Booking
-          </Button>
-        </div>
-      ) : (
-        <>
-          {/* Desktop Table */}
-          <div className="hidden overflow-hidden rounded-lg border border-border md:block">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border bg-muted/50">
-                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Booking #</th>
-                  <th className="hidden px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider md:table-cell">Dates</th>
-                  <th className="hidden px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider lg:table-cell">Guests</th>
-                  <th className="hidden px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider lg:table-cell">Total</th>
-                  <th className="hidden px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider sm:table-cell">Status</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {bookings.map((booking) => {
-                  const statusMeta = BOOKING_STATUSES[booking.status];
-                  // @ts-expect-error offering is joined from API
-                  const offeringName = booking.offering?.name;
-                  return (
-                    <tr key={booking.id} className="hover:bg-muted/50">
-                      <td className="px-4 py-3">
-                        <Link href={`/bookings/${booking.id}`} className="text-sm font-medium text-foreground hover:text-primary">
-                          {booking.booking_number}
-                        </Link>
-                        {offeringName && (
-                          <p className="text-xs text-muted-foreground">{offeringName}</p>
-                        )}
-                      </td>
-                      <td className="hidden px-4 py-3 md:table-cell">
-                        <span className="text-sm text-muted-foreground">
-                          {formatDateRange(booking.start_date, booking.end_date)}
-                        </span>
-                      </td>
-                      <td className="hidden px-4 py-3 lg:table-cell">
-                        <span className="text-sm text-muted-foreground">{booking.guests}</span>
-                      </td>
-                      <td className="hidden px-4 py-3 lg:table-cell">
-                        <span className="text-sm text-foreground">{formatCurrency(booking.total, booking.currency)}</span>
-                      </td>
-                      <td className="hidden px-4 py-3 sm:table-cell">
-                        <span className={cn('inline-flex items-center rounded-full px-2 py-1 text-xs font-medium', statusMeta?.color)}>
-                          {statusMeta?.label}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted focus:outline-none">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => openForm(booking)}>
-                              <Pencil className="h-4 w-4 mr-2" />
-                              Edit
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => setDeleteConfirm(booking)} className="text-destructive">
-                              <Trash2 className="h-4 w-4 mr-2" />
-                              Delete
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Mobile Cards */}
-          <div className="divide-y divide-border rounded-lg border border-border md:hidden">
-            {bookings.map((booking) => {
-              const statusMeta = BOOKING_STATUSES[booking.status];
-              return (
-                <div key={booking.id} className="p-4">
-                  <div className="flex items-center justify-between">
-                    <Link href={`/bookings/${booking.id}`} className="text-sm font-medium text-foreground hover:text-primary">
-                      {booking.booking_number}
-                    </Link>
-                    <span className={cn('inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium', statusMeta?.color)}>
-                      {statusMeta?.label}
-                    </span>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {formatDateRange(booking.start_date, booking.end_date)}
-                  </p>
-                  <div className="mt-2 flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">{booking.guests} guest{booking.guests !== 1 ? 's' : ''}</span>
-                    <span className="text-foreground font-medium">{formatCurrency(booking.total, booking.currency)}</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Pagination */}
-          {total > PAGE_SIZE && (
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">
-                Showing {page * PAGE_SIZE + 1}-{Math.min((page + 1) * PAGE_SIZE, total)} of {total}
-              </p>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} className="border-border">
-                  Previous
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => setPage(p => p + 1)} disabled={(page + 1) * PAGE_SIZE >= total} className="border-border">
-                  Next
-                </Button>
-              </div>
-            </div>
-          )}
-        </>
-      )}
+      {/* Main Responsive Data Listing */}
+      <ResponsiveDataListing<Booking>
+        title="Bookings"
+        description="Manage room reservations, appointment bookings, and guest check-ins"
+        items={filteredBookings}
+        columns={columns}
+        cardMapper={cardMapper}
+        loading={loading}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        searchPlaceholder="Search booking number, offering, notes..."
+        filters={[
+          {
+            key: 'status',
+            label: 'Status',
+            value: statusFilter,
+            onChange: (val) => setStatusFilter(val as BookingStatus | ''),
+            options: Object.entries(BOOKING_STATUSES).map(([value, meta]) => ({
+              label: meta.label,
+              value,
+            })),
+          },
+        ]}
+        primaryAction={{
+          label: 'New Booking',
+          icon: Plus,
+          onClick: () => openForm(),
+        }}
+        emptyState={{
+          icon: Calendar,
+          title: 'No bookings found',
+          description: searchQuery || statusFilter
+            ? 'Try adjusting your search query or status filter'
+            : 'Create your first reservation or appointment booking to get started',
+          actionLabel: 'Create First Booking',
+          onAction: () => openForm(),
+        }}
+        hasMore={bookings.length < total}
+        isLoadingMore={isLoadingMore}
+        onLoadMore={() => fetchBookings(true)}
+        rowKey={(b) => b.id}
+      />
 
       {/* Create/Edit Form Dialog */}
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
@@ -322,47 +397,48 @@ export default function BookingsPage() {
           <DialogHeader>
             <DialogTitle>{editingBooking ? `Edit ${editingBooking.booking_number}` : 'New Booking'}</DialogTitle>
             <DialogDescription>
-              {editingBooking ? 'Update booking details' : 'Create a new reservation'}
+              {editingBooking ? 'Update reservation details' : 'Create a new reservation or booking'}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
-            {/* Date Range */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label className="text-muted-foreground">Start Date</Label>
+            {/* Dates */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-muted-foreground text-xs">Start Date / Check-in</Label>
                 <Input
                   type="datetime-local"
                   value={formStartDate}
                   onChange={(e) => setFormStartDate(e.target.value)}
-                  className="border-border bg-muted"
+                  className="border-border bg-muted text-sm"
                 />
               </div>
-              <div className="space-y-2">
-                <Label className="text-muted-foreground">End Date</Label>
+              <div className="space-y-1.5">
+                <Label className="text-muted-foreground text-xs">End Date / Check-out</Label>
                 <Input
                   type="datetime-local"
                   value={formEndDate}
                   onChange={(e) => setFormEndDate(e.target.value)}
-                  className="border-border bg-muted"
+                  className="border-border bg-muted text-sm"
                 />
               </div>
             </div>
 
             {/* Guests & Total */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label className="text-muted-foreground">Guests</Label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-muted-foreground text-xs">Guests</Label>
                 <Input
                   type="number"
                   min="1"
                   value={formGuests}
                   onChange={(e) => setFormGuests(e.target.value)}
-                  className="border-border bg-muted"
+                  placeholder="1"
+                  className="border-border bg-muted text-sm"
                 />
               </div>
-              <div className="space-y-2">
-                <Label className="text-muted-foreground">Total Amount</Label>
+              <div className="space-y-1.5">
+                <Label className="text-muted-foreground text-xs">Total Price</Label>
                 <Input
                   type="number"
                   step="0.01"
@@ -370,15 +446,15 @@ export default function BookingsPage() {
                   value={formTotal}
                   onChange={(e) => setFormTotal(e.target.value)}
                   placeholder="0.00"
-                  className="border-border bg-muted"
+                  className="border-border bg-muted text-sm"
                 />
               </div>
             </div>
 
             {/* Status (edit only) */}
             {editingBooking && (
-              <div className="space-y-2">
-                <Label className="text-muted-foreground">Status</Label>
+              <div className="space-y-1.5">
+                <Label className="text-muted-foreground text-xs">Booking Status</Label>
                 <select
                   value={formStatus}
                   onChange={(e) => setFormStatus(e.target.value as BookingStatus)}
@@ -392,14 +468,14 @@ export default function BookingsPage() {
             )}
 
             {/* Notes */}
-            <div className="space-y-2">
-              <Label className="text-muted-foreground">Notes</Label>
+            <div className="space-y-1.5">
+              <Label className="text-muted-foreground text-xs">Booking Notes</Label>
               <Textarea
                 value={formNotes}
                 onChange={(e) => setFormNotes(e.target.value)}
-                placeholder="Booking notes..."
+                placeholder="Guest preferences, special requests, or instructions..."
                 rows={2}
-                className="border-border bg-muted"
+                className="border-border bg-muted text-sm"
               />
             </div>
           </div>
@@ -410,7 +486,7 @@ export default function BookingsPage() {
             </Button>
             <Button onClick={handleSubmit} disabled={saving}>
               {saving && <Loader2 className="size-4 animate-spin" />}
-              {editingBooking ? 'Update' : 'Create'}
+              {editingBooking ? 'Update Booking' : 'Create Booking'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -431,7 +507,7 @@ export default function BookingsPage() {
             </Button>
             <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
               {deleting && <Loader2 className="size-4 animate-spin" />}
-              Delete
+              Delete Booking
             </Button>
           </DialogFooter>
         </DialogContent>

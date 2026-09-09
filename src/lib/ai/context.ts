@@ -15,20 +15,13 @@ export interface ConversationContext {
   messageCount: number
   /** Whether any message has an attachment (image, document, etc.) */
   hasAttachment: boolean
+  /** Latest image URL sent by customer, if any */
+  latestImageUrl?: string | null
 }
 
 /**
  * Fetch the last N messages of a conversation and map them to the
- * provider-neutral chat shape. Includes:
- *   - Text messages (content_type = 'text')
- *   - Media messages WITH captions (content_type in image/video/document)
- *
- * Excludes:
- *   - Media messages without captions (no text for model)
- *   - Audio, sticker, location, reaction messages (no text value)
- *
- * Ordered oldest-first (chronological) so the transcript reads
- * naturally and the most recent customer message lands last.
+ * provider-neutral chat shape.
  */
 export async function buildConversationContext(
   db: SupabaseClient,
@@ -47,20 +40,35 @@ export async function buildConversationContext(
 
   const rows = ((data ?? []) as DbMessage[]).reverse()
 
-  // Filter to messages with text content
-  const textMessages = rows.filter((m) => m.content_text && m.content_text.trim())
+  // Find latest customer image URL if present
+  const latestCustomerImage = [...rows]
+    .reverse()
+    .find((m) => m.sender_type === 'customer' && m.content_type === 'image' && m.media_url)
 
-  // Detect if any message has an attachment
+  // Map messages to ChatMessage objects, filling in image description fallback for image-only messages
+  const mappedMessages: ChatMessage[] = rows
+    .map((m) => {
+      let text = m.content_text?.trim() || ''
+      if (!text && m.content_type === 'image') {
+        text = '[Customer sent an image]'
+      }
+      if (!text) return null
+
+      return {
+        role: m.sender_type === 'customer' ? 'user' : 'assistant',
+        content: text,
+      } as ChatMessage
+    })
+    .filter(Boolean) as ChatMessage[]
+
   const hasAttachment = rows.some(
     (m) => m.media_url && ['image', 'video', 'document'].includes(m.content_type),
   )
 
   return {
-    messages: textMessages.map((m) => ({
-      role: m.sender_type === 'customer' ? 'user' : 'assistant',
-      content: m.content_text!.trim(),
-    })),
-    messageCount: textMessages.length,
+    messages: mappedMessages,
+    messageCount: mappedMessages.length,
     hasAttachment,
+    latestImageUrl: latestCustomerImage?.media_url || null,
   }
 }

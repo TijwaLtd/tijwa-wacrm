@@ -426,14 +426,31 @@ export async function findMatchingOfferings(
   customerImageUrl: string,
   matchCount: number = 5
 ): Promise<OfferingMatch[]> {
-  // Generate embedding for customer image
-  const queryEmbedding = await generateImageEmbedding(customerImageUrl);
-  
-  if (!queryEmbedding) {
-    console.warn("[offering-ai] Could not generate embedding for customer image");
-    return [];
+  try {
+    // 1. Try vector image embedding search first
+    const queryEmbedding = await generateImageEmbedding(customerImageUrl);
+    if (queryEmbedding) {
+      const matches = await matchOfferingsByImage(accountId, queryEmbedding, matchCount);
+      if (matches && matches.length > 0 && matches[0].similarity > 0.4) {
+        return matches;
+      }
+    }
+
+    // 2. Fallback: generate vision description using GPT-4o, then perform hybrid catalog search
+    const visionDescription = await generateVisionDescription(
+      customerImageUrl,
+      "Describe this item accurately so we can find a match in the business catalog."
+    );
+
+    if (visionDescription) {
+      const hybridMatches = await hybridSearch(accountId, visionDescription, matchCount);
+      if (hybridMatches && hybridMatches.length > 0) {
+        return hybridMatches;
+      }
+    }
+  } catch (error) {
+    console.error("[offering-ai] findMatchingOfferings error:", error);
   }
 
-  // Find matches
-  return matchOfferingsByImage(accountId, queryEmbedding, matchCount);
+  return [];
 }

@@ -515,6 +515,19 @@ const HANDLERS: Record<
     listCatalog(c, accountId, { ...params, type: "service" }),
   "services.get": (c, _db, accountId, params) => getCatalogItem(c, accountId, params),
   "services.search": (c, _db, accountId, params) => searchCatalog(c, accountId, params),
+
+  // Delivery / Pricing Service
+  "pricingService.calculate": (_c, db, accountId, params) => calculateServicePrice(db, accountId, params),
+  "pricingService.getFormula": (_c, db, accountId, params) => getPricingFormula(db, accountId, params),
+
+  // Assignment Service
+  "assignmentService.assign": (_c, db, accountId, params) => assignAgent(db, accountId, params),
+
+  // Business Service
+  "businessService.checkOperatingHours": (_c, db, accountId, params) => checkOperatingHours(db, accountId, params),
+
+  // Catalogue Service (location matching)
+  "catalogService.matchByLocation": (c, _db, accountId, params) => matchOfferingByLocation(c, accountId, params),
 };
 
 // ============================================================
@@ -554,6 +567,275 @@ async function checkAvailability(
     : `❌ Sorry, not available for those dates. Try different dates or contact us for alternatives.`;
 
   return { available, total: count ?? 0, message };
+}
+
+// ============================================================
+// Pricing Service — Dynamic formula calculation
+// ============================================================
+
+async function calculateServicePrice(
+  db: AdminClient,
+  accountId: string,
+  params: Record<string, unknown>,
+): Promise<NodeHandlerResult> {
+  const offeringId = typeof params.offering_id === "string" ? params.offering_id : null;
+  const inputParams = typeof params.params === "object" && params.params !== null ? (params.params as Record<string, unknown>) : {};
+
+  if (!offeringId) {
+    return { price: null, error: "offering_id is required" };
+  }
+
+  // Get offering with pricing metadata
+  const { data: offering, error } = await db
+    .from("offerings")
+    .select("metadata, currency")
+    .eq("id", offeringId)
+    .eq("account_id", accountId)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!offering) return { price: null, error: "Offering not found" };
+
+  const metadata = offering.metadata as Record<string, unknown> | null;
+  const pricing = metadata?.pricing as Record<string, unknown> | null;
+
+  if (!pricing) {
+    return { price: null, error: "No pricing formula configured for this offering" };
+  }
+
+  // Extract pricing parameters
+  const base = Number(pricing.base ?? 0);
+  const itemPrice = Number(pricing.item_price ?? 0);
+  const stopPrice = Number(pricing.stop_price ?? 0);
+  const weightPrice = Number(pricing.weight_price ?? 0);
+  const kmPrice = Number(pricing.km_price ?? 0);
+  const wednesdayDiscount = Number(pricing.wednesday_discount ?? 0);
+
+  // Extract input parameters
+  const items = Number(inputParams.items ?? 0);
+  const stops = Number(inputParams.stops ?? 0);
+  const weightKg = Number(inputParams.weight_kg ?? 0);
+  const distanceKm = Number(inputParams.distance_km ?? 0);
+  const isWednesday = Boolean(inputParams.is_wednesday ?? false);
+
+  // Calculate price
+  let price = base + (items * itemPrice) + (stops * stopPrice) + (weightKg * weightPrice) + (distanceKm * kmPrice);
+
+  // Apply Wednesday discount if applicable
+  if (isWednesday && wednesdayDiscount > 0) {
+    price = price * (1 - wednesdayDiscount);
+  }
+
+  const currency = String(offering.currency ?? "USD");
+
+  const breakdown = {
+    base,
+    items: items * itemPrice,
+    stops: stops * stopPrice,
+    weight: weightKg * weightPrice,
+    distance: distanceKm * kmPrice,
+    discount: isWednesday && wednesdayDiscount > 0 ? price * wednesdayDiscount / (1 - wednesdayDiscount) : 0,
+  };
+
+  return {
+    price: Math.round(price * 100) / 100,
+    currency,
+    breakdown,
+  };
+}
+
+async function getPricingFormula(
+  db: AdminClient,
+  accountId: string,
+  params: Record<string, unknown>,
+): Promise<NodeHandlerResult> {
+  const offeringId = typeof params.offering_id === "string" ? params.offering_id : null;
+
+  if (!offeringId) {
+    return { formula: null, variables: [], error: "offering_id is required" };
+  }
+
+  const { data: offering, error } = await db
+    .from("offerings")
+    .select("metadata")
+    .eq("id", offeringId)
+    .eq("account_id", accountId)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!offering) return { formula: null, variables: [], error: "Offering not found" };
+
+  const metadata = offering.metadata as Record<string, unknown> | null;
+  const pricing = metadata?.pricing as Record<string, unknown> | null;
+
+  if (!pricing) {
+    return { formula: null, variables: [], error: "No pricing formula configured" };
+  }
+
+  const variables = [
+    { name: "items", type: "number", description: "Number of items" },
+    { name: "stops", type: "number", description: "Number of stops" },
+    { name: "weight_kg", type: "number", description: "Weight in kilograms" },
+    { name: "distance_km", type: "number", description: "Distance in kilometers" },
+    { name: "is_wednesday", type: "boolean", description: "Is today Wednesday (for discount)" },
+  ];
+
+  return { formula: pricing, variables };
+}
+
+// ============================================================
+// Assignment Service — Agent/Rider assignment
+// ============================================================
+
+async function assignAgent(
+  db: AdminClient,
+  accountId: string,
+  params: Record<string, unknown>,
+): Promise<NodeHandlerResult> {
+  const orderId = typeof params.order_id === "string" ? params.order_id : null;
+  const offeringId = typeof params.offering_id === "string" ? params.offering_id : null;
+
+  if (!orderId) {
+    return { agent_id: null, agent_name: null, error: "order_id is required" };
+  }
+
+  // Get contacts tagged as riders/agents for this account
+  const { data: agents, error } = await db
+    .from("contacts")
+    .select("id, full_name, tags")
+    .eq("account_id", accountId)
+    .contains("tags", ["rider"])
+    .limit(50);
+
+  if (error) throw error;
+
+  if (!agents || agents.length === 0) {
+    return { agent_id: null, agent_name: null, error: "No riders available" };
+  }
+
+  // Simple round-robin: pick the first available agent
+  // In production, this would track last assigned and cycle through
+  const agent = agents[0];
+  const assignedAt = new Date().toISOString();
+
+  // Store assignment in order metadata
+  const { error: updateError } = await db
+    .from("orders")
+    .update({
+      metadata: {
+        assigned_agent_id: agent.id,
+        assigned_agent_name: agent.full_name,
+        assigned_at: assignedAt,
+      },
+    })
+    .eq("id", orderId);
+
+  if (updateError) throw updateError;
+
+  return {
+    agent_id: agent.id,
+    agent_name: agent.full_name,
+    assigned_at: assignedAt,
+  };
+}
+
+// ============================================================
+// Business Service — Operating hours check
+// ============================================================
+
+async function checkOperatingHours(
+  db: AdminClient,
+  accountId: string,
+  _params: Record<string, unknown>,
+): Promise<NodeHandlerResult> {
+  const { data: settings, error } = await db
+    .from("tenant_settings")
+    .select("operating_hours")
+    .eq("account_id", accountId)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!settings) return { is_operating: true, message: "No operating hours configured" };
+
+  const operatingHours = settings.operating_hours as Record<string, unknown> | null;
+  if (!operatingHours) return { is_operating: true, message: "No operating hours configured" };
+
+  const days = operatingHours.days as string[] || ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+  const startTime = operatingHours.start as string || "00:00";
+  const endTime = operatingHours.end as string || "23:59";
+  const timezone = operatingHours.timezone as string || "UTC";
+
+  const now = new Date();
+  const currentDay = now.toLocaleDateString("en-US", { weekday: "short", timeZone: timezone }).toLowerCase();
+  const currentTime = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: timezone });
+
+  const isOperating = days.includes(currentDay) && currentTime >= startTime && currentTime <= endTime;
+
+  let nextOpenTime = "";
+  if (!isOperating) {
+    // Simple calculation for next open time
+    nextOpenTime = `${days[0]} ${startTime}`;
+  }
+
+  const message = isOperating
+    ? "We are currently open and accepting orders."
+    : `We are closed. Operating hours: ${days.join(", ")} ${startTime}-${endTime}. Next opening: ${nextOpenTime}`;
+
+  return {
+    is_operating: isOperating,
+    next_open_time: nextOpenTime,
+    message,
+  };
+}
+
+// ============================================================
+// Catalogue Service — Location matching
+// ============================================================
+
+async function matchOfferingByLocation(
+  catalogue: CatalogueService,
+  accountId: string,
+  params: Record<string, unknown>,
+): Promise<NodeHandlerResult> {
+  const pickupLocation = typeof params.pickup_location === "string" ? params.pickup_location.toLowerCase() : "";
+  const dropoffLocation = typeof params.dropoff_location === "string" ? params.dropoff_location.toLowerCase() : "";
+  const offeringType = typeof params.offering_type === "string" ? params.offering_type : "service";
+
+  if (!pickupLocation || !dropoffLocation) {
+    return { offering_id: null, offering_name: null, error: "pickup_location and dropoff_location are required" };
+  }
+
+  // Get all service offerings for the account
+  const result = await catalogue.getItems(accountId, {
+    type: offeringType as OfferingType,
+    limit: 100,
+  });
+
+  // Find offering whose zones match either pickup or dropoff
+  const matchedOffering = result.items.find((item) => {
+    const metadata = item.metadata as Record<string, unknown> | null;
+    const pricing = metadata?.pricing as Record<string, unknown> | null;
+    const zones = pricing?.zones as string[] | null;
+
+    if (!zones || zones.length === 0) return false;
+
+    const zonesLower = zones.map((z) => z.toLowerCase());
+    return zonesLower.some((zone) => pickupLocation.includes(zone) || dropoffLocation.includes(zone));
+  });
+
+  if (!matchedOffering) {
+    return { offering_id: null, offering_name: null, error: "No service available for these locations" };
+  }
+
+  const metadata = matchedOffering.metadata as Record<string, unknown> | null;
+  const pricing = metadata?.pricing as Record<string, unknown> | null;
+
+  return {
+    offering_id: matchedOffering.id,
+    offering_name: matchedOffering.name,
+    zone_type: pricing?.zone_type as string || "unknown",
+    requires_prepayment: pricing?.requires_prepayment as boolean || false,
+  };
 }
 
 // ============================================================

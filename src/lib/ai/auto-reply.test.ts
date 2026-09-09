@@ -11,7 +11,7 @@ const h = vi.hoisted(() => ({
   engineSendText: vi.fn(),
   state: {
     conv: null as Record<string, unknown> | null,
-    autoResponders: [] as { id: string }[],
+    autoResponders: [] as Record<string, unknown>[],
     updatePayload: null as Record<string, unknown> | null,
     rpcCalls: [] as { name: string; args: unknown }[],
     creditRow: { credits_remaining: 990 } as Record<string, unknown> | null,

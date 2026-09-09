@@ -76,6 +76,8 @@ import { InviteMemberDialog } from './invite-member-dialog';
 import { SeatPurchaseDialog } from './seat-purchase-dialog';
 import { SettingsPanelHead } from './settings-panel-head';
 import { ROLE_META } from './role-meta';
+import { BusinessMetadataDialog } from './business-metadata-dialog';
+import { Settings } from 'lucide-react';
 
 interface SeatInfo {
   included_seats: number;
@@ -106,7 +108,15 @@ interface Invitation {
 // These roles are translated via `useTranslations("Settings.roles")` where they are used.
 const EDITABLE_ROLES: { value: AccountRole }[] = [
   { value: 'admin' },
+  { value: 'manager' },
   { value: 'agent' },
+  { value: 'receptionist' },
+  { value: 'doctor' },
+  { value: 'instructor' },
+  { value: 'waiter' },
+  { value: 'driver' },
+  { value: 'rider' },
+  { value: 'cleaner' },
   { value: 'viewer' },
 ];
 
@@ -152,6 +162,7 @@ export function MembersTab() {
   const [seatInfo, setSeatInfo] = useState<SeatInfo | null>(null);
   const [seatDialogOpen, setSeatDialogOpen] = useState(false);
   const [plans, setPlans] = useState<Array<{ id: string; name: string; price_kes: number; features?: { max_team_members: number } }>>([]);
+  const [metadataDialogMember, setMetadataDialogMember] = useState<Member | null>(null);
 
   const loadEverything = useCallback(async () => {
     try {
@@ -443,6 +454,19 @@ export function MembersTab() {
                       inline. Items align to the start on mobile so the
                       role dropdown lines up under the avatar. */}
                   <div className="flex items-center gap-2 sm:gap-3">
+                    {/* Business metadata button - shows for non-owner members */}
+                    {canManageMembers && !isOwnerRow && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setMetadataDialogMember(member)}
+                        disabled={isBusy}
+                        className="h-8 w-8 p-0"
+                      >
+                        <Settings className="size-4" />
+                      </Button>
+                    )}
+
                     {/* Role display / editor. Inline Select is admin+
                         only AND not allowed on the owner row (owner
                         changes go through transfer, which lands later). */}
@@ -663,6 +687,17 @@ export function MembersTab() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {metadataDialogMember && (
+        <BusinessMetadataDialog
+          open={metadataDialogMember !== null}
+          onOpenChange={(open) => {
+            if (!open) setMetadataDialogMember(null);
+          }}
+          memberUserId={metadataDialogMember.user_id}
+          memberName={metadataDialogMember.full_name || t('unnamed')}
+        />
+      )}
     </section>
   );
 }

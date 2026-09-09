@@ -6,6 +6,8 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import type { OrderStatus } from "@/lib/business/orders";
+import { autoAssignConversation } from "@/lib/assignments/auto-assign";
+import { supabaseAdmin } from "@/lib/ai/admin-client";
 
 export async function GET(request: Request) {
   const supabase = await createClient();
@@ -98,16 +100,83 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  // Validate order schema if offering_id is provided
+  if (items && items.length > 0 && items[0]?.offering_id) {
+    const offeringId = items[0].offering_id;
+    const { data: offering } = await serviceClient
+      .from("offerings")
+      .select("metadata")
+      .eq("id", offeringId)
+      .eq("account_id", accountId)
+      .maybeSingle();
+
+    if (offering) {
+      const offeringMetadata = offering.metadata as Record<string, unknown> | null;
+      const orderSchema = offeringMetadata?.order_schema as Record<string, unknown> | null;
+
+      if (orderSchema) {
+        const requiredFields = orderSchema.required_fields as string[] || [];
+        const fieldTypes = orderSchema.field_types as Record<string, string> || {};
+        const fieldDescriptions = orderSchema.field_descriptions as Record<string, string> || {};
+
+        // Validate required fields in metadata
+        const missingFields = requiredFields.filter((field) => !(field in metadata));
+        if (missingFields.length > 0) {
+          return NextResponse.json({
+            error: "Missing required fields",
+            missing_fields: missingFields,
+            field_descriptions: missingFields.map((f) => ({ field: f, description: fieldDescriptions[f] })),
+          }, { status: 400 });
+        }
+
+        // Validate field types
+        const typeErrors: string[] = [];
+        for (const [field, expectedType] of Object.entries(fieldTypes)) {
+          if (field in metadata) {
+            const value = metadata[field];
+            let isValid = false;
+
+            switch (expectedType) {
+              case "string":
+                isValid = typeof value === "string";
+                break;
+              case "number":
+                isValid = typeof value === "number" && !isNaN(value);
+                break;
+              case "boolean":
+                isValid = typeof value === "boolean";
+                break;
+              case "array":
+                isValid = Array.isArray(value);
+                break;
+            }
+
+            if (!isValid) {
+              typeErrors.push(`${field} must be ${expectedType}, got ${typeof value}`);
+            }
+          }
+        }
+
+        if (typeErrors.length > 0) {
+          return NextResponse.json({
+            error: "Invalid field types",
+            type_errors: typeErrors,
+          }, { status: 400 });
+        }
+      }
+    }
+  }
+
   // Generate order number
   const { data: orderNum } = await serviceClient.rpc("next_order_number", { p_account_id: accountId });
   if (!orderNum) {
     return NextResponse.json({ error: "Failed to generate order number" }, { status: 500 });
   }
 
-  // Get account currency
+  // Get account currency and business type
   const { data: account } = await serviceClient
     .from("accounts")
-    .select("default_currency")
+    .select("default_currency, business_type")
     .eq("id", accountId)
     .single();
   const currency = account?.default_currency || "USD";
@@ -162,6 +231,13 @@ export async function POST(request: Request) {
     if (itemsError) {
       console.error("[orders] items insert error:", itemsError);
     }
+  }
+
+  // Auto-assign order to team member for logistics businesses (fire-and-forget)
+  if (account?.business_type) {
+    void autoAssignConversation(supabaseAdmin(), accountId, "", order.id).catch((err) => {
+      console.error("[orders] auto-assign failed:", err);
+    });
   }
 
   return NextResponse.json({ order }, { status: 201 });

@@ -108,6 +108,14 @@ export async function POST(request: Request) {
       )
     }
 
+    // Fetch business type for tone adaptation
+    const { data: account } = await supabase
+      .from('accounts')
+      .select('business_type')
+      .eq('id', accountId)
+      .maybeSingle()
+    const businessType = account?.business_type || null
+
     // Ground the draft in the account's knowledge base (best-effort —
     // returns [] when there's no KB or retrieval fails).
     const knowledge = await retrieveKnowledge(
@@ -115,6 +123,8 @@ export async function POST(request: Request) {
       accountId,
       config,
       latestUserMessage(ctx.messages),
+      5,
+      { imageUrl: ctx.latestImageUrl },
     )
     console.log('[ai/draft] knowledge retrieved:', knowledge?.length ?? 0, 'chunks')
 
@@ -122,6 +132,7 @@ export async function POST(request: Request) {
       userPrompt: config.systemPrompt,
       mode: 'draft',
       knowledge,
+      businessType,
     })
 
     const { text, handoff, usage } = await generateReply({
