@@ -540,7 +540,7 @@ RETURNS TABLE (
   id UUID,
   account_id UUID,
   contact_id UUID,
-  status conversation_status,
+  status TEXT,
   assigned_agent_id UUID,
   last_message_text TEXT,
   last_message_at TIMESTAMPTZ,
