@@ -1633,7 +1633,9 @@
       "departments": "Departments",
       "skills": "Agent skills",
       "schedule": "Working hours",
-      "business": "Business"
+      "business": "Business",
+      "payment-methods": "Payment methods",
+      "pricing": "Pricing formulas"
     },
     "groups": {
       "account": "Account",
