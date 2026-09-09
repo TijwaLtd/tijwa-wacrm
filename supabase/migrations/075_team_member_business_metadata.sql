@@ -17,7 +17,7 @@ ALTER TABLE bookings ADD COLUMN assigned_team_member_id UUID REFERENCES profiles
 
 -- Create indexes for metadata queries
 CREATE INDEX idx_account_memberships_metadata ON account_memberships USING GIN(business_metadata);
-CREATE INDEX idx_orders_assigned member ON orders(assigned_team_member_id);
+CREATE INDEX idx_orders_assigned_member ON orders(assigned_team_member_id);
 CREATE INDEX idx_bookings_assigned_member ON bookings(assigned_team_member_id);
 
 -- Create index for role-based queries
