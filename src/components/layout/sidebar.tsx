@@ -195,7 +195,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
   // Derive navigation items from persisted capabilities in auth context
   const capabilityNavItems = capabilities
     .filter((cap) => cap.is_enabled && cap.navigation)
-    .map((cap) => cap.navigation!);
+    .map((cap) => ({ ...cap.navigation!, _key: cap.key }));
   // Only surface the account-name strip when it actually carries
   // information. A solo user's personal account is named after them
   // (the 017 signup trigger seeds it from `full_name`), so showing it
@@ -353,7 +353,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                     const isActive = pathname.startsWith(item.route);
                     const Icon = CAPABILITY_ICONS[item.icon] || Package;
                     return (
-                      <li key={item.route}>
+                      <li key={item._key}>
                         <Link
                           href={item.route}
                           className={cn(
@@ -385,7 +385,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                         const isActive = pathname.startsWith(item.route);
                         const Icon = CAPABILITY_ICONS[item.icon] || Zap;
                         return (
-                          <li key={item.route}>
+                          <li key={item._key}>
                             <Link
                               href={item.route}
                               className={cn(
