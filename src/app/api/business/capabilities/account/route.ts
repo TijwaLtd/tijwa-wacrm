@@ -48,9 +48,13 @@ export async function GET(request: Request) {
     .eq("id", accountId)
     .single();
 
-  // Get account capabilities using RPC
+  // Get account capabilities — query directly to include navigation column
+  // (RPC get_account_capabilities doesn't return navigation)
   const { data: capabilities, error } = await serviceClient
-    .rpc("get_account_capabilities", { p_account_id: accountId });
+    .from("business_capabilities")
+    .select("key, name, description, category, navigation")
+    .order("category")
+    .order("name");
 
   if (error) {
     console.error("[capabilities] get error:", error);
@@ -61,9 +65,16 @@ export async function GET(request: Request) {
   const { data: enabledKeys } = await serviceClient
     .rpc("get_enabled_capability_keys", { p_account_id: accountId });
 
+  // Merge is_enabled flag into each capability
+  const enabledSet = new Set(enabledKeys ?? []);
+  const capabilitiesWithEnabled = (capabilities ?? []).map((cap) => ({
+    ...cap,
+    is_enabled: enabledSet.has(cap.key),
+  }));
+
   return NextResponse.json({
     business_type: account?.business_type ?? null,
-    capabilities: capabilities ?? [],
+    capabilities: capabilitiesWithEnabled,
     enabled_keys: enabledKeys ?? [],
   });
 }

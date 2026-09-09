@@ -131,6 +131,11 @@ UPDATE business_capabilities
 SET recommended_business_types = recommended_business_types || '["logistics_delivery", "courier", "transportation"]'::jsonb
 WHERE key = 'services';
 
+-- Product catalog capability now includes logistics
+UPDATE business_capabilities
+SET recommended_business_types = recommended_business_types || '["logistics_delivery", "courier", "transportation"]'::jsonb
+WHERE key = 'product_catalog';
+
 -- Orders capability now includes logistics
 UPDATE business_capabilities
 SET recommended_business_types = recommended_business_types || '["logistics_delivery", "courier"]'::jsonb
