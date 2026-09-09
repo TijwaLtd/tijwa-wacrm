@@ -44,7 +44,8 @@
     "menuSettings": "Settings",
     "menuSignOut": "Sign out",
     "catalog": "Catalog",
-    "operations": "Operations"
+    "operations": "Operations",
+    "more": "More"
   },
   "Header": {
     "dashboard": "Dashboard",
