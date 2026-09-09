@@ -48,11 +48,12 @@ export async function GET(request: Request) {
     .eq("id", accountId)
     .single();
 
-  // Get account capabilities — query directly to include navigation column
-  // (RPC get_account_capabilities doesn't return navigation)
+  // Get capabilities recommended for this business type + default-enabled ones
+  const businessType = account?.business_type ?? 'other';
   const { data: capabilities, error } = await serviceClient
     .from("business_capabilities")
     .select("key, name, description, category, navigation")
+    .or(`recommended_business_types.cs.${JSON.stringify([businessType])},is_default_enabled.eq.true`)
     .order("category")
     .order("name");
 
@@ -61,11 +62,11 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Failed to load capabilities" }, { status: 500 });
   }
 
-  // Get enabled capability keys using RPC
+  // Get enabled capability keys for this account
   const { data: enabledKeys } = await serviceClient
     .rpc("get_enabled_capability_keys", { p_account_id: accountId });
 
-  // Merge is_enabled flag into each capability
+  // Merge is_enabled flag — only mark as enabled if it's in the filtered set AND in enabledKeys
   const enabledSet = new Set(enabledKeys ?? []);
   const capabilitiesWithEnabled = (capabilities ?? []).map((cap) => ({
     ...cap,

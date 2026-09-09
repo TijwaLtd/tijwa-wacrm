@@ -135,21 +135,36 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Failed to create workspace: " + accountError.message }, { status: 500 });
   }
 
-  // Enable all capabilities by default for the new workspace
+  // Enable only capabilities recommended for this business type
   if (accountId) {
     const serviceClient = createServiceClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
     );
 
-    const { data: allCapabilities } = await serviceClient
-      .from("business_capabilities")
-      .select("key");
+    const bt = businessType || 'other';
 
-    if (allCapabilities) {
-      const capabilityUpserts = allCapabilities.map((cap) => ({
+    // Get capabilities that recommend this business type
+    const { data: recommendedCaps } = await serviceClient
+      .from("business_capabilities")
+      .select("key")
+      .contains("recommended_business_types", JSON.stringify([bt]));
+
+    // Also get capabilities that are default-enabled for any business type
+    const { data: defaultCaps } = await serviceClient
+      .from("business_capabilities")
+      .select("key")
+      .eq("is_default_enabled", true);
+
+    // Merge: recommended + default-enabled, deduplicate
+    const enableKeys = new Set<string>();
+    for (const cap of recommendedCaps ?? []) enableKeys.add(cap.key);
+    for (const cap of defaultCaps ?? []) enableKeys.add(cap.key);
+
+    if (enableKeys.size > 0) {
+      const capabilityUpserts = Array.from(enableKeys).map((key) => ({
         account_id: accountId,
-        capability_key: cap.key,
+        capability_key: key,
         is_enabled: true,
       }));
 
