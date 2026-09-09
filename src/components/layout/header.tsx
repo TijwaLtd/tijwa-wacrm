@@ -90,7 +90,7 @@ export function Header({}: HeaderProps) {
     <header className="border-border bg-background flex h-14 shrink-0 items-center justify-between gap-3 border-b px-4 lg:px-6">
       <div className="flex min-w-0 items-center gap-2">
         {/* Brand mark — mobile only; desktop shows the workspace switcher. */}
-        <Link href="/dashboard" className="flex items-center gap-2">
+        {/* <Link href="/dashboard" className="flex items-center gap-2">
           <Image
             src="/logo.png"
             alt="Tijwa"
@@ -98,7 +98,7 @@ export function Header({}: HeaderProps) {
             height={32}
             className="h-14 w-20 rounded-lg object-cover"
           />
-        </Link>
+        </Link> */}
 
         {/* Workspace switcher - desktop */}
         <div className="hidden lg:block">
@@ -185,7 +185,7 @@ export function Header({}: HeaderProps) {
             <DropdownMenuItem
               render={
                 <Link
-                  href="/settings?tab=whatsapp"
+                  href="/settings"
                   className="text-popover-foreground focus:bg-accent focus:text-accent-foreground"
                 />
               }
