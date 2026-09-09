@@ -41,11 +41,12 @@ CREATE POLICY memberships_select ON account_memberships FOR SELECT USING (
 );
 
 -- Users can insert their own membership
+DROP POLICY IF EXISTS memberships_insert ON account_memberships;
 CREATE POLICY memberships_insert ON account_memberships FOR INSERT WITH CHECK (
   auth.uid() = user_id
 );
 
--- Users can delete their own membership (leave workspace)
+DROP POLICY IF EXISTS memberships_delete ON account_memberships;
 CREATE POLICY memberships_delete ON account_memberships FOR DELETE USING (
   auth.uid() = user_id
 );
