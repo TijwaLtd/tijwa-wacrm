@@ -120,7 +120,7 @@ INSERT INTO capability_nodes (capability_key, node_key, name, description, categ
    '{"offering_id": "string"}'::jsonb,
    '{"formula": "object", "variables": "array"}'::jsonb,
    'pricingService.getFormula')
-ON CONFLICT (capability_key, node_key) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 -- ============================================================
 -- 6. Update existing capabilities to recommend new business types
