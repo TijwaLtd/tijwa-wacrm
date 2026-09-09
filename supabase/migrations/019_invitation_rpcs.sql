@@ -100,7 +100,7 @@ GRANT EXECUTE ON FUNCTION public.peek_invitation(TEXT) TO anon, authenticated;
 --   42501 — caller not authenticated
 --   23505 — caller's account has data (would be lost by joining)
 --           NOTE: we reuse Postgres's "unique_violation" code here
---           rather than invent a custom SQLSTATE because there's
+--           rather than inventing a custom SQLSTATE because there's
 --           no proper standard SQLSTATE for "conflict"; the route
 --           handler maps it to HTTP 409.
 --
@@ -122,6 +122,7 @@ GRANT EXECUTE ON FUNCTION public.peek_invitation(TEXT) TO anon, authenticated;
 --      delete the caller's profile too, but step 4 already moved
 --      them to the new account, so the cascade is a no-op.
 -- ============================================================
+DROP FUNCTION IF EXISTS public.redeem_invitation(TEXT);
 CREATE OR REPLACE FUNCTION public.redeem_invitation(
   p_token_hash TEXT
 ) RETURNS UUID  -- the joined account_id

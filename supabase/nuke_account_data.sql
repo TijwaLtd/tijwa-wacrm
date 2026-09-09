@@ -84,6 +84,9 @@ DROP TABLE IF EXISTS accounts CASCADE;
 -- 2. Drop all auth users (cascades to auth.identities, auth.sessions)
 TRUNCATE TABLE auth.users CASCADE;
 
+-- 3. Drop migration tracking so supabase db push starts fresh
+DROP TABLE IF EXISTS _supabase_migrations CASCADE;
+
 -- 3. Drop all functions that reference dropped tables
 DROP FUNCTION IF EXISTS create_workspace(TEXT, TEXT, UUID, TEXT, TEXT);
 DROP FUNCTION IF EXISTS is_subdomain_available(TEXT);
@@ -217,12 +220,3 @@ $$;
 
 ALTER FUNCTION public.is_within_working_hours(UUID, TIMESTAMPTZ) OWNER TO postgres;
 GRANT EXECUTE ON FUNCTION public.is_within_working_hours(UUID, TIMESTAMPTZ) TO authenticated;
-
--- 5. Verify — should return 0 for everything
-SELECT 'accounts' AS tbl, COUNT(*) AS cnt FROM accounts
-UNION ALL SELECT 'account_memberships', COUNT(*) FROM account_memberships
-UNION ALL SELECT 'profiles', COUNT(*) FROM profiles
-UNION ALL SELECT 'offerings', COUNT(*) FROM offerings
-UNION ALL SELECT 'orders', COUNT(*) FROM orders
-UNION ALL SELECT 'conversations', COUNT(*) FROM conversations
-UNION ALL SELECT 'auth.users', COUNT(*) FROM auth.users;
