@@ -34,7 +34,7 @@ CREATE POLICY "account_members_view_catalogue_sources"
 
 CREATE POLICY "account_owners_manage_catalogue_sources"
   ON catalogue_sources FOR ALL
-  USING (has_role_in_account('owner', account_id));
+  USING (has_role_in_account(auth.uid(), account_id, 'owner'));
 
 -- Index for account lookups
 CREATE INDEX IF NOT EXISTS idx_catalogue_sources_account_id
@@ -67,7 +67,7 @@ CREATE POLICY "account_members_view_catalogue_availability"
 
 CREATE POLICY "account_owners_manage_catalogue_availability"
   ON catalogue_availability FOR ALL
-  USING (has_role_in_account('owner', account_id));
+  USING (has_role_in_account(auth.uid(), account_id, 'owner'));
 
 -- Index for account lookups
 CREATE INDEX IF NOT EXISTS idx_catalogue_availability_account_id
