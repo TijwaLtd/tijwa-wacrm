@@ -90,6 +90,7 @@ ALTER FUNCTION has_role_in_account(UUID, UUID, account_role_enum) OWNER TO postg
 GRANT EXECUTE ON FUNCTION has_role_in_account(UUID, UUID, account_role_enum) TO authenticated, service_role;
 
 -- Get all accounts a user belongs to
+DROP FUNCTION IF EXISTS get_user_accounts(UUID);
 CREATE OR REPLACE FUNCTION get_user_accounts(p_user_id UUID)
 RETURNS TABLE (account_id UUID, account_name TEXT, role account_role_enum, joined_at TIMESTAMPTZ)
 LANGUAGE sql
