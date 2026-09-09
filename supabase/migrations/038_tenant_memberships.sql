@@ -35,6 +35,7 @@ ALTER TABLE account_memberships ENABLE ROW LEVEL SECURITY;
 
 -- Member and all account members can see the membership
 -- Simplified to avoid recursion - just check if user owns the membership
+DROP POLICY IF EXISTS memberships_select ON account_memberships;
 CREATE POLICY memberships_select ON account_memberships FOR SELECT USING (
   auth.uid() = user_id
 );
