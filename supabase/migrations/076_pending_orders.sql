@@ -48,13 +48,11 @@ CREATE TABLE IF NOT EXISTS pending_orders (
 
 -- Index for lookup by contact + conversation (button click handler)
 CREATE INDEX IF NOT EXISTS idx_pending_orders_lookup
-  ON pending_orders (account_id, contact_id, conversation_id)
-  WHERE expires_at > NOW();
+  ON pending_orders (account_id, contact_id, conversation_id);
 
 -- Index for cleanup of expired rows
 CREATE INDEX IF NOT EXISTS idx_pending_orders_expiry
-  ON pending_orders (expires_at)
-  WHERE expires_at <= NOW();
+  ON pending_orders (expires_at);
 
 -- RLS — tenant isolation
 ALTER TABLE pending_orders ENABLE ROW LEVEL SECURITY;
