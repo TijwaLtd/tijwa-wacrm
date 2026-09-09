@@ -208,7 +208,7 @@ INSERT INTO catalogue_ai_response_templates (account_id, template_key, name, des
    'We are currently closed.\n\nOperating hours: {{days}} {{start}} - {{end}}\nNext opening: {{next_open_time}}\n\nPlease contact us during operating hours.',
    '{"days": "string", "start": "string", "end": "string", "next_open_time": "string"}'::jsonb,
    TRUE)
-ON CONFLICT (account_id, template_key) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 -- ============================================================
 -- 6. Add order_schema structure documentation
