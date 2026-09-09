@@ -24,6 +24,7 @@ import {
   Library,
   HandCoins,
   CalendarDays,
+  Truck,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -44,6 +45,7 @@ const CAPABILITY_ICONS: Record<string, LucideIcon> = {
   Library,
   HandCoins,
   CalendarDays,
+  Truck,
 };
 
 // Base items always shown
@@ -54,9 +56,8 @@ const baseItems = [
 
 /**
  * Bottom navigation — primary destinations on mobile, surfaced as a
- * persistent tab bar. Capability-aware: shows a Catalog tab when the
- * account has catalogue capabilities enabled, linking to the first
- * available catalogue route.
+ * persistent tab bar. Capability-aware: shows a Catalog tab and an
+ * Operations tab when the account has those capabilities enabled.
  */
 export function MobileBottomNav() {
   const pathname = usePathname();
@@ -66,8 +67,12 @@ export function MobileBottomNav() {
   // Find first catalogue capability with navigation
   const catalogueNav = capabilities
     .filter((cap) => cap.is_enabled && cap.navigation?.section === "catalog")
-    .map((cap) => cap.navigation!)
-    [0] ?? null;
+    .map((cap) => cap.navigation!)[0] ?? null;
+
+  // Find first operations capability with navigation
+  const operationsNav = capabilities
+    .filter((cap) => cap.is_enabled && cap.navigation?.section === "operations")
+    .map((cap) => cap.navigation!)[0] ?? null;
 
   const items = [
     ...baseItems,
@@ -77,6 +82,15 @@ export function MobileBottomNav() {
             href: catalogueNav.route,
             label: catalogueNav.label || "Catalog",
             icon: CAPABILITY_ICONS[catalogueNav.icon] || Package,
+          },
+        ]
+      : []),
+    ...(operationsNav
+      ? [
+          {
+            href: operationsNav.route,
+            label: operationsNav.label || "Operations",
+            icon: CAPABILITY_ICONS[operationsNav.icon] || Wrench,
           },
         ]
       : []),
