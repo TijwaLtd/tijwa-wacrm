@@ -126,11 +126,6 @@ ON CONFLICT DO NOTHING;
 -- 6. Update existing capabilities to recommend new business types
 -- ============================================================
 
--- Services capability now includes logistics
-UPDATE business_capabilities
-SET recommended_business_types = recommended_business_types || '["logistics_delivery", "courier", "transportation"]'::jsonb
-WHERE key = 'services';
-
 -- Product catalog capability now includes logistics
 UPDATE business_capabilities
 SET recommended_business_types = recommended_business_types || '["logistics_delivery", "courier", "transportation"]'::jsonb
