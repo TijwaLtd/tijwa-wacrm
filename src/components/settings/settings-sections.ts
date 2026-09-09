@@ -4,6 +4,7 @@ import {
   Calendar,
   Calculator,
   Coins,
+  CreditCard,
   FileText,
   KeyRound,
   LayoutGrid,
@@ -45,6 +46,7 @@ export const SETTINGS_SECTIONS = [
   'members',
   'workspace',
   'business',
+  'payment-methods',
   'pricing',
   'api',
 ] as const;
@@ -79,6 +81,7 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   members: { id: 'members', label: 'Team members', icon: UsersRound, group: 'workspace' },
   workspace: { id: 'workspace', label: 'Workspace', icon: Building2, group: 'workspace' },
   business: { id: 'business', label: 'Business type', icon: Briefcase, group: 'workspace' },
+  'payment-methods': { id: 'payment-methods', label: 'Payment methods', icon: CreditCard, group: 'workspace' },
   pricing: { id: 'pricing', label: 'Pricing formulas', icon: Calculator, group: 'workspace' },
   api: { id: 'api', label: 'API keys', icon: KeyRound, group: 'workspace' },
 };

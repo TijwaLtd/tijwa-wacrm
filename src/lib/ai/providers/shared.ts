@@ -10,6 +10,8 @@ export interface ProviderArgs {
   systemPrompt: string
   messages: ChatMessage[]
   timeoutMs: number
+  /** Optional tool definitions for function calling. */
+  tools?: Array<{ type: 'function'; function: any }>
 }
 
 /**

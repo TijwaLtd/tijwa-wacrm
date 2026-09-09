@@ -19,7 +19,7 @@ interface WorkspaceFormProps {
   onModeSwitch?: () => void;
 }
 
-const STEPS = ['details', 'business-type', 'operating-hours', 'review'] as const;
+const STEPS = ['details', 'business-type', 'operating-hours', 'review', 'plan'] as const;
 type Step = typeof STEPS[number];
 
 const BUSINESS_TYPE_ICONS: Record<BusinessType, typeof Building2> = {
@@ -81,6 +81,10 @@ export function WorkspaceForm({ mode, onModeSwitch }: WorkspaceFormProps) {
   const [endTime, setEndTime] = useState('20:00');
   const [timezone, setTimezone] = useState('Africa/Nairobi');
 
+  // Step 5: Plan Selection
+  const [selectedPlan, setSelectedPlan] = useState<'starter' | 'pro' | 'enterprise'>('starter');
+  const [createdAccountId, setCreatedAccountId] = useState<string | null>(null);
+
   // Join Mode Code
   const [inviteCode, setInviteCode] = useState('');
 
@@ -140,6 +144,31 @@ export function WorkspaceForm({ mode, onModeSwitch }: WorkspaceFormProps) {
     }
   };
 
+  async function handlePlanSelect() {
+    setLoading(true);
+    setError(null);
+
+    try {
+      if (selectedPlan !== 'starter' && createdAccountId) {
+        const res = await fetch('/api/workspaces/plan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ plan: selectedPlan }),
+        });
+
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.error || 'Failed to set plan');
+        }
+      }
+
+      window.location.href = '/dashboard';
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to set plan');
+      setLoading(false);
+    }
+  }
+
   async function handleCreate() {
     setLoading(true);
     setError(null);
@@ -188,9 +217,11 @@ export function WorkspaceForm({ mode, onModeSwitch }: WorkspaceFormProps) {
 
       if (data.workspace?.id) {
         document.cookie = `wacrm_active_account=${data.workspace.id}; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax`;
+        setCreatedAccountId(data.workspace.id);
       }
 
-      window.location.href = '/dashboard';
+      // Move to plan selection step instead of dashboard
+      setStep('plan');
     } catch (err) {
       setError(err instanceof Error ? err.message : t('createError'));
       setLoading(false);
@@ -293,12 +324,13 @@ export function WorkspaceForm({ mode, onModeSwitch }: WorkspaceFormProps) {
       {/* Step Indicator Progress Bar */}
       <div className="space-y-2">
         <div className="flex justify-between text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-          <span>Step {stepIndex + 1} of 4</span>
+          <span>Step {stepIndex + 1} of 5</span>
           <span>
             {step === 'details' && 'Workspace Details'}
             {step === 'business-type' && 'Business Type'}
             {step === 'operating-hours' && 'Operating Hours'}
             {step === 'review' && 'Review & Launch'}
+            {step === 'plan' && 'Select Plan'}
           </span>
         </div>
         <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
@@ -532,10 +564,61 @@ export function WorkspaceForm({ mode, onModeSwitch }: WorkspaceFormProps) {
         </div>
       )}
 
+      {/* STEP 5: PLAN SELECTION */}
+      {step === 'plan' && (
+        <div className="space-y-4 animate-in fade-in slide-in-from-right-2 duration-200">
+          <p className="text-sm text-muted-foreground text-center">Choose a plan for your workspace. You can change this later.</p>
+          
+          <div className="grid gap-3 sm:grid-cols-3">
+            {[
+              { id: 'starter' as const, name: 'Starter', price: 'Free', features: ['1,000 contacts', '5 team members', '50 broadcasts/mo', '20 automations'] },
+              { id: 'pro' as const, name: 'Pro', price: '$29/mo', features: ['25,000 contacts', '25 team members', '500 broadcasts/mo', '100 automations'], popular: true },
+              { id: 'enterprise' as const, name: 'Enterprise', price: 'Custom', features: ['Unlimited contacts', 'Unlimited team', 'Unlimited broadcasts', 'Unlimited automations'] },
+            ].map((plan) => {
+              const isSelected = selectedPlan === plan.id;
+              return (
+                <button
+                  key={plan.id}
+                  type="button"
+                  onClick={() => setSelectedPlan(plan.id)}
+                  className={cn(
+                    'relative flex flex-col rounded-xl border p-4 text-left transition-all',
+                    isSelected
+                      ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                      : 'border-border bg-card hover:border-border/80 hover:bg-muted/40'
+                  )}
+                >
+                  {plan.popular && (
+                    <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 rounded-full bg-primary px-2.5 py-0.5 text-[10px] font-semibold text-primary-foreground">
+                      Popular
+                    </span>
+                  )}
+                  <p className="font-bold text-sm text-foreground">{plan.name}</p>
+                  <p className="text-lg font-bold text-foreground mt-1">{plan.price}</p>
+                  <ul className="mt-3 space-y-1.5">
+                    {plan.features.map((f) => (
+                      <li key={f} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <Check className="h-3 w-3 text-primary shrink-0" />
+                        {f}
+                      </li>
+                    ))}
+                  </ul>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Navigation Buttons */}
       <div className="flex items-center justify-between pt-3 border-t border-border">
-        {stepIndex > 0 ? (
+        {stepIndex > 0 && step !== 'plan' ? (
           <Button type="button" variant="outline" onClick={handleBack} disabled={loading} className="border-border text-xs gap-1">
+            <ArrowLeft className="h-3.5 w-3.5" />
+            Back
+          </Button>
+        ) : step === 'plan' ? (
+          <Button type="button" variant="outline" onClick={() => setStep('review')} disabled={loading} className="border-border text-xs gap-1">
             <ArrowLeft className="h-3.5 w-3.5" />
             Back
           </Button>
@@ -545,6 +628,12 @@ export function WorkspaceForm({ mode, onModeSwitch }: WorkspaceFormProps) {
 
         {step === 'review' ? (
           <Button type="button" onClick={handleCreate} disabled={loading} className="h-10 text-xs sm:text-sm font-semibold gap-2">
+            {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+            Continue to Plan
+            <ArrowRight className="h-4 w-4" />
+          </Button>
+        ) : step === 'plan' ? (
+          <Button type="button" onClick={handlePlanSelect} disabled={loading} className="h-10 text-xs sm:text-sm font-semibold gap-2">
             {loading && <Loader2 className="h-4 w-4 animate-spin" />}
             Launch Workspace
             <Check className="h-4 w-4" />

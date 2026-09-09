@@ -33,8 +33,22 @@ export interface AiConfig {
 
 /** A single conversation turn in the shape both providers accept. */
 export interface ChatMessage {
-  role: 'user' | 'assistant'
+  role: 'user' | 'assistant' | 'tool'
   content: string
+  /** Present on assistant messages that include tool calls (OpenAI format). */
+  tool_calls?: ToolCallItem[]
+  /** Present on tool result messages — must match the tool_call_id. */
+  tool_call_id?: string
+}
+
+/** OpenAI-style tool call inside an assistant message. */
+export interface ToolCallItem {
+  id: string
+  type: 'function'
+  function: {
+    name: string
+    arguments: string
+  }
 }
 
 /**

@@ -7,8 +7,8 @@ import {
   type ReplyResult,
 } from './types'
 import { HANDOFF_SENTINEL, aiRequestTimeoutMs } from './defaults'
-import { generateOpenAi } from './providers/openai'
-import { generateAnthropic } from './providers/anthropic'
+import { generateOpenAi, type OpenAiResult } from './providers/openai'
+import { generateAnthropic, type AnthropicResult } from './providers/anthropic'
 
 export interface GenerateArgs {
   config: AiConfig
@@ -16,15 +16,20 @@ export interface GenerateArgs {
   systemPrompt: string
   /** Recent conversation turns, oldest first. */
   messages: ChatMessage[]
+  /** Optional tool definitions for function calling. */
+  tools?: Array<{ type: 'function'; function: any }>
 }
 
 /**
  * Generate the next reply from the account's configured provider.
  * Dispatches to the right adapter, then parses the handoff sentinel out
  * of the raw text. Throws `AiError` on any provider/network failure.
+ *
+ * When the model returns tool_calls (instead of or alongside text),
+ * they are surfaced in the result for the caller to execute.
  */
-export async function generateReply(args: GenerateArgs): Promise<GenerateResult> {
-  const { config, systemPrompt, messages } = args
+export async function generateReply(args: GenerateArgs): Promise<GenerateResult & { tool_calls?: OpenAiResult['tool_calls'] }> {
+  const { config, systemPrompt, messages, tools } = args
   const timeoutMs = aiRequestTimeoutMs()
   const providerArgs = {
     apiKey: config.apiKey,
@@ -32,9 +37,10 @@ export async function generateReply(args: GenerateArgs): Promise<GenerateResult>
     systemPrompt,
     messages,
     timeoutMs,
+    tools,
   }
 
-  let result: { text: string; usage: AiUsage | null }
+  let result: OpenAiResult | AnthropicResult
   switch (config.provider) {
     case 'openai':
       result = await generateOpenAi(providerArgs)
@@ -49,7 +55,8 @@ export async function generateReply(args: GenerateArgs): Promise<GenerateResult>
       })
   }
 
-  return parseGeneration(result.text, result.usage)
+  const parsed = parseGeneration(result.text, result.usage)
+  return { ...parsed, tool_calls: result.tool_calls }
 }
 
 /**

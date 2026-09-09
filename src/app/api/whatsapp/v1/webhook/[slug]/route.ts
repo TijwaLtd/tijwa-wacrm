@@ -771,31 +771,111 @@ async function processMessage(
     }
   }
 
-  const flowResult = await dispatchInboundToFlows({
-    accountId,
-    userId: configOwnerUserId,
-    contactId: contactRecord.id,
-    conversationId: conversation.id,
-    quickReplyFlowId,
-    message:
-      interactiveReplyId
-        ? {
-            kind: 'interactive_reply',
-            reply_id: interactiveReplyId,
-            reply_title: contentText ?? '',
-            meta_message_id: message.id,
-          }
-        : {
-            kind: 'text',
-            text: contentText ?? message.text?.body ?? '',
-            meta_message_id: message.id,
-          },
-    isFirstInboundMessage,
-  })
-  const flowConsumed = flowResult.consumed
-  console.log('[processMessage] flow dispatch — consumed:', flowConsumed)
-
   const inboundText = contentText ?? message.text?.body ?? ''
+  const isOrderButton = interactiveReplyId?.startsWith('order_') ?? false
+
+  // ── DISPATCH PRIORITY ─────────────────────────────────────
+  // First inbound message: AI first → flows → automations
+  // Subsequent messages:   flows → AI → automations
+  let aiHandled = false
+  let flowConsumed = false
+
+  if (isFirstInboundMessage && inboundText.trim()) {
+    // ── FIRST MESSAGE: AI FIRST ──────────────────────────────
+    const { data: convBefore } = await supabaseAdmin()
+      .from('conversations')
+      .select('ai_reply_count, ai_autoreply_disabled')
+      .eq('id', conversation.id)
+      .maybeSingle()
+
+    await dispatchInboundToAiReply({
+      accountId,
+      conversationId: conversation.id,
+      contactId: contactRecord.id,
+      configOwnerUserId,
+      interactiveReplyId,
+    })
+
+    const { data: convAfter } = await supabaseAdmin()
+      .from('conversations')
+      .select('ai_reply_count, ai_autoreply_disabled')
+      .eq('id', conversation.id)
+      .maybeSingle()
+
+    if (
+      convAfter && convBefore &&
+      (convAfter.ai_reply_count > (convBefore.ai_reply_count ?? 0) ||
+        convAfter.ai_autoreply_disabled)
+    ) {
+      aiHandled = true
+      console.log('[processMessage] AI handled first message — skipping flows + automations')
+    }
+
+    // If AI didn't handle, fall through to flows
+    if (!aiHandled) {
+      const flowResult = await dispatchInboundToFlows({
+        accountId,
+        userId: configOwnerUserId,
+        contactId: contactRecord.id,
+        conversationId: conversation.id,
+        quickReplyFlowId,
+        message: interactiveReplyId
+          ? { kind: 'interactive_reply', reply_id: interactiveReplyId, reply_title: contentText ?? '', meta_message_id: message.id }
+          : { kind: 'text', text: inboundText, meta_message_id: message.id },
+        isFirstInboundMessage,
+      })
+      flowConsumed = flowResult.consumed
+    }
+  } else {
+    // ── SUBSEQUENT MESSAGES: FLOWS FIRST ─────────────────────
+    const flowResult = await dispatchInboundToFlows({
+      accountId,
+      userId: configOwnerUserId,
+      contactId: contactRecord.id,
+      conversationId: conversation.id,
+      quickReplyFlowId,
+      message: interactiveReplyId
+        ? { kind: 'interactive_reply', reply_id: interactiveReplyId, reply_title: contentText ?? '', meta_message_id: message.id }
+        : { kind: 'text', text: inboundText, meta_message_id: message.id },
+      isFirstInboundMessage,
+    })
+    flowConsumed = flowResult.consumed
+
+    // If flow didn't consume, try AI
+    if (!flowConsumed && (inboundText.trim() || isOrderButton)) {
+      const { data: convBefore } = await supabaseAdmin()
+        .from('conversations')
+        .select('ai_reply_count, ai_autoreply_disabled')
+        .eq('id', conversation.id)
+        .maybeSingle()
+
+      await dispatchInboundToAiReply({
+        accountId,
+        conversationId: conversation.id,
+        contactId: contactRecord.id,
+        configOwnerUserId,
+        interactiveReplyId,
+      })
+
+      const { data: convAfter } = await supabaseAdmin()
+        .from('conversations')
+        .select('ai_reply_count, ai_autoreply_disabled')
+        .eq('id', conversation.id)
+        .maybeSingle()
+
+      if (
+        convAfter && convBefore &&
+        (convAfter.ai_reply_count > (convBefore.ai_reply_count ?? 0) ||
+          convAfter.ai_autoreply_disabled)
+      ) {
+        aiHandled = true
+      }
+    }
+  }
+
+  console.log('[processMessage] dispatch complete — aiHandled:', aiHandled, 'flowConsumed:', flowConsumed)
+
+  // ── AUTOMATIONS (only if AI didn't handle) ──────────────────
   const automationTriggers: (
     | 'new_contact_created'
     | 'first_inbound_message'
@@ -804,7 +884,7 @@ async function processMessage(
     | 'interactive_reply'
   )[] = []
 
-  if (!flowConsumed) {
+  if (!flowConsumed && !aiHandled) {
     automationTriggers.push('new_message_received', 'keyword_match')
     if (interactiveReplyId) {
       automationTriggers.push('interactive_reply')
@@ -826,16 +906,6 @@ async function processMessage(
         interactive_reply_id: interactiveReplyId ?? undefined,
       },
     }).catch((err) => console.error('[automations] dispatch failed:', err))
-  }
-
-  if (!flowConsumed && !interactiveReplyId && inboundText.trim()) {
-    console.log('[processMessage] dispatching AI auto-reply for conversation:', conversation.id)
-    await dispatchInboundToAiReply({
-      accountId,
-      conversationId: conversation.id,
-      contactId: contactRecord.id,
-      configOwnerUserId,
-    })
   }
 
   await dispatchWebhookEvent(supabaseAdmin(), accountId, 'message.received', {

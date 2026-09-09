@@ -25,6 +25,7 @@ import { MembersTab } from '@/components/settings/members-tab';
 import { ApiKeysSettings } from '@/components/settings/api-keys-settings';
 import { WorkspaceSettings } from '@/components/settings/workspace-settings';
 import { BusinessSettings } from '@/components/settings/business-settings';
+import { PaymentMethodsSettings } from '@/components/settings/payment-methods-settings';
 import { PricingSettings } from '@/components/settings/pricing-settings';
 import {
   resolveSection,
@@ -95,6 +96,7 @@ function SettingsPageInner() {
     members: <MembersTab />,
     workspace: <WorkspaceSettings />,
     business: <BusinessSettings />,
+    'payment-methods': <PaymentMethodsSettings />,
     pricing: <PricingSettings />,
     api: <ApiKeysSettings />,
   };

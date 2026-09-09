@@ -11,7 +11,16 @@ import {
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions'
 
 interface OpenAiResponse {
-  choices?: { message?: { content?: string } }[]
+  choices?: {
+    message?: {
+      content?: string
+      tool_calls?: {
+        id: string
+        type: 'function'
+        function: { name: string; arguments: string }
+      }[]
+    }
+  }[]
   usage?: {
     prompt_tokens?: number
     completion_tokens?: number
@@ -19,13 +28,35 @@ interface OpenAiResponse {
   }
 }
 
+export interface OpenAiResult extends ProviderResult {
+  tool_calls?: {
+    id: string
+    type: 'function'
+    function: { name: string; arguments: string }
+  }[]
+}
+
 /**
  * Call OpenAI's Chat Completions endpoint with the caller's own key.
- * Returns the raw assistant text + token usage (handoff parsing happens
- * in `generateReply`).
+ * Supports tool calling — when the model returns tool_calls instead of
+ * content, they are surfaced in the result for the caller to execute.
  */
-export async function generateOpenAi(args: ProviderArgs): Promise<ProviderResult> {
-  const { apiKey, model, systemPrompt, messages, timeoutMs } = args
+export async function generateOpenAi(args: ProviderArgs): Promise<OpenAiResult> {
+  const { apiKey, model, systemPrompt, messages, timeoutMs, tools } = args
+
+  const body: Record<string, unknown> = {
+    model,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      ...mergeConsecutive(messages),
+    ],
+    max_completion_tokens: MAX_OUTPUT_TOKENS,
+  }
+
+  if (tools && tools.length > 0) {
+    body.tools = tools
+    body.tool_choice = 'auto'
+  }
 
   let res: Response
   try {
@@ -35,14 +66,7 @@ export async function generateOpenAi(args: ProviderArgs): Promise<ProviderResult
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          ...mergeConsecutive(messages),
-        ],
-        max_completion_tokens: MAX_OUTPUT_TOKENS,
-      }),
+      body: JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
     })
   } catch (err) {
@@ -54,16 +78,21 @@ export async function generateOpenAi(args: ProviderArgs): Promise<ProviderResult
   }
 
   const data = (await res.json().catch(() => null)) as OpenAiResponse | null
-  const text = data?.choices?.[0]?.message?.content
-  if (!text || typeof text !== 'string' || !text.trim()) {
+  const message = data?.choices?.[0]?.message
+  const text = message?.content || ''
+  const toolCalls = message?.tool_calls
+
+  if (!text && (!toolCalls || toolCalls.length === 0)) {
     throw new AiError('OpenAI returned an empty response.', {
       code: 'empty_response',
     })
   }
+
   const usage = normalizeUsage({
     prompt: data?.usage?.prompt_tokens,
     completion: data?.usage?.completion_tokens,
     total: data?.usage?.total_tokens,
   })
-  return { text, usage }
+
+  return { text, usage, tool_calls: toolCalls }
 }
