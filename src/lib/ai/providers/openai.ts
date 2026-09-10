@@ -90,9 +90,13 @@ export async function generateOpenAi(args: ProviderArgs): Promise<OpenAiResult> 
   const toolCalls = message?.tool_calls
 
   if (!text && (!toolCalls || toolCalls.length === 0)) {
-    throw new AiError('OpenAI returned an empty response.', {
-      code: 'empty_response',
-    })
+    // With tools enabled, the model may return empty text after tool execution
+    // (it defers to the tool response). Only throw if no tools were provided.
+    if (!tools || tools.length === 0) {
+      throw new AiError('OpenAI returned an empty response.', {
+        code: 'empty_response',
+      })
+    }
   }
 
   const usage = normalizeUsage({
