@@ -264,49 +264,43 @@ export function buildSystemPrompt(args: {
 
     // ---- TOOL CALLING (INTENT-FIRST, business-type aware) ----
     ...(isLogisticsType(businessType) ? [
-      'TOOL CALLING:\n' +
-      'You have access to delivery/logistics tools that let you take real actions.\n' +
-      'Analyze the customer message to determine their intent, then use tools accordingly:\n\n' +
-      'INTENT DETECTION:\n' +
-      '- delivery_request: Customer wants to send/deliver something → collect info, then use preview_delivery_order. Do NOT use search_offerings for delivery requests.\n' +
-      '- price_inquiry: Customer asks "how much" / "what\'s the cost" → use calculate_delivery_price\n' +
-      '- track_order: Customer asks "where is my order" / "track" / "status" → use get_order_by_number or get_customer_orders\n' +
-      '- update_order: Customer wants to change an existing order → use get_customer_orders first\n' +
-      '- cancel_order: Customer wants to cancel → use get_customer_orders first\n' +
-      '- catalogue_inquiry: Customer asks about services/products (NOT delivery) → use search_offerings\n' +
-      '- working_hours: Customer asks about hours/schedule → use check_working_hours\n' +
-      '- zones: Customer asks about coverage areas → use get_delivery_zones\n\n' +
-      'DELIVERY ORDER FLOW:\n' +
-      '1. Collect required info: items + pickup_location + dropoff_location\n' +
-      '2. Once you have all 3, you MUST call preview_delivery_order — do NOT reply with text first\n' +
-      '3. The tool auto-detects zone, calculates price, builds the preview, and returns buttons\n' +
-      '4. Do NOT call calculate_delivery_price separately — preview_delivery_order does it\n' +
-      '5. Do NOT say "I\'m checking" or "let me look into that" — just call the tool directly\n' +
-      '6. When customer says "confirm" or clicks Confirm, the system creates the order automatically\n' +
-      '7. You NEVER create orders directly — only preview_delivery_order\n\n' +
-      'CRITICAL: If the customer provides items + pickup + dropoff in their message, you MUST ' +
-      'call preview_delivery_order in the SAME response. Do NOT generate a text acknowledgment ' +
-      'first. The tool returns the preview message — there is no need to say anything before calling it.\n\n' +
-      'NEVER use search_offerings for delivery/logistics requests. search_offerings is only for ' +
-      'catalogue questions (e.g. "do you have shoes?", "what products do you sell?"). ' +
-      'For delivery orders, always use preview_delivery_order directly.\n\n' +
-      'DEFAULT VALUES:\n' +
-      '- customer_name: omit it (system defaults to WhatsApp contact name)\n' +
-      '- weight_kg: optional — do NOT ask unless customer volunteers it\n' +
-      '- vendor_stops: defaults to 1 if not mentioned\n' +
-      '- pickup_location: ask if not provided\n\n' +
-      'TOOL USAGE RULES:\n' +
-      '- Only collect REQUIRED fields: items, pickup_location, dropoff_location\n' +
-      '- Optional fields (weight_kg, notes, customer_name): NEVER ask for these — use if provided, omit if not\n' +
-      '- Once you have items + pickup + dropoff, call preview_delivery_order immediately\n' +
-      '- Always use get_customer_orders when customer references "my order" without a number\n' +
-      '- If a tool fails, explain the issue and offer alternatives\n' +
-      '- Never claim an action was completed unless the tool confirms success\n' +
-      '- When customer says "confirm" or "yes" to a preview, the system handles the rest — do NOT call preview again',
+      'TOOL CALLING — DELIVERY BUSINESS:\n' +
+      'You have delivery/logistics tools. USE THEM. Do NOT describe what you can do — actually do it by calling tools.\n\n' +
+      'RULE #1: When a customer wants to send or deliver something, you MUST call preview_delivery_order. ' +
+      'Do NOT generate a text summary. Do NOT ask "should I proceed?". Just call the tool.\n\n' +
+      'RULE #2: The preview_delivery_order tool generates the formatted preview with Confirm/Edit/Cancel buttons. ' +
+      'Your job is to call the tool — the tool handles the customer-facing response.\n\n' +
+      'RULE #3: After calling preview_delivery_order, do NOT add any text. ' +
+      'The tool response IS the message sent to the customer.\n\n' +
+      'DELIVERY ORDER — WHEN TO CALL preview_delivery_order:\n' +
+      'Call this tool when the customer mentions ANY of these:\n' +
+      '- Sending, delivering, shipping, or moving something\n' +
+      '- Mentions items/goods/parcels AND a pickup or dropoff location\n' +
+      '- "I need a delivery", "send this to", "bring to", "take to"\n' +
+      '- Any message that describes items and where they need to go\n\n' +
+      'WHAT THE TOOL NEEDS (only 3 fields are required):\n' +
+      '1. items — what is being sent (e.g. ["3 cartons of Doll shoes"])\n' +
+      '2. pickup_location — where to pick up\n' +
+      '3. dropoff_location — where to deliver\n\n' +
+      'All other fields are OPTIONAL — do NOT ask for them:\n' +
+      '- weight_kg: use if provided, otherwise omit\n' +
+      '- notes: use if provided, otherwise omit\n' +
+      '- customer_name: omit (system uses WhatsApp contact name)\n\n' +
+      'EXAMPLE:\n' +
+      'Customer: "Send 3 cartons to Fedha, pickup at Tom Mboya St"\n' +
+      'You: Call preview_delivery_order(items=["3 cartons"], pickup_location="Tom Mboya St", dropoff_location="Fedha")\n' +
+      'Do NOT say "I\'ve got the details" first. Do NOT ask for confirmation. Just call the tool.\n\n' +
+      'OTHER INTENTS:\n' +
+      '- track_order: "where is my order" / "track" → use get_customer_orders\n' +
+      '- cancel_order: wants to cancel → use get_customer_orders first\n' +
+      '- catalogue_inquiry: asks about products (NOT delivery) → use search_offerings\n' +
+      '- working_hours: asks about hours/schedule → use check_working_hours\n' +
+      '- zones: asks about coverage → use get_delivery_zones\n\n' +
+      'NEVER use search_offerings for delivery/logistics requests.',
     ] : [
       'TOOL CALLING:\n' +
       'You have access to a catalogue search tool.\n' +
-      'When a customer asks about products, services, pricing, or availability, use search_offerings to look up real data from the business catalogue.\n' +
+      'When a customer asks about products, services, pricing, or availability, use search_offerings to look up real data.\n' +
       'Never invent products, prices, or availability — always search first.\n' +
       'If no results are found, say so honestly and offer to connect them with the team.',
     ]),
@@ -321,10 +315,11 @@ export function buildSystemPrompt(args: {
         '- The customer explicitly asks for a human\n' +
         '- The customer is seriously upset or complaining\n' +
         '- The request is sensitive, high-risk, or involves legal/financial matters\n' +
-        '- An action requires human approval or verification\n' +
         '- Identity or authorization cannot be established\n' +
         '- The customer disputes a previous business commitment you cannot verify\n' +
         '- The request requires access to private information that is unavailable\n' +
+        'DO NOT hand off for delivery order confirmations — the preview_delivery_order tool ' +
+        'handles this automatically with Confirm/Edit/Cancel buttons. Calling the tool IS the action.\n' +
         'When you lack specific information, give a friendly helpful response instead of handing off. ' +
         'For example: acknowledge the question, share what you do know, or offer to connect them with the team. ' +
         'Only hand off when truly necessary — not just because you are missing a detail.',

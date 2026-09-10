@@ -80,7 +80,7 @@ export const logisticsTools: ToolDefinition[] = [
           customer_name: { type: 'string', description: 'OPTIONAL. Recipient name. Do NOT ask — system defaults to WhatsApp contact name' },
           customer_phone: { type: 'string', description: 'OPTIONAL. Recipient phone. Do NOT ask' },
         },
-        required: ['items', 'dropoff_location'],
+        required: ['items', 'pickup_location', 'dropoff_location'],
       },
     },
   },

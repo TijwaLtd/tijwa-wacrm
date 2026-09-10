@@ -637,6 +637,12 @@ export async function dispatchInboundToAiReply(
     const tools = getToolsForBusinessType(businessType)
     const toolDefs = tools.map((t) => ({ type: 'function' as const, function: t.definition.function }))
 
+    console.log('[ai-tool-loop] tools configured:', {
+      businessType,
+      toolCount: toolDefs.length,
+      toolNames: toolDefs.map((t) => t.function.name),
+    })
+
     const toolCtx: ToolContext = {
       db,
       accountId,
@@ -707,6 +713,13 @@ export async function dispatchInboundToAiReply(
         textPreview: (result.text || '').slice(0, 200),
         handoff: result.handoff,
       })
+
+      // Debug: show full tool call arguments on first round
+      if (round === 0 && result.tool_calls) {
+        for (const tc of result.tool_calls) {
+          console.log('[ai-tool-loop] tool call:', tc.function.name, 'args:', tc.function.arguments)
+        }
+      }
 
       // Track cumulative usage
       if (result.usage) {

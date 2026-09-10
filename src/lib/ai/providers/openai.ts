@@ -58,6 +58,13 @@ export async function generateOpenAi(args: ProviderArgs): Promise<OpenAiResult> 
     body.tool_choice = 'auto'
   }
 
+  console.log('[openai] request:', {
+    model,
+    toolCount: tools?.length ?? 0,
+    toolNames: tools?.map((t: any) => t.function?.name) ?? [],
+    messageCount: (body.messages as any[])?.length ?? 0,
+  })
+
   let res: Response
   try {
     res = await fetch(OPENAI_URL, {
