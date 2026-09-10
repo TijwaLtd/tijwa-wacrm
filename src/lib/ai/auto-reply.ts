@@ -840,16 +840,16 @@ export async function dispatchInboundToAiReply(
 
     // ── HANDOFF ───────────────────────────────────────────────
     if (reply.type === 'handoff' || handoff) {
-      // Send handoff message to customer FIRST
+      // Send handoff message to customer
       await sendDefaultMessage(db, accountId, conversationId, contactId, configOwnerUserId, 'handoff')
 
-      // Then disable AI and assign to human
+      // Log the handoff but do NOT disable AI — it stays active for the next message.
+      // This prevents the bot from getting permanently stuck after a single handoff trigger.
       const summary = buildHandoffSummary({
         messages: ctx.messages,
         replyCount: conv.ai_reply_count ?? 0,
       })
       const update: Record<string, unknown> = {
-        ai_autoreply_disabled: true,
         ai_handoff_summary: summary,
       }
       if (config.handoffAgentId && !conv.assigned_agent_id) {
