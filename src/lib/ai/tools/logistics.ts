@@ -394,6 +394,7 @@ const getOrderByNumberHandler: ToolHandler = async (args, ctx) => {
     total: order.total,
     currency: order.currency,
     items: meta.items || [],
+    pickup: meta.pickup_location,
     dropoff: meta.dropoff_location,
     zone: meta.zone_type,
     assigned_rider: assignedProfile?.full_name || 'Unassigned',
