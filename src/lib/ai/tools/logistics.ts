@@ -424,16 +424,16 @@ const getCustomerOrdersHandler: ToolHandler = async (args, ctx) => {
     return { orders: [], count: 0, message: 'No orders found' }
   }
 
-  // Resolve rider names
+  // Resolve rider names (assigned_team_member_id is profiles.id)
   const riderIds = [...new Set(orders.map((o: any) => o.assigned_team_member_id).filter(Boolean))]
   let riderMap = new Map<string, string>()
   if (riderIds.length > 0) {
     const { data: profiles } = await db
       .from('profiles')
-      .select('user_id, full_name')
-      .in('user_id', riderIds)
+      .select('id, full_name')
+      .in('id', riderIds)
     for (const p of profiles || []) {
-      riderMap.set(p.user_id, p.full_name || 'Rider')
+      riderMap.set(p.id, p.full_name || 'Rider')
     }
   }
 

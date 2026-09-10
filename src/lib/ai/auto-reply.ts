@@ -261,9 +261,18 @@ async function handleOrderButton(
         const best = scored.find((r: any) => r.activeLoad < r.maxActive) || scored[0]
 
         if (best) {
+          // Look up profile ID for the rider (assigned_team_member_id references profiles.id, not auth.users.id)
+          const { data: riderProfile } = await db
+            .from('profiles')
+            .select('id')
+            .eq('user_id', best.user_id)
+            .maybeSingle()
+
+          const profileId = riderProfile?.id || best.user_id
+
           await db
             .from('orders')
-            .update({ assigned_team_member_id: best.user_id, assigned_role: best.role })
+            .update({ assigned_team_member_id: profileId, assigned_role: best.role })
             .eq('id', order.id)
 
           // Assign conversation to rider so they see it in their inbox
