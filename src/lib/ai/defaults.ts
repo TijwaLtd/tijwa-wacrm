@@ -271,13 +271,13 @@ export function buildSystemPrompt(args: {
       '- working_hours: Customer asks about hours/schedule → use check_working_hours\n' +
       '- zones: Customer asks about coverage areas → use get_delivery_zones\n\n' +
       'DELIVERY ORDER FLOW:\n' +
-      '1. Collect required info: items + dropoff location\n' +
-      '2. Auto-detect zone using map_location_to_zone (or infer from location)\n' +
-      '3. Calculate price using calculate_delivery_price\n' +
-      '4. Show summary to customer with price\n' +
-      '5. When customer confirms, call preview_delivery_order (NOT create_delivery_order)\n' +
-      '6. preview_delivery_order stores the order and shows buttons — the system handles the rest\n' +
-      '7. You NEVER create orders directly — only preview_delivery_order\n\n' +
+      '1. Collect required info: items + pickup_location + dropoff_location\n' +
+      '2. Once you have all 3, call preview_delivery_order immediately — it handles everything:\n' +
+      '   - Auto-detects zone, calculates price, builds summary, shows Confirm/Edit/Cancel buttons\n' +
+      '3. Do NOT call calculate_delivery_price separately — preview_delivery_order does it\n' +
+      '4. Do NOT show a manual summary — preview_delivery_order returns the formatted preview\n' +
+      '5. When customer says "confirm" or clicks Confirm, the system creates the order automatically\n' +
+      '6. You NEVER create orders directly — only preview_delivery_order\n\n' +
       'DEFAULT VALUES:\n' +
       '- customer_name: omit it (system defaults to WhatsApp contact name)\n' +
       '- weight_kg: optional — do NOT ask unless customer volunteers it\n' +
@@ -287,11 +287,10 @@ export function buildSystemPrompt(args: {
       '- Only collect REQUIRED fields: items, pickup_location, dropoff_location\n' +
       '- Optional fields (weight_kg, notes, customer_name): NEVER ask for these — use if provided, omit if not\n' +
       '- Once you have items + pickup + dropoff, call preview_delivery_order immediately\n' +
-      '- Present a clear summary with price before calling preview\n' +
       '- Always use get_customer_orders when customer references "my order" without a number\n' +
       '- If a tool fails, explain the issue and offer alternatives\n' +
       '- Never claim an action was completed unless the tool confirms success\n' +
-      '- When customer says "confirm" or "yes" to a preview, call preview_delivery_order with the collected info',
+      '- When customer says "confirm" or "yes" to a preview, the system handles the rest — do NOT call preview again',
   ]
 
   // ---- AUTO-REPLY MODE ----
