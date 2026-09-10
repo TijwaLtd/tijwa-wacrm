@@ -691,6 +691,7 @@ export async function dispatchInboundToAiReply(
     let lastUsage = null
 
     const MAX_TOOL_ROUNDS = 5
+    let toolResponseCaptured = false
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       const result = await generateReply({
         config,
@@ -717,7 +718,10 @@ export async function dispatchInboundToAiReply(
 
       // If no tool calls, we have our final text response
       if (!hasToolCalls({ tool_calls: result.tool_calls })) {
-        finalText = result.text
+        // Don't let AI text override a tool's structured response
+        if (!toolResponseCaptured) {
+          finalText = result.text
+        }
         finalHandoff = result.handoff
         console.log('[ai-tool-loop] no tool calls — final text:', (result.text || '').slice(0, 300))
         break
@@ -754,6 +758,7 @@ export async function dispatchInboundToAiReply(
           // Use the structured response message if available
           if (parsed.response && !finalText) {
             finalText = parsed.response
+            toolResponseCaptured = true
           }
         } catch {
           // Not JSON, ignore
@@ -779,7 +784,9 @@ export async function dispatchInboundToAiReply(
 
       // If this was the last round, use whatever text we have
       if (round === MAX_TOOL_ROUNDS - 1) {
-        finalText = result.text || 'I processed your request. Let me know if you need anything else.'
+        if (!toolResponseCaptured) {
+          finalText = result.text || 'I processed your request. Let me know if you need anything else.'
+        }
         finalHandoff = false
       }
     }
