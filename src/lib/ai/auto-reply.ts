@@ -699,6 +699,14 @@ export async function dispatchInboundToAiReply(
         tools: toolDefs.length > 0 ? toolDefs : undefined,
       })
 
+      console.log('[ai-tool-loop] round:', round, {
+        hasToolCalls: hasToolCalls({ tool_calls: result.tool_calls }),
+        toolCallCount: result.tool_calls?.length ?? 0,
+        toolNames: result.tool_calls?.map((tc: any) => tc.function?.name) ?? [],
+        textPreview: (result.text || '').slice(0, 200),
+        handoff: result.handoff,
+      })
+
       // Track cumulative usage
       if (result.usage) {
         lastUsage = result.usage
@@ -711,11 +719,16 @@ export async function dispatchInboundToAiReply(
       if (!hasToolCalls({ tool_calls: result.tool_calls })) {
         finalText = result.text
         finalHandoff = result.handoff
+        console.log('[ai-tool-loop] no tool calls — final text:', (result.text || '').slice(0, 300))
         break
       }
 
       // Execute tool calls
       const toolResults = await executeToolCalls(result.tool_calls!, toolCtx)
+
+      console.log('[ai-tool-loop] round:', round, 'tool results:',
+        toolResults.map(tr => ({ id: tr.tool_call_id, contentPreview: tr.content.slice(0, 200) }))
+      )
 
       // Capture buttons from tool results (for interactive responses)
       for (const tr of toolResults) {

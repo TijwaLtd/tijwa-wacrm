@@ -272,12 +272,15 @@ export function buildSystemPrompt(args: {
       '- zones: Customer asks about coverage areas → use get_delivery_zones\n\n' +
       'DELIVERY ORDER FLOW:\n' +
       '1. Collect required info: items + pickup_location + dropoff_location\n' +
-      '2. Once you have all 3, call preview_delivery_order immediately — it handles everything:\n' +
-      '   - Auto-detects zone, calculates price, builds summary, shows Confirm/Edit/Cancel buttons\n' +
-      '3. Do NOT call calculate_delivery_price separately — preview_delivery_order does it\n' +
-      '4. Do NOT show a manual summary — preview_delivery_order returns the formatted preview\n' +
-      '5. When customer says "confirm" or clicks Confirm, the system creates the order automatically\n' +
-      '6. You NEVER create orders directly — only preview_delivery_order\n\n' +
+      '2. Once you have all 3, you MUST call preview_delivery_order — do NOT reply with text first\n' +
+      '3. The tool auto-detects zone, calculates price, builds the preview, and returns buttons\n' +
+      '4. Do NOT call calculate_delivery_price separately — preview_delivery_order does it\n' +
+      '5. Do NOT say "I\'m checking" or "let me look into that" — just call the tool directly\n' +
+      '6. When customer says "confirm" or clicks Confirm, the system creates the order automatically\n' +
+      '7. You NEVER create orders directly — only preview_delivery_order\n\n' +
+      'CRITICAL: If the customer provides items + pickup + dropoff in their message, you MUST ' +
+      'call preview_delivery_order in the SAME response. Do NOT generate a text acknowledgment ' +
+      'first. The tool returns the preview message — there is no need to say anything before calling it.\n\n' +
       'DEFAULT VALUES:\n' +
       '- customer_name: omit it (system defaults to WhatsApp contact name)\n' +
       '- weight_kg: optional — do NOT ask unless customer volunteers it\n' +
