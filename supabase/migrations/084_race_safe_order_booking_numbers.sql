@@ -32,7 +32,7 @@ BEGIN
       WHERE o.account_id = p_account_id;
 
       EXECUTE FORMAT(
-        'CREATE SEQUENCE %I START WITH %s INCREMENT BY 1 NO CACHE',
+        'CREATE SEQUENCE %I START WITH %s INCREMENT BY 1 CACHE 1',
         seq_name, max_num + 1
       );
     END;
@@ -64,7 +64,7 @@ BEGIN
       WHERE b.account_id = p_account_id;
 
       EXECUTE FORMAT(
-        'CREATE SEQUENCE %I START WITH %s INCREMENT BY 1 NO CACHE',
+        'CREATE SEQUENCE %I START WITH %s INCREMENT BY 1 CACHE 1',
         seq_name, max_num + 1
       );
     END;
