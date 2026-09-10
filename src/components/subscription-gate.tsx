@@ -8,7 +8,7 @@ interface SubscriptionGateProps {
   children: React.ReactNode;
 }
 
-const PUBLIC_ROUTES = ["/billing", "/settings"];
+const PUBLIC_ROUTES = ["/billing", "/settings", "/ai-test"];
 
 /**
  * Gates the dashboard: if no active plan, redirects to /billing.
