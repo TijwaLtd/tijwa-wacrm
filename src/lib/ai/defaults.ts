@@ -66,6 +66,11 @@ export function aiContextMessageLimit(): number {
  *
  * Auto-reply mode adds a strict handoff protocol.
  */
+function isLogisticsType(businessType?: string | null): boolean {
+  if (!businessType) return true // default to logistics
+  return ['logistics', 'courier', 'delivery'].includes(businessType)
+}
+
 export function buildSystemPrompt(args: {
   userPrompt: string | null
   mode: 'draft' | 'auto_reply'
@@ -257,9 +262,10 @@ export function buildSystemPrompt(args: {
       'Available capability nodes are defined by the business\'s enabled capabilities.\n' +
       'Do not attempt to use nodes that are not available for the current business.',
 
-    // ---- TOOL CALLING (INTENT-FIRST) ----
-    'TOOL CALLING:\n' +
-      'You have access to business tools that let you take real actions.\n' +
+    // ---- TOOL CALLING (INTENT-FIRST, business-type aware) ----
+    ...(isLogisticsType(businessType) ? [
+      'TOOL CALLING:\n' +
+      'You have access to delivery/logistics tools that let you take real actions.\n' +
       'Analyze the customer message to determine their intent, then use tools accordingly:\n\n' +
       'INTENT DETECTION:\n' +
       '- delivery_request: Customer wants to send/deliver something → collect info, then use preview_delivery_order. Do NOT use search_offerings for delivery requests.\n' +
@@ -297,6 +303,13 @@ export function buildSystemPrompt(args: {
       '- If a tool fails, explain the issue and offer alternatives\n' +
       '- Never claim an action was completed unless the tool confirms success\n' +
       '- When customer says "confirm" or "yes" to a preview, the system handles the rest — do NOT call preview again',
+    ] : [
+      'TOOL CALLING:\n' +
+      'You have access to a catalogue search tool.\n' +
+      'When a customer asks about products, services, pricing, or availability, use search_offerings to look up real data from the business catalogue.\n' +
+      'Never invent products, prices, or availability — always search first.\n' +
+      'If no results are found, say so honestly and offer to connect them with the team.',
+    ]),
   ]
 
   // ---- AUTO-REPLY MODE ----
