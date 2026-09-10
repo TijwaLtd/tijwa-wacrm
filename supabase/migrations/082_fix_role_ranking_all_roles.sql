@@ -8,11 +8,7 @@
 --
 -- This migration replaces both functions with versions that use integer ranking
 -- matching src/lib/auth/roles.ts roleRank().
-
--- Drop both functions (they have different signatures so safe to DROP IF EXISTS)
-DROP FUNCTION IF EXISTS has_role_in_account(UUID, UUID, account_role_enum);
-DROP FUNCTION IF EXISTS is_account_member(UUID, account_role_enum);
-DROP FUNCTION IF EXISTS is_account_member(UUID);
+-- Uses CREATE OR REPLACE so we never drop functions that RLS policies depend on.
 
 -- ============================================================
 -- Helper: convert any account_role_enum to a numeric rank.

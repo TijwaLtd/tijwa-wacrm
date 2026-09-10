@@ -53,9 +53,9 @@ AS $$
   WHERE am.user_id = p_user_id
     AND (
       -- WhatsApp conversations:
-      -- Owners/admins/managers see all; others see only assigned or unassigned
+      -- Owners/admins/managers (rank >= 60) see all; others see only assigned or unassigned
       c.type = 'whatsapp' AND (
-        am.role IN ('owner', 'admin', 'manager')
+        role_to_rank(am.role) >= 60
         OR c.assigned_agent_id IS NULL
         OR c.assigned_agent_id = p_user_id
       )
@@ -63,7 +63,7 @@ AS $$
       -- Team conversations: visible to owner/admin always,
       -- or to any member who is a participant
       c.type = 'team' AND (
-        am.role IN ('owner', 'admin')
+        role_to_rank(am.role) >= 80
         OR EXISTS (
           SELECT 1 FROM team_conversation_participants tcp
           WHERE tcp.conversation_id = c.id
