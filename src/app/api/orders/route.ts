@@ -44,7 +44,7 @@ export async function GET(request: Request) {
 
   let query = serviceClient
     .from("orders")
-    .select(`*, items:order_items(*)`, { count: "exact" })
+    .select(`*, items:order_items(*), rider:profiles!orders_assigned_team_member_id_fkey(full_name)`, { count: "exact" })
     .eq("account_id", accountId);
 
   if (status) query = query.eq("status", status);

@@ -408,7 +408,7 @@ const getCustomerOrdersHandler: ToolHandler = async (args, ctx) => {
 
   let query = db
     .from('orders')
-    .select('id, order_number, status, total, currency, metadata, created_at')
+    .select('id, order_number, status, total, currency, metadata, created_at, assigned_team_member_id')
     .eq('account_id', ctx.accountId)
     .eq('contact_id', ctx.contactId)
     .order('created_at', { ascending: false })
@@ -424,6 +424,19 @@ const getCustomerOrdersHandler: ToolHandler = async (args, ctx) => {
     return { orders: [], count: 0, message: 'No orders found' }
   }
 
+  // Resolve rider names
+  const riderIds = [...new Set(orders.map((o: any) => o.assigned_team_member_id).filter(Boolean))]
+  let riderMap = new Map<string, string>()
+  if (riderIds.length > 0) {
+    const { data: profiles } = await db
+      .from('profiles')
+      .select('user_id, full_name')
+      .in('user_id', riderIds)
+    for (const p of profiles || []) {
+      riderMap.set(p.user_id, p.full_name || 'Rider')
+    }
+  }
+
   return {
     orders: orders.map((o: any) => {
       const meta = (o.metadata || {}) as Record<string, unknown>
@@ -433,7 +446,11 @@ const getCustomerOrdersHandler: ToolHandler = async (args, ctx) => {
         total: o.total,
         currency: o.currency,
         items: meta.items || [],
+        pickup: meta.pickup_location,
         dropoff: meta.dropoff_location,
+        zone: meta.zone_type,
+        rider: o.assigned_team_member_id ? (riderMap.get(o.assigned_team_member_id) || 'Assigned') : 'Unassigned',
+        created_at: o.created_at,
       }
     }),
     count: orders.length,

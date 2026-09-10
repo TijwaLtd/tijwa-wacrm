@@ -150,8 +150,8 @@ export default function DeliveryPage() {
     {
       header: 'Rider',
       cell: (row) => {
-        const meta = row.metadata as Record<string, unknown> | null;
-        const riderName = (meta?.assigned_rider_name as string) || 'Unassigned';
+        const rider = (row as any).rider;
+        const riderName = rider?.full_name || 'Unassigned';
         return <span className="text-sm">{riderName}</span>;
       },
     },
