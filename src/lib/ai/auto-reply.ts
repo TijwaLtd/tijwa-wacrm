@@ -330,31 +330,39 @@ async function handleOrderButton(
 
       let paymentMsg: string
 
+      const paymentTypeLabel: Record<string, string> = {
+        mpesa_till: 'M-Pesa Till',
+        mpesa_paybill: 'M-Pesa Paybill',
+        bank_transfer: 'Bank Transfer',
+        cash: 'Cash',
+        card: 'Card',
+      }
+
       if (paymentMethods.length > 0) {
         let paymentLines = `*Amount:* ${pending.currency} ${order.total}\n*Order:* ${order.order_number}\n`
         paymentLines += `\n*Payment Methods:*\n`
         for (const method of paymentMethods) {
+          const typeLabel = paymentTypeLabel[method.type] || method.type
           if (method.type === 'mpesa_till' && method.till_number) {
-            paymentLines += `• *${method.name}:* ${method.till_number}\n`
+            paymentLines += `• *${method.name}* (${typeLabel})\n  Till: ${method.till_number}\n`
           } else if (method.type === 'mpesa_paybill' && method.paybill_number) {
-            paymentLines += `• *${method.name}:* ${method.paybill_number}`
-            if (method.account_number) paymentLines += ` (Acc: ${method.account_number})`
+            paymentLines += `• *${method.name}* (${typeLabel})\n  Paybill: ${method.paybill_number}`
+            if (method.account_number) paymentLines += `\n  Account: ${method.account_number}`
             paymentLines += `\n`
           } else if (method.type === 'bank_transfer') {
-            paymentLines += `• *${method.name}:*`
-            if (method.bank_name) paymentLines += ` ${method.bank_name}`
-            if (method.account_number) paymentLines += ` (${method.account_number})`
-            paymentLines += `\n`
+            paymentLines += `• *${method.name}* (${typeLabel})\n`
+            if (method.bank_name) paymentLines += `  Bank: ${method.bank_name}\n`
+            if (method.account_number) paymentLines += `  Account: ${method.account_number}\n`
           } else if (method.type === 'cash') {
-            paymentLines += `• *${method.name}*\n`
+            paymentLines += `• *${method.name}* (${typeLabel})\n`
           } else {
-            paymentLines += `• *${method.name}*\n`
+            paymentLines += `• *${method.name}* (${typeLabel})\n`
           }
           if (method.instructions) {
             paymentLines += `  _${method.instructions}_\n`
           }
         }
-        paymentLines += `\nSend payment confirmation screenshot once paid.`
+        paymentLines += `\nForward your payment confirmation message once paid.`
         paymentMsg = `💳 *Payment Details*\n\n${paymentLines}`
       } else {
         paymentMsg =
