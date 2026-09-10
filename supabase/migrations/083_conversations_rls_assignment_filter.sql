@@ -11,11 +11,10 @@
 DROP POLICY IF EXISTS tenant_isolation_select ON conversations;
 
 -- Manager+ (rank >= 60): see all conversations
--- Others: see conversations assigned to them OR unassigned
+-- Others: see ONLY conversations assigned to them — no unassigned, no others'
 CREATE POLICY tenant_isolation_select ON conversations
   FOR SELECT USING (
     has_role_in_account(auth.uid(), account_id, 'manager')
-    OR assigned_agent_id IS NULL
     OR assigned_agent_id = auth.uid()
   );
 
@@ -32,7 +31,6 @@ CREATE POLICY tenant_isolation_select ON messages
       WHERE c.id = messages.conversation_id
         AND (
           has_role_in_account(auth.uid(), c.account_id, 'manager')
-          OR c.assigned_agent_id IS NULL
           OR c.assigned_agent_id = auth.uid()
         )
     )

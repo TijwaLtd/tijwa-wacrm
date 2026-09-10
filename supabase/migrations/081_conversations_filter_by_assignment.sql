@@ -53,10 +53,9 @@ AS $$
   WHERE am.user_id = p_user_id
     AND (
       -- WhatsApp conversations:
-      -- Owners/admins/managers (rank >= 60) see all; others see only assigned or unassigned
+      -- Owners/admins/managers see all; others see ONLY assigned to them
       c.type = 'whatsapp' AND (
         role_to_rank(am.role) >= 60
-        OR c.assigned_agent_id IS NULL
         OR c.assigned_agent_id = p_user_id
       )
       OR
