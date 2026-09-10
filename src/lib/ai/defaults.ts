@@ -68,7 +68,7 @@ export function aiContextMessageLimit(): number {
  */
 function isLogisticsType(businessType?: string | null): boolean {
   if (!businessType) return true // default to logistics
-  return ['logistics', 'courier', 'delivery'].includes(businessType)
+  return ['logistics', 'courier', 'delivery', 'logistics_delivery'].includes(businessType)
 }
 
 export function buildSystemPrompt(args: {

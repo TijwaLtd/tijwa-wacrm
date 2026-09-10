@@ -30,7 +30,8 @@ export function getToolsForBusinessType(businessType: string | null): Registered
     !businessType ||
     businessType === 'logistics' ||
     businessType === 'courier' ||
-    businessType === 'delivery'
+    businessType === 'delivery' ||
+    businessType === 'logistics_delivery'
   ) {
     for (const def of logisticsTools) {
       const handler = logisticsToolHandlers[def.function.name]
