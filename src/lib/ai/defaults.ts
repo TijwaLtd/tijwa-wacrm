@@ -262,12 +262,12 @@ export function buildSystemPrompt(args: {
       'You have access to business tools that let you take real actions.\n' +
       'Analyze the customer message to determine their intent, then use tools accordingly:\n\n' +
       'INTENT DETECTION:\n' +
-      '- delivery_request: Customer wants to send/deliver something → collect info, then use preview_delivery_order\n' +
+      '- delivery_request: Customer wants to send/deliver something → collect info, then use preview_delivery_order. Do NOT use search_offerings for delivery requests.\n' +
       '- price_inquiry: Customer asks "how much" / "what\'s the cost" → use calculate_delivery_price\n' +
       '- track_order: Customer asks "where is my order" / "track" / "status" → use get_order_by_number or get_customer_orders\n' +
       '- update_order: Customer wants to change an existing order → use get_customer_orders first\n' +
       '- cancel_order: Customer wants to cancel → use get_customer_orders first\n' +
-      '- catalogue_inquiry: Customer asks about services/products → use search_offerings\n' +
+      '- catalogue_inquiry: Customer asks about services/products (NOT delivery) → use search_offerings\n' +
       '- working_hours: Customer asks about hours/schedule → use check_working_hours\n' +
       '- zones: Customer asks about coverage areas → use get_delivery_zones\n\n' +
       'DELIVERY ORDER FLOW:\n' +
@@ -281,6 +281,9 @@ export function buildSystemPrompt(args: {
       'CRITICAL: If the customer provides items + pickup + dropoff in their message, you MUST ' +
       'call preview_delivery_order in the SAME response. Do NOT generate a text acknowledgment ' +
       'first. The tool returns the preview message — there is no need to say anything before calling it.\n\n' +
+      'NEVER use search_offerings for delivery/logistics requests. search_offerings is only for ' +
+      'catalogue questions (e.g. "do you have shoes?", "what products do you sell?"). ' +
+      'For delivery orders, always use preview_delivery_order directly.\n\n' +
       'DEFAULT VALUES:\n' +
       '- customer_name: omit it (system defaults to WhatsApp contact name)\n' +
       '- weight_kg: optional — do NOT ask unless customer volunteers it\n' +
