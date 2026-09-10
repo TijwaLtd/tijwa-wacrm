@@ -5,6 +5,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
+import { hasMinRole, type AccountRole } from "@/lib/auth/roles";
 
 export async function GET(
   request: Request,
@@ -41,6 +42,19 @@ export async function GET(
 
   if (!membership) {
     return NextResponse.json({ error: "Not a member of this account" }, { status: 403 });
+  }
+
+  // Non-manager users can only view their assigned bookings
+  if (!hasMinRole(membership.role as AccountRole, "manager")) {
+    const { data: profile } = await serviceClient
+      .from("profiles")
+      .select("id")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (!profile || booking.assigned_team_member_id !== profile.id) {
+      return NextResponse.json({ error: "Booking not found" }, { status: 404 });
+    }
   }
 
   return NextResponse.json({ booking });

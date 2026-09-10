@@ -6,6 +6,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import type { BookingStatus } from "@/lib/business/orders";
+import { hasMinRole, type AccountRole } from "@/lib/auth/roles";
 
 export async function GET(request: Request) {
   const supabase = await createClient();
@@ -40,10 +41,27 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Not a member of this account" }, { status: 403 });
   }
 
+  const userRole = membership.role as AccountRole;
+
   let query = serviceClient
     .from("bookings")
     .select(`*, offering:offerings(id, name, type)`, { count: "exact" })
     .eq("account_id", accountId);
+
+  // Non-manager users only see bookings assigned to them
+  if (!hasMinRole(userRole, "manager")) {
+    const { data: profile } = await serviceClient
+      .from("profiles")
+      .select("id")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (profile) {
+      query = query.eq("assigned_team_member_id", profile.id);
+    } else {
+      return NextResponse.json({ bookings: [], total: 0, page, limit });
+    }
+  }
 
   if (status) query = query.eq("status", status);
 
