@@ -39,7 +39,7 @@ export async function GET() {
       .eq("account_id", accountId)
       .maybeSingle();
 
-    const plan = settings?.plan ?? "starter";
+    const plan = settings?.plan;
     const status = settings?.subscription_status ?? "active";
 
     const now = new Date();
@@ -72,7 +72,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const { serviceClient, accountId } = await requireRole('admin');
+    const { serviceClient, accountId } = await requireRole('owner');
 
     const body = await request.json().catch(() => null);
     const action = body?.action as string;

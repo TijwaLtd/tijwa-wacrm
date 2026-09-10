@@ -9,6 +9,8 @@ import {
 } from '@/lib/inbox/conversations';
 import { cn } from '@/lib/utils';
 import { formatWhatsAppInline } from '@/lib/whatsapp-format';
+import { useAuth } from '@/hooks/use-auth';
+import { hasMinRole, type AccountRole } from '@/lib/auth/roles';
 import type {
   Conversation,
   ConversationStatus,
@@ -94,6 +96,18 @@ export function ConversationList({
   onBroadcastsClick,
 }: ConversationListProps) {
   const t = useTranslations('Inbox.conversationList');
+  const { accountRole, profile } = useAuth();
+
+  // Non-admin users only see conversations assigned to them (or unassigned)
+  const canSeeAllConversations = accountRole ? hasMinRole(accountRole, 'manager') : false;
+  const userId = profile?.id;
+
+  const filterByAssignment = useCallback((convs: Conversation[]): Conversation[] => {
+    if (canSeeAllConversations) return convs;
+    return convs.filter(
+      (c) => !c.assigned_agent_id || c.assigned_agent_id === userId,
+    );
+  }, [canSeeAllConversations, userId]);
 
   const FILTER_OPTIONS: { label: string; value: InboxFilter }[] = useMemo(
     () => [
@@ -168,7 +182,7 @@ export function ConversationList({
               })
             );
             if (!cancelled) {
-              onConversationsLoadedRef.current(teamConvs);
+              onConversationsLoadedRef.current(filterByAssignment(teamConvs));
               setLoading(false);
             }
           }
@@ -216,7 +230,7 @@ export function ConversationList({
                   }
                 : undefined,
           }));
-          onConversationsLoadedRef.current(asConversations);
+          onConversationsLoadedRef.current(filterByAssignment(asConversations));
           localLoaded = true;
         }
       } catch {
@@ -293,7 +307,7 @@ export function ConversationList({
         if (cancelled) return;
 
         // Update with authoritative server data
-        onConversationsLoadedRef.current(normalizeConversations(convs));
+        onConversationsLoadedRef.current(filterByAssignment(normalizeConversations(convs)));
         setLoading(false);
 
         // 3. Persist to IndexedDB for future offline access

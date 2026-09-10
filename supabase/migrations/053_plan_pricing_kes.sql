@@ -20,7 +20,7 @@ RETURNS JSONB AS $$
   SELECT CASE p_plan
     WHEN 'starter' THEN jsonb_build_object(
       'max_contacts', 2000,
-      'max_team_members', 1,
+      'max_team_members', 3,
       'max_broadcasts_per_month', 0,
       'max_automations', 10,
       'max_flows', 5,
@@ -41,7 +41,7 @@ RETURNS JSONB AS $$
     )
     WHEN 'business' THEN jsonb_build_object(
       'max_contacts', 10000,
-      'max_team_members', 3,
+      'max_team_members', 10,
       'max_broadcasts_per_month', 500,
       'max_automations', 50,
       'max_flows', 25,
@@ -62,7 +62,7 @@ RETURNS JSONB AS $$
     )
     WHEN 'growth' THEN jsonb_build_object(
       'max_contacts', 50000,
-      'max_team_members', 5,
+      'max_team_members', 20,
       'max_broadcasts_per_month', 2000,
       'max_automations', 200,
       'max_flows', 100,
@@ -103,25 +103,25 @@ RETURNS JSONB AS $$
       'price_usd', 188
     )
     ELSE jsonb_build_object(
-      'max_contacts', 2000,
-      'max_team_members', 1,
-      'max_broadcasts_per_month', 0,
-      'max_automations', 10,
-      'max_flows', 5,
-      'max_pipelines', 1,
-      'max_deals_per_pipeline', 50,
-      'ai_replies_per_month', 0,
-      'ai_credits_per_month', 0,
-      'ai_credit_check_exempt', true,
-      'ai_conversations_per_month', 0,
-      'max_whatsapp_numbers', 1,
-      'has_ai_assistant', false,
-      'has_knowledge_base', false,
+      'max_contacts', 10000,
+      'max_team_members', 10,
+      'max_broadcasts_per_month', 500,
+      'max_automations', 50,
+      'max_flows', 25,
+      'max_pipelines', 3,
+      'max_deals_per_pipeline', 200,
+      'ai_replies_per_month', 5000,
+      'ai_credits_per_month', floor(5000 * 0.20)::int,
+      'ai_credit_check_exempt', false,
+      'ai_conversations_per_month', (floor(5000 * 0.20) * 5)::int,
+      'max_whatsapp_numbers', 2,
+      'has_ai_assistant', true,
+      'has_knowledge_base', true,
       'has_analytics', false,
       'has_priority_support', false,
       'has_custom_integrations', false,
-      'price_kes', 2500,
-      'price_usd', 19
+      'price_kes', 5000,
+      'price_usd', 38
     )
   END;
 $$ LANGUAGE sql STABLE;

@@ -60,7 +60,7 @@ export async function requireActiveSubscription(
 
 /**
  * Get the plan feature limits for the account.
- * Falls back to starter-tier defaults if the RPC is unavailable.
+ * Falls back to defaults if the RPC is unavailable.
  */
 export async function getPlanLimits(
   serviceClient: SupabaseClient,
@@ -73,7 +73,7 @@ export async function getPlanLimits(
     .eq('account_id', accountId)
     .maybeSingle()
 
-  const plan = settings?.plan ?? 'starter'
+  const plan = settings?.plan
 
   // Try the RPC
   const { data, error } = await serviceClient.rpc('get_plan_features', {
@@ -108,11 +108,17 @@ export async function checkUsageLimit(
   const limits = await getPlanLimits(serviceClient, accountId)
   const max = limits[metric] ?? 0
 
+  // get_current_usage returns a TABLE (metric, current_count, limit_count).
+  // We can't pass p_metric — the RPC returns all metrics. Filter in JS.
   const { data } = await serviceClient.rpc('get_current_usage', {
     p_account_id: accountId,
-    p_metric: metric,
   })
 
-  const current = typeof data === 'number' ? data : 0
+  let current = 0
+  if (Array.isArray(data)) {
+    const row = data.find((r: { metric: string }) => r.metric === metric)
+    current = row?.current_count ?? 0
+  }
+
   return { allowed: current < max, current, max }
 }

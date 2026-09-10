@@ -279,13 +279,14 @@ export function buildSystemPrompt(args: {
       '6. preview_delivery_order stores the order and shows buttons — the system handles the rest\n' +
       '7. You NEVER create orders directly — only preview_delivery_order\n\n' +
       'DEFAULT VALUES:\n' +
-      '- customer_name: if not provided by customer, omit it (system defaults to WhatsApp contact name)\n' +
-      '- weight_kg: optional — only ask if relevant (e.g. heavy items)\n' +
+      '- customer_name: omit it (system defaults to WhatsApp contact name)\n' +
+      '- weight_kg: optional — do NOT ask unless customer volunteers it\n' +
       '- vendor_stops: defaults to 1 if not mentioned\n' +
-      '- pickup_location: if not provided, ask or leave as null\n\n' +
+      '- pickup_location: ask if not provided\n\n' +
       'TOOL USAGE RULES:\n' +
-      '- Collect ALL required information BEFORE calling preview_delivery_order\n' +
-      '- If information is missing, ask the customer for it — do not guess\n' +
+      '- Only collect REQUIRED fields: items, pickup_location, dropoff_location\n' +
+      '- Optional fields (weight_kg, notes, customer_name): NEVER ask for these — use if provided, omit if not\n' +
+      '- Once you have items + pickup + dropoff, call preview_delivery_order immediately\n' +
       '- Present a clear summary with price before calling preview\n' +
       '- Always use get_customer_orders when customer references "my order" without a number\n' +
       '- If a tool fails, explain the issue and offer alternatives\n' +

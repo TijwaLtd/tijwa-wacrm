@@ -192,6 +192,15 @@ export default function JoinPage() {
         return;
       }
       toast.success('Welcome to the team');
+      // Update the active workspace cookie to point to the invited
+      // workspace. Without this, an invitee who already had a personal
+      // workspace (from signup) would keep the old cookie — the inbox
+      // would fetch WhatsApp config for the wrong account and show
+      // "not connected" even though the invited workspace has it set up.
+      const body = await res.json();
+      if (body.accountId) {
+        document.cookie = `wacrm_active_account=${body.accountId}; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax`;
+      }
       // Full reload (not router.push) so AuthProvider re-fetches
       // the profile with the new account_id and account_role.
       window.location.href = '/dashboard';

@@ -24,7 +24,7 @@ export async function GET() {
       .eq("account_id", accountId)
       .maybeSingle();
 
-    const plan = settings?.plan ?? "starter";
+    const plan = settings?.plan;
     const { data: planData } = await serviceClient.rpc("get_plan_features", {
       p_plan: plan,
     });
@@ -62,7 +62,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const { serviceClient, accountId } = await requireRole('admin');
+    const { serviceClient, accountId } = await requireRole('owner');
 
     const body = await request.json().catch(() => null);
     const action = body?.action as string;
@@ -95,7 +95,7 @@ export async function POST(request: Request) {
       .eq("account_id", accountId)
       .maybeSingle();
 
-    const plan = settings?.plan ?? "starter";
+    const plan = settings?.plan;
     const { data: planData } = await serviceClient.rpc("get_plan_features", {
       p_plan: plan,
     });

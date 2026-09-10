@@ -10,12 +10,12 @@ import { NextResponse } from "next/server";
 import { requireRole, toErrorResponse } from "@/lib/auth/account";
 import { sendPlanChangeEmail, sendSubscriptionRenewedEmail } from "@/lib/email/send";
 
-const VALID_PLANS = ['starter', 'business', 'growth', 'enterprise'] as const;
+const VALID_PLANS = ['business', 'growth', 'enterprise'] as const;
 type Plan = typeof VALID_PLANS[number];
 
 export async function POST(request: Request) {
   try {
-    const { supabase, serviceClient, userId, accountId } = await requireRole('admin');
+    const { supabase, serviceClient, userId, accountId } = await requireRole('owner');
 
     const body = await request.json().catch(() => null);
     const plan = typeof body?.plan === "string" ? body.plan : null;
@@ -87,15 +87,13 @@ export async function POST(request: Request) {
     // Add plan allocation credits (don't wipe purchased credits).
     // The monthly allocation is additive — purchased credits are preserved.
     // A monthly cron resets credits_remaining to plan allocation on the 1st.
-    // Credits = 20% of plan price (floor). Starter is exempt (0 credits).
-    const PLAN_PRICES: Record<string, number> = {
-      starter: 2500,
-      business: 5000,
-      growth: 10000,
-      enterprise: 25000,
-    };
-    const price = PLAN_PRICES[plan] ?? 0;
-    const creditsToGrant = plan === 'starter' ? 0 : Math.floor(price * 0.20);
+    // Read price from DB — never hardcoded.
+    const { data: planFeaturesForCredits } = await serviceClient.rpc("get_plan_features", {
+      p_plan: plan,
+    });
+    const featuresForCredits = typeof planFeaturesForCredits === 'string' ? JSON.parse(planFeaturesForCredits) : planFeaturesForCredits;
+    const price = featuresForCredits?.price_kes ?? 0;
+    const creditsToGrant = Math.floor(price * 0.20);
 
     if (creditsToGrant > 0) {
       await serviceClient.rpc("add_ai_credits", {
@@ -167,8 +165,8 @@ export async function POST(request: Request) {
       action: oldPlan ? 'updated' : 'started',
     }).catch((err) => console.error("[workspaces/plan] email failed:", err));
 
-    // If upgrading from starter or renewing expired, send subscription-renewed email
-    if (!oldPlan || oldPlan === 'starter' || wasExpired) {
+    // If first plan or renewing expired, send subscription-renewed email
+    if (!oldPlan || wasExpired) {
       sendSubscriptionRenewedEmail(userEmail, {
         name: profile?.full_name || 'there',
         workspaceName: account?.name || 'your workspace',

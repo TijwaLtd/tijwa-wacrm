@@ -1,12 +1,17 @@
 -- ============================================================
--- 056_seat_limit_on_redeem.sql
+-- 079_fix_redeem_seat_limit_plan_lookup.sql
 --
--- Adds seat limit check to redeem_invitation RPC.
--- Returns seat limit info on failure so the API can notify admin.
+-- The redeem_invitation RPC looked up the plan from subscriptions
+-- only. If the subscriptions row was stale (e.g. still 'starter'
+-- after upgrading), it blocked invites from higher-plan accounts.
+--
+-- Fix: use tenant_settings.plan as the source of truth for the
+-- plan name (that's what the billing UI writes to). Subscriptions
+-- is only used for billing metadata (period, status, extra_seats).
+--
+-- Also: skip seat check if the caller is already a member of the
+-- account (e.g. owner accepting their own invite).
 -- ============================================================
-
--- Drop existing function
-DROP FUNCTION IF EXISTS public.redeem_invitation(TEXT);
 
 CREATE OR REPLACE FUNCTION public.redeem_invitation(
   p_token_hash TEXT
@@ -18,12 +23,12 @@ AS $$
 DECLARE
   v_caller_id UUID := auth.uid();
   v_inv account_invitations%ROWTYPE;
-  v_account accounts%ROWTYPE;
   v_plan TEXT;
   v_plan_seats INTEGER;
   v_extra_seats INTEGER;
   v_current_members INTEGER;
   v_total_seats INTEGER;
+  v_already_member BOOLEAN;
   v_result JSONB;
 BEGIN
   IF v_caller_id IS NULL THEN
@@ -45,30 +50,38 @@ BEGIN
     RAISE EXCEPTION 'Invitation has expired' USING ERRCODE = '22023';
   END IF;
 
-  -- Check seat limit — look up plan from subscriptions first,
-  -- fall back to tenant_settings (the source of truth for plan name)
-  SELECT plan INTO v_plan
-  FROM subscriptions
-  WHERE account_id = v_inv.account_id
-    AND status IN ('active', 'trialing', 'past_due')
-  ORDER BY created_at DESC
-  LIMIT 1;
+  -- Check if caller is already a member (e.g. owner accepting own invite)
+  SELECT EXISTS(
+    SELECT 1 FROM account_memberships
+    WHERE user_id = v_caller_id AND account_id = v_inv.account_id
+  ) INTO v_already_member;
 
-  -- Fallback to tenant_settings.plan if subscriptions row is missing/stale
-  IF v_plan IS NULL THEN
-    SELECT plan INTO v_plan
-    FROM tenant_settings
-    WHERE account_id = v_inv.account_id;
+  -- If already a member, skip seat check — just mark invite accepted
+  IF v_already_member THEN
+    UPDATE account_invitations
+    SET accepted_at = NOW(), accepted_by_user_id = v_caller_id
+    WHERE id = v_inv.id;
+
+    RETURN jsonb_build_object(
+      'account_id', v_inv.account_id,
+      'role', v_inv.role,
+      'seat_limit_reached', false,
+      'already_member', true
+    );
   END IF;
 
-  -- Default to starter if no plan found anywhere
+  -- Plan source of truth: tenant_settings.plan (what the billing UI writes)
+  SELECT plan INTO v_plan
+  FROM tenant_settings
+  WHERE account_id = v_inv.account_id;
+
   v_plan := COALESCE(v_plan, 'starter');
 
   -- Get plan seat limit
   v_plan_seats := ((get_plan_features(v_plan)::jsonb ->> 'max_team_members')::INTEGER);
   v_plan_seats := COALESCE(v_plan_seats, 1);
 
-  -- Get extra seats
+  -- Get extra seats from subscriptions (billing metadata)
   SELECT COALESCE(extra_seats, 0) INTO v_extra_seats
   FROM subscriptions
   WHERE account_id = v_inv.account_id
@@ -84,10 +97,8 @@ BEGIN
   FROM account_memberships
   WHERE account_id = v_inv.account_id;
 
-  -- Check if over limit (ON CONFLICT DO NOTHING means this insert might add a member)
-  -- We check BEFORE the insert to give a clear error
+  -- Check if over limit
   IF v_current_members >= v_total_seats THEN
-    -- Return seat limit info so API can notify admin
     RAISE EXCEPTION 'Team member limit reached. Your % plan allows % seats%.',
       v_plan,
       v_total_seats,
@@ -109,7 +120,7 @@ BEGIN
       )::text;
   END IF;
 
-  -- M:N JOIN: Insert membership (don't delete old account, don't update profile)
+  -- M:N JOIN: Insert membership
   INSERT INTO account_memberships (user_id, account_id, role)
   VALUES (v_caller_id, v_inv.account_id, v_inv.role)
   ON CONFLICT (user_id, account_id) DO NOTHING;
@@ -119,14 +130,12 @@ BEGIN
   SET accepted_at = NOW(), accepted_by_user_id = v_caller_id
   WHERE id = v_inv.id;
 
-  -- Return success with account info
-  v_result := jsonb_build_object(
+  -- Return success
+  RETURN jsonb_build_object(
     'account_id', v_inv.account_id,
     'role', v_inv.role,
     'seat_limit_reached', false
   );
-
-  RETURN v_result;
 END;
 $$;
 

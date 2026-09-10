@@ -252,7 +252,7 @@ export async function PATCH(request: Request) {
   if (typeof body?.accent_color === "string") {
     settingsUpdates.accent_color = body.accent_color.trim() || null;
   }
-  if (typeof body?.plan === "string" && ["starter", "business", "growth", "enterprise"].includes(body.plan)) {
+  if (typeof body?.plan === "string" && ["business", "growth", "enterprise"].includes(body.plan)) {
     settingsUpdates.plan = body.plan;
   }
 

@@ -50,8 +50,8 @@ describe('email/send', () => {
     const result = await sendPlanChangeEmail('user@test.com', {
       name: 'Bob',
       workspaceName: 'Test Co',
-      plan: 'pro',
-      oldPlan: 'starter',
+      plan: 'growth',
+      oldPlan: 'business',
     });
 
     expect(result.success).toBe(true);
@@ -90,7 +90,7 @@ describe('email/send', () => {
       name: 'Frank',
       workspaceName: 'Test Co',
       creditsLeft: '5',
-      plan: 'starter',
+      plan: 'business',
     });
 
     expect(result.success).toBe(true);

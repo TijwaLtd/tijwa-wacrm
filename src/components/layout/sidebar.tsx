@@ -7,7 +7,7 @@ import { useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/use-auth';
 import { useTotalUnread } from '@/hooks/use-total-unread';
-import { canViewAudit as canViewAuditRole } from '@/lib/auth/roles';
+import { canViewAudit as canViewAuditRole, hasMinRole, type AccountRole } from '@/lib/auth/roles';
 import {
   BarChart3,
   BookOpen,
@@ -45,7 +45,6 @@ import {
   Home,
   CalendarDays,
 } from 'lucide-react';
-import type { AccountRole } from '@/lib/auth/roles';
 
 // Per-role chip metadata used in the sidebar's account strip + the
 // Members tab roster. Keeping this near both consumers in a single
@@ -130,11 +129,8 @@ interface NavItem {
   href: string;
   labelKey: string;
   icon: typeof LayoutDashboard;
-  /**
-   * When true, the nav row renders a small "Beta" chip after the label.
-   * Purely informational — doesn't affect routing or access.
-   */
   beta?: boolean;
+  minRole?: AccountRole;
 }
 
 const navItems: NavItem[] = [
@@ -143,12 +139,12 @@ const navItems: NavItem[] = [
   { href: '/contacts', labelKey: 'contacts', icon: Users },
   { href: '/knowledge', labelKey: 'knowledge', icon: BookOpen },
   // { href: '/pipelines', labelKey: 'pipelines', icon: GitBranch }, // TODO: enable when pipelines are supported
-  { href: '/broadcasts', labelKey: 'broadcasts', icon: Radio },
-  { href: '/automations', labelKey: 'automations', icon: Zap },
+  { href: '/broadcasts', labelKey: 'broadcasts', icon: Radio, minRole: 'admin' },
+  { href: '/automations', labelKey: 'automations', icon: Zap, minRole: 'admin' },
 ];
 
 const bottomNavItems = [
-  { href: '/billing', labelKey: 'billing', icon: CreditCard },
+  { href: '/billing', labelKey: 'billing', icon: CreditCard, minRole: 'owner' as AccountRole },
   { href: '/settings', labelKey: 'settings', icon: Settings },
 ];
 
@@ -289,7 +285,9 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
         {/* Main navigation */}
         <nav className="flex-1 overflow-y-auto px-3 py-4">
           <ul className="flex flex-col gap-1">
-            {navItems.map((item) => {
+            {navItems
+              .filter((item) => !item.minRole || (accountRole && hasMinRole(accountRole, item.minRole)))
+              .map((item) => {
               const isActive =
                 pathname === item.href ||
                 (item.href !== '/dashboard' && pathname.startsWith(item.href));
@@ -446,7 +444,9 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
           )}
 
           <ul className="flex flex-col gap-1">
-            {bottomNavItems.map((item) => {
+            {bottomNavItems
+              .filter((item) => !item.minRole || (accountRole && hasMinRole(accountRole, item.minRole)))
+              .map((item) => {
               const isActive = pathname.startsWith(item.href);
               return (
                 <li key={item.href}>

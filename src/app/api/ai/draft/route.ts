@@ -71,26 +71,22 @@ export async function POST(request: Request) {
     }
 
     // Check if the tenant has AI credits remaining
-    // First package (starter) is exempt from AI credit check
+    // First package is exempt from AI credit check
     const { data: settings } = await supabaseAdmin()
       .from('tenant_settings')
       .select('plan')
       .eq('account_id', accountId)
       .maybeSingle();
 
-    const isCreditCheckExempt = settings?.plan === 'starter';
-
-    if (!isCreditCheckExempt) {
-      const hasCredits = await checkAiCredits(supabaseAdmin(), accountId)
-      if (!hasCredits) {
-        return NextResponse.json(
-          {
-            error: 'No AI credits remaining. Purchase more credits in Settings → Billing.',
-            code: 'ai_credits_exhausted',
-          },
-          { status: 402 },
-        )
-      }
+    const hasCredits = await checkAiCredits(supabaseAdmin(), accountId)
+    if (!hasCredits) {
+      return NextResponse.json(
+        {
+          error: 'No AI credits remaining. Purchase more credits in Settings → Billing.',
+          code: 'ai_credits_exhausted',
+        },
+        { status: 402 },
+      )
     }
 
     const ctx = await buildConversationContext(supabase, conversationId)

@@ -3,19 +3,13 @@ import type { EmailTemplate } from '../types';
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://crm.example.com';
 
-const planLabels: Record<string, string> = {
-  starter: 'Starter',
-  pro: 'Pro',
-  enterprise: 'Enterprise',
-};
-
 const subscriptionReminder: EmailTemplate = {
   name: 'subscription-reminder',
   subject: 'Your {{plan}} subscription renews in {{days}} days',
   render: (data) => {
     const name = data.name || 'there';
     const workspaceName = data.workspaceName || 'your workspace';
-    const plan = planLabels[data.plan] || data.plan || 'your';
+    const plan = data.plan || 'your';
     const days = data.days || '7';
 
     const content = `

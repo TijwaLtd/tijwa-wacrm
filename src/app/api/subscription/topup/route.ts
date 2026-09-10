@@ -29,7 +29,7 @@ function checkRateLimit(accountId: string): boolean {
 
 export async function POST(request: Request) {
   try {
-    const { supabase, serviceClient, accountId, userId } = await requireRole('admin');
+    const { supabase, serviceClient, accountId, userId } = await requireRole('owner');
 
     // Rate limit: max 5 topups per hour per account
     if (!checkRateLimit(accountId)) {

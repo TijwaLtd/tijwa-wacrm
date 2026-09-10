@@ -19,6 +19,10 @@ import {
   Briefcase,
   type LucideIcon,
 } from 'lucide-react';
+import { hasMinRole, type AccountRole } from '@/lib/auth/roles';
+
+export type { AccountRole } from '@/lib/auth/roles';
+export { hasMinRole } from '@/lib/auth/roles';
 
 /**
  * Settings information architecture for the redesigned page.
@@ -55,12 +59,13 @@ export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 export const DEFAULT_SECTION: SettingsSection = 'overview';
 
-/** Rail grouping. `adminOnly` items are hidden for non-admins. */
+/** Rail grouping. `minRole` restricts visibility to that role or higher. */
 export interface SectionMeta {
   id: SettingsSection;
   label: string;
   icon: LucideIcon;
   group: 'top' | 'account' | 'workspace';
+  minRole?: AccountRole;  // undefined = any authenticated user
 }
 
 export const SECTION_META: Record<SettingsSection, SectionMeta> = {
@@ -68,22 +73,22 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   profile: { id: 'profile', label: 'Your profile', icon: User, group: 'account' },
   security: { id: 'security', label: 'Login & security', icon: Shield, group: 'account' },
   appearance: { id: 'appearance', label: 'Appearance', icon: Palette, group: 'account' },
-  whatsapp: { id: 'whatsapp', label: 'WhatsApp', icon: PlugZap, group: 'workspace' },
-  templates: { id: 'templates', label: 'Templates', icon: FileText, group: 'workspace' },
-  'quick-replies': { id: 'quick-replies', label: 'Quick replies', icon: Zap, group: 'workspace' },
-  fields: { id: 'fields', label: 'Fields & tags', icon: Tags, group: 'workspace' },
-  deals: { id: 'deals', label: 'Deals & currency', icon: Coins, group: 'workspace' },
-  ai: { id: 'ai', label: 'AI Assistant', icon: Sparkles, group: 'workspace' },
-  'auto-assign': { id: 'auto-assign', label: 'Auto-assignment', icon: ArrowRightLeft, group: 'workspace' },
-  departments: { id: 'departments', label: 'Departments', icon: Building2, group: 'workspace' },
-  skills: { id: 'skills', label: 'Agent skills', icon: Tags, group: 'workspace' },
-  schedule: { id: 'schedule', label: 'Working hours', icon: Calendar, group: 'workspace' },
-  members: { id: 'members', label: 'Team members', icon: UsersRound, group: 'workspace' },
-  workspace: { id: 'workspace', label: 'Workspace', icon: Building2, group: 'workspace' },
-  business: { id: 'business', label: 'Business type', icon: Briefcase, group: 'workspace' },
-  'payment-methods': { id: 'payment-methods', label: 'Payment methods', icon: CreditCard, group: 'workspace' },
-  pricing: { id: 'pricing', label: 'Pricing formulas', icon: Calculator, group: 'workspace' },
-  api: { id: 'api', label: 'API keys', icon: KeyRound, group: 'workspace' },
+  whatsapp: { id: 'whatsapp', label: 'WhatsApp', icon: PlugZap, group: 'workspace', minRole: 'admin' },
+  templates: { id: 'templates', label: 'Templates', icon: FileText, group: 'workspace', minRole: 'admin' },
+  'quick-replies': { id: 'quick-replies', label: 'Quick replies', icon: Zap, group: 'workspace', minRole: 'admin' },
+  fields: { id: 'fields', label: 'Fields & tags', icon: Tags, group: 'workspace', minRole: 'admin' },
+  deals: { id: 'deals', label: 'Deals & currency', icon: Coins, group: 'workspace', minRole: 'admin' },
+  ai: { id: 'ai', label: 'AI Assistant', icon: Sparkles, group: 'workspace', minRole: 'admin' },
+  'auto-assign': { id: 'auto-assign', label: 'Auto-assignment', icon: ArrowRightLeft, group: 'workspace', minRole: 'admin' },
+  departments: { id: 'departments', label: 'Departments', icon: Building2, group: 'workspace', minRole: 'admin' },
+  skills: { id: 'skills', label: 'Agent skills', icon: Tags, group: 'workspace', minRole: 'admin' },
+  schedule: { id: 'schedule', label: 'Working hours', icon: Calendar, group: 'workspace', minRole: 'admin' },
+  members: { id: 'members', label: 'Team members', icon: UsersRound, group: 'workspace', minRole: 'admin' },
+  workspace: { id: 'workspace', label: 'Workspace', icon: Building2, group: 'workspace', minRole: 'owner' },
+  business: { id: 'business', label: 'Business type', icon: Briefcase, group: 'workspace', minRole: 'owner' },
+  'payment-methods': { id: 'payment-methods', label: 'Payment methods', icon: CreditCard, group: 'workspace', minRole: 'owner' },
+  pricing: { id: 'pricing', label: 'Pricing formulas', icon: Calculator, group: 'workspace', minRole: 'owner' },
+  api: { id: 'api', label: 'API keys', icon: KeyRound, group: 'workspace', minRole: 'owner' },
 };
 
 export const RAIL_GROUPS: { label: string | null; group: SectionMeta['group'] }[] = [

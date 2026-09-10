@@ -3,22 +3,14 @@ import type { EmailTemplate } from '../types';
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://crm.example.com';
 
-const planLabels: Record<string, string> = {
-  starter: 'Starter',
-  pro: 'Pro',
-  business: 'Business',
-  growth: 'Growth',
-  enterprise: 'Enterprise',
-};
-
 const planChange: EmailTemplate = {
   name: 'plan-change',
   subject: 'Your plan has been updated',
   render: (data) => {
     const name = data.name || 'there';
     const workspaceName = data.workspaceName || 'your workspace';
-    const newPlan = planLabels[data.plan] || data.plan || 'Unknown';
-    const oldPlan = planLabels[data.oldPlan] || data.oldPlan;
+    const newPlan = data.plan || 'Unknown';
+    const oldPlan = data.oldPlan || '';
     const action = data.action || 'upgraded';
 
     const content = `

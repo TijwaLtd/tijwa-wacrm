@@ -41,16 +41,16 @@ export const logisticsTools: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'calculate_delivery_price',
-      description: 'Calculate delivery price. Use when customer asks "how much" or before showing a preview.',
+      description: 'Calculate delivery price. Required: items + dropoff_location. Optional: weight_kg, pickup_location, zone_type. Do NOT ask for optional fields.',
       parameters: {
         type: 'object',
         properties: {
-          items: { type: 'array', items: { type: 'string' }, description: 'Items to deliver' },
+          items: { type: 'array', items: { type: 'string' }, description: 'REQUIRED. Items to deliver' },
           item_count: { type: 'number', description: 'Total number of items' },
           pickup_location: { type: 'string', description: 'Pickup address or area' },
-          dropoff_location: { type: 'string', description: 'Delivery destination' },
+          dropoff_location: { type: 'string', description: 'REQUIRED. Delivery destination' },
           vendor_stops: { type: 'number', description: 'Number of pickup stops' },
-          weight_kg: { type: 'number', description: 'Total weight in kg (optional)' },
+          weight_kg: { type: 'number', description: 'OPTIONAL. Total weight in kg — do NOT ask for this' },
           zone_type: { type: 'string', enum: ['local', 'extended'], description: 'Delivery zone' },
         },
         required: ['items', 'dropoff_location'],
@@ -64,22 +64,23 @@ export const logisticsTools: ToolDefinition[] = [
       description:
         'Store a pending delivery order and return a summary with Confirm/Edit/Cancel buttons. ' +
         'Use this INSTEAD of create_delivery_order. The customer must confirm before the order is created. ' +
-        'Collect all info first (items, destination, zone), then call this to show the preview.',
+        'Required: items + pickup_location + dropoff_location. ' +
+        'Optional: weight_kg, notes, customer_name — do NOT ask for these, use only if customer provides them.',
       parameters: {
         type: 'object',
         properties: {
-          items: { type: 'array', items: { type: 'string' }, description: 'Items to deliver, e.g. ["3 bags of cement"]' },
+          items: { type: 'array', items: { type: 'string' }, description: 'REQUIRED. Items to deliver, e.g. ["3 cartons of Doll shoes"]' },
           item_count: { type: 'number', description: 'Total number of items' },
-          pickup_location: { type: 'string', description: 'Pickup address or area' },
-          dropoff_location: { type: 'string', description: 'Delivery destination' },
-          zone_type: { type: 'string', enum: ['local', 'extended'], description: 'Delivery zone' },
-          vendor_stops: { type: 'number', description: 'Number of pickup stops (default 1)' },
-          weight_kg: { type: 'number', description: 'Total weight in kg (optional)' },
-          notes: { type: 'string', description: 'Special instructions' },
-          customer_name: { type: 'string', description: 'Recipient name (defaults to customer WhatsApp name if not provided)' },
-          customer_phone: { type: 'string', description: 'Recipient phone (optional)' },
+          pickup_location: { type: 'string', description: 'REQUIRED. Pickup address or area' },
+          dropoff_location: { type: 'string', description: 'REQUIRED. Delivery destination' },
+          zone_type: { type: 'string', enum: ['local', 'extended'], description: 'Delivery zone. If unknown, use map_location_to_zone first' },
+          vendor_stops: { type: 'number', description: 'Number of pickup stops (default 1). Do not ask — use if customer mentions multiple stops' },
+          weight_kg: { type: 'number', description: 'OPTIONAL. Total weight in kg. Do NOT ask — use only if customer volunteers it' },
+          notes: { type: 'string', description: 'OPTIONAL. Special instructions. Do NOT ask — use only if customer provides them' },
+          customer_name: { type: 'string', description: 'OPTIONAL. Recipient name. Do NOT ask — system defaults to WhatsApp contact name' },
+          customer_phone: { type: 'string', description: 'OPTIONAL. Recipient phone. Do NOT ask' },
         },
-        required: ['items', 'dropoff_location', 'zone_type'],
+        required: ['items', 'dropoff_location'],
       },
     },
   },

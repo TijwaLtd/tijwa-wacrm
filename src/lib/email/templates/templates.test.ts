@@ -10,8 +10,8 @@ describe('email templates', () => {
   const data = {
     name: 'Sarah',
     workspaceName: 'Acme Corp',
-    plan: 'pro',
-    oldPlan: 'starter',
+    plan: 'growth',
+    oldPlan: 'business',
     action: 'upgraded',
     reason: 'Card declined',
     inviterName: 'John',

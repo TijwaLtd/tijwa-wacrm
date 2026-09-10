@@ -8,6 +8,8 @@ import {
   RAIL_GROUPS,
   SECTION_META,
   SETTINGS_SECTIONS,
+  hasMinRole,
+  type AccountRole,
   type SettingsSection,
 } from './settings-sections';
 
@@ -26,10 +28,12 @@ export function SettingsRail({
   active,
   onSelect,
   hints,
+  accountRole,
 }: {
   active: SettingsSection;
   onSelect: (section: SettingsSection) => void;
   hints?: Partial<Record<SettingsSection, ReactNode>>;
+  accountRole?: AccountRole | null;
 }) {
   const t = useTranslations('Settings');
   const activeRef = useRef<HTMLButtonElement>(null);
@@ -57,7 +61,7 @@ export function SettingsRail({
     >
       {RAIL_GROUPS.map(({ label, group }) => {
         const items = SETTINGS_SECTIONS.filter(
-          (s) => SECTION_META[s].group === group,
+          (s) => SECTION_META[s].group === group && (!accountRole || !SECTION_META[s].minRole || hasMinRole(accountRole, SECTION_META[s].minRole!)),
         );
         return (
           <div

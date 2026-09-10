@@ -29,6 +29,8 @@ import { PaymentMethodsSettings } from '@/components/settings/payment-methods-se
 import { PricingSettings } from '@/components/settings/pricing-settings';
 import {
   resolveSection,
+  hasMinRole,
+  SECTION_META,
   type SettingsSection,
 } from '@/components/settings/settings-sections';
 
@@ -51,7 +53,7 @@ export default function SettingsPage() {
 function SettingsPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { defaultCurrency } = useAuth();
+  const { defaultCurrency, accountRole } = useAuth();
   const { mode } = useTheme();
   const t = useTranslations('Settings');
 
@@ -59,7 +61,13 @@ function SettingsPageInner() {
   // section — deep-linkable, and it keeps the existing links in the
   // app sidebar/header working. Legacy tab values (tags, custom-fields)
   // resolve onto their new home; unknown/empty → the Overview landing.
-  const section = resolveSection(searchParams.get('tab'));
+  const requestedSection = resolveSection(searchParams.get('tab'));
+
+  // If the user doesn't have permission for this section, redirect to overview
+  const sectionMeta = SECTION_META[requestedSection];
+  const section = (sectionMeta?.minRole && (!accountRole || !hasMinRole(accountRole, sectionMeta.minRole)))
+    ? 'overview'
+    : requestedSection;
 
   const go = (next: SettingsSection) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -113,7 +121,7 @@ function SettingsPageInner() {
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[236px_minmax(0,1fr)] lg:items-start">
-        <SettingsRail active={section} onSelect={go} hints={hints} />
+        <SettingsRail active={section} onSelect={go} hints={hints} accountRole={accountRole} />
         <div className="min-w-0">{panel[section]}</div>
       </div>
     </div>

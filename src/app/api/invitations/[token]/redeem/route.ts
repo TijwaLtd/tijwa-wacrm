@@ -130,7 +130,7 @@ async function notifyAdminSeatLimit(
     adminName: ownerProfile.full_name || "Admin",
     attempterName: attempterProfile?.full_name || attempterProfile?.email || "A user",
     workspaceName: account.name || "your workspace",
-    plan: seatInfo.plan || "starter",
+    plan: seatInfo.plan,
     totalSeats: String(seatInfo.total_seats || 1),
     currentMembers: String(seatInfo.current_members || 0),
   });

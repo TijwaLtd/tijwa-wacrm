@@ -19,7 +19,7 @@ export default function PlansPage() {
         </p>
       </div>
 
-      <PlansSelector currentPlan={currentPlan as 'starter' | 'pro' | 'enterprise'} />
+      <PlansSelector currentPlan={currentPlan} />
     </div>
   );
 }

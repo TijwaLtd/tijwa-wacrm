@@ -16,7 +16,7 @@ export function PlansSettings() {
         <p className="text-sm text-muted-foreground">{t('desc')}</p>
       </div>
 
-      <PlansSelector currentPlan={currentPlan as 'starter' | 'pro' | 'enterprise'} />
+      <PlansSelector currentPlan={currentPlan} />
     </div>
   );
 }

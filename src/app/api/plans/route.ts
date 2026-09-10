@@ -10,15 +10,10 @@ import { NextResponse } from 'next/server'
 import { getCurrentAccount, toErrorResponse } from '@/lib/auth/account'
 
 const PLAN_META = {
-  starter: {
-    name: 'Starter',
-    description: 'For small businesses getting organized on WhatsApp.',
-    cta: 'Get Started',
-  },
   business: {
     name: 'Business',
     description: 'For businesses actively selling and supporting customers.',
-    cta: 'Upgrade',
+    cta: 'Get Started',
     recommended: true,
   },
   growth: {
@@ -37,7 +32,7 @@ export async function GET() {
   try {
     const { supabase } = await getCurrentAccount()
 
-    const PLAN_IDS = ['starter', 'business', 'growth', 'enterprise'] as const
+    const PLAN_IDS = ['business', 'growth', 'enterprise'] as const
 
     const results = await Promise.all(
       PLAN_IDS.map(async (planId) => {

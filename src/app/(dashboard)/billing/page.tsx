@@ -43,6 +43,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useAuth } from '@/hooks/use-auth';
+import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 
 interface PlanFeatures {
@@ -230,8 +231,16 @@ const FEATURE_ROWS = [
 ];
 
 export default function BillingPage() {
-  const { activeWorkspace } = useAuth();
+  const { activeWorkspace, accountRole } = useAuth();
+  const router = useRouter();
   const currentPlan = (activeWorkspace?.plan ?? 'starter') as string;
+
+  // Only owners can access billing
+  useEffect(() => {
+    if (accountRole && accountRole !== 'owner') {
+      router.replace('/dashboard');
+    }
+  }, [accountRole, router]);
 
   const [plans, setPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(false);

@@ -3,19 +3,13 @@ import type { EmailTemplate } from '../types';
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://crm.example.com';
 
-const planLabels: Record<string, string> = {
-  starter: 'Starter',
-  pro: 'Pro',
-  enterprise: 'Enterprise',
-};
-
 const subscriptionExpired: EmailTemplate = {
   name: 'subscription-expired',
   subject: 'Your subscription has expired',
   render: (data) => {
     const name = data.name || 'there';
     const workspaceName = data.workspaceName || 'your workspace';
-    const plan = planLabels[data.plan] || data.plan || 'your';
+    const plan = data.plan || 'your';
 
     const content = `
 <h1 style="margin:0 0 16px 0;font-size:28px;line-height:36px;font-weight:700;color:#111827">

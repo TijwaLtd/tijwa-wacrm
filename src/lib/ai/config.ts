@@ -65,7 +65,7 @@ export async function loadAiConfig(): Promise<AiConfig | null> {
     systemPrompt: process.env.AI_SYSTEM_PROMPT ?? null,
     isActive: true,
     autoReplyEnabled: true,
-    autoReplyMaxPerConversation: Number(process.env.AI_AUTO_REPLY_MAX_PER_CONVERSATION) || 3,
+    autoReplyMaxPerConversation: Number(process.env.AI_AUTO_REPLY_MAX_PER_CONVERSATION) || 5000,
     handoffAgentId: null,
     embeddingsApiKey: getEmbeddingsApiKey(),
   }
