@@ -1,9 +1,10 @@
 'use client'
 
 import { useState } from 'react'
+import { useAuth } from '@/hooks/use-auth'
 
 export default function AiTestPage() {
-  const [accountId, setAccountId] = useState('7f01a304-58c2-480d-a0be-e314be90507a')
+  const { activeAccountId } = useAuth()
   const [conversationId, setConversationId] = useState('')
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
@@ -20,11 +21,11 @@ export default function AiTestPage() {
       const res = await fetch('/api/ai/test/preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          accountId,
-          message: message.trim(),
-          conversationId: conversationId.trim() || undefined,
-        }),
+          body: JSON.stringify({
+            accountId: activeAccountId,
+            message: message.trim(),
+            conversationId: conversationId.trim() || undefined,
+          }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Request failed')
@@ -41,15 +42,6 @@ export default function AiTestPage() {
       <h1 className="text-2xl font-bold mb-6">AI Tool Calling Test</h1>
 
       <div className="space-y-4 mb-8">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Account ID</label>
-          <input
-            type="text"
-            value={accountId}
-            onChange={(e) => setAccountId(e.target.value)}
-            className="w-full border rounded-lg px-3 py-2 text-sm"
-          />
-        </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Conversation ID (optional — for history)</label>
           <input
@@ -72,7 +64,7 @@ export default function AiTestPage() {
         </div>
         <button
           onClick={runTest}
-          disabled={loading || !message.trim()}
+          disabled={loading || !message.trim() || !activeAccountId}
           className="bg-blue-600 text-white px-6 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
         >
           {loading ? 'Running...' : 'Run Test'}
