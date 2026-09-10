@@ -1,15 +1,62 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '@/hooks/use-auth'
+import { createBrowserClient } from '@supabase/ssr'
+
+const supabase = createBrowserClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+)
 
 export default function AiTestPage() {
   const { activeAccountId } = useAuth()
   const [conversationId, setConversationId] = useState('')
+  const [conversationLabel, setConversationLabel] = useState('')
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
+  const [fetchingConv, setFetchingConv] = useState(false)
   const [result, setResult] = useState<any>(null)
   const [error, setError] = useState('')
+
+  // Fetch a random conversation on mount
+  useEffect(() => {
+    if (!activeAccountId) return
+    setFetchingConv(true)
+    supabase
+      .from('conversations')
+      .select('id, contact_id, contacts(name, phone), last_message_text')
+      .eq('account_id', activeAccountId)
+      .order('updated_at', { ascending: false })
+      .limit(5)
+      .then(({ data }) => {
+        if (data && data.length > 0) {
+          const pick = data[Math.floor(Math.random() * data.length)]
+          setConversationId(pick.id)
+          const name = (pick as any).contacts?.name || (pick as any).contacts?.phone || 'Unknown'
+          setConversationLabel(`${name} — ${(pick.last_message_text || '').slice(0, 50)}`)
+        }
+      })
+      .finally(() => setFetchingConv(false))
+  }, [activeAccountId])
+
+  const pickRandom = async () => {
+    if (!activeAccountId) return
+    setFetchingConv(true)
+    const { data } = await supabase
+      .from('conversations')
+      .select('id, contact_id, contacts(name, phone), last_message_text')
+      .eq('account_id', activeAccountId)
+      .order('updated_at', { ascending: false })
+      .limit(10)
+    if (data && data.length > 0) {
+      const pick = data[Math.floor(Math.random() * data.length)]
+      setConversationId(pick.id)
+      const name = (pick as any).contacts?.name || (pick as any).contacts?.phone || 'Unknown'
+      setConversationLabel(`${name} — ${(pick.last_message_text || '').slice(0, 50)}`)
+    }
+    setFetchingConv(false)
+  }
 
   const runTest = async () => {
     if (!message.trim()) return
@@ -21,11 +68,11 @@ export default function AiTestPage() {
       const res = await fetch('/api/ai/test/preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            accountId: activeAccountId,
-            message: message.trim(),
-            conversationId: conversationId.trim() || undefined,
-          }),
+        body: JSON.stringify({
+          accountId: activeAccountId,
+          message: message.trim(),
+          conversationId: conversationId.trim() || undefined,
+        }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Request failed')
@@ -43,14 +90,26 @@ export default function AiTestPage() {
 
       <div className="space-y-4 mb-8">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Conversation ID (optional — for history)</label>
-          <input
-            type="text"
-            value={conversationId}
-            onChange={(e) => setConversationId(e.target.value)}
-            placeholder="Leave empty for fresh context"
-            className="w-full border rounded-lg px-3 py-2 text-sm"
-          />
+          <label className="block text-sm font-medium text-gray-700 mb-1">Conversation</label>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={conversationId}
+              onChange={(e) => { setConversationId(e.target.value); setConversationLabel('') }}
+              placeholder={fetchingConv ? 'Loading...' : 'Optional — for history context'}
+              className="flex-1 border rounded-lg px-3 py-2 text-sm"
+            />
+            <button
+              onClick={pickRandom}
+              disabled={fetchingConv || !activeAccountId}
+              className="bg-gray-200 hover:bg-gray-300 px-3 py-2 rounded-lg text-sm disabled:opacity-50"
+            >
+              {fetchingConv ? '...' : 'Random'}
+            </button>
+          </div>
+          {conversationLabel && (
+            <p className="text-xs text-gray-500 mt-1 truncate">{conversationLabel}</p>
+          )}
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Customer Message</label>
