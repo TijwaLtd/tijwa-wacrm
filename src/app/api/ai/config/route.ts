@@ -28,6 +28,11 @@ export async function GET() {
       .maybeSingle()
 
     return NextResponse.json({
+      // Banner expects these exact field names
+      configured: hasAnyPlatformKey,
+      is_active: platformInfo.enabled,
+      auto_reply_enabled: true,
+      // Legacy fields
       has_openai_key: hasPlatformKey('openai'),
       has_anthropic_key: hasPlatformKey('anthropic'),
       has_any_platform_key: hasAnyPlatformKey,
