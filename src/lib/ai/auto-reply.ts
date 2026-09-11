@@ -12,7 +12,7 @@ import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 import { checkAiCredits, calculateCreditCost } from './credits'
 import { AiError, type ChatMessage } from './types'
 import { getToolsForBusinessType, executeToolCalls, hasToolCalls, ToolContext } from './tools'
-import { parseOrderButtonId } from './tools'
+import { parseOrderButtonId, parseFoodOrderButtonId, parseReservationButtonId, parseBookingButtonId } from './tools'
 
 interface DispatchArgs {
   accountId: string
@@ -453,6 +453,475 @@ async function handleOrderButton(
   }
 }
 
+// ============================================================
+// Food Order Button Handler (Restaurant)
+// ============================================================
+
+async function handleFoodOrderButton(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  configOwnerUserId: string,
+  action: { action: string; orderId: string },
+): Promise<void> {
+  const { action: btnAction, orderId: pendingId } = action
+
+  const { data: pending } = await db
+    .from('pending_food_orders')
+    .select('*')
+    .eq('id', pendingId)
+    .eq('account_id', accountId)
+    .maybeSingle()
+
+  if (!pending) {
+    await engineSendText({
+      accountId,
+      userId: configOwnerUserId,
+      conversationId,
+      contactId,
+      text: 'This food order preview has expired or was already processed. Please send your order again.',
+      aiGenerated: true,
+    })
+    return
+  }
+
+  switch (btnAction) {
+    case 'confirm': {
+      // Generate order number
+      const { data: orderNum } = await db.rpc('next_order_number', { p_account_id: accountId })
+      if (!orderNum) {
+        await engineSendText({
+          accountId,
+          userId: configOwnerUserId,
+          conversationId,
+          contactId,
+          text: 'Failed to process your order. Please try again.',
+          aiGenerated: true,
+        })
+        return
+      }
+
+      // Create real order
+      const items = (pending.items as any[]) || []
+      const { data: order, error: orderError } = await db
+        .from('orders')
+        .insert({
+          account_id: accountId,
+          order_number: orderNum,
+          contact_id: contactId,
+          status: 'confirmed',
+          currency: pending.currency || 'KES',
+          subtotal: pending.price || 0,
+          tax_amount: 0,
+          discount_amount: 0,
+          total: pending.price || 0,
+          notes: pending.notes || null,
+          metadata: {
+            items: items.map((i: any) => ({
+              name: i.name,
+              quantity: i.quantity,
+              unit_price: i.unit_price,
+              special_instructions: i.special_instructions,
+            })),
+            order_type: pending.order_type,
+            table_number: pending.table_number,
+            room_number: pending.room_number,
+            customer_name: pending.customer_name,
+            customer_phone: pending.customer_phone,
+          },
+        })
+        .select()
+        .single()
+
+      if (orderError || !order) {
+        console.error('[handleFoodOrderButton] create order error:', orderError)
+        await engineSendText({
+          accountId,
+          userId: configOwnerUserId,
+          conversationId,
+          contactId,
+          text: 'Failed to create your order. Please try again.',
+          aiGenerated: true,
+        })
+        return
+      }
+
+      // Insert order items
+      if (items.length > 0) {
+        const orderItems = items.map((i: any) => ({
+          order_id: order.id,
+          offering_id: null,
+          name: i.name,
+          quantity: i.quantity || 1,
+          unit_price: i.unit_price || 0,
+          total_price: (i.quantity || 1) * (i.unit_price || 0),
+        }))
+        await db.from('order_items').insert(orderItems)
+      }
+
+      // Send confirmation message
+      const itemList = items.map((i: any) => `• ${i.quantity || 1}x ${i.name}`).join('\n')
+      const typeLabel = pending.order_type === 'dine_in' ? `Dine-in (Table ${pending.table_number || '?'})`
+        : pending.order_type === 'room_service' ? `Room Service (Room ${pending.room_number || '?'})`
+        : 'Takeaway'
+
+      await engineSendText({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        text:
+          `✅ *Order Confirmed!*\n\n` +
+          `*Order #:* ${order.order_number}\n` +
+          `*Type:* ${typeLabel}\n` +
+          `*Items:*\n${itemList}\n\n` +
+          `*Total:* KES ${pending.price}\n\n` +
+          `Your order is being prepared. We'll notify you when it's ready!`,
+        aiGenerated: true,
+      })
+
+      // Delete pending record
+      await db.from('pending_food_orders').delete().eq('id', pendingId)
+      break
+    }
+
+    case 'edit': {
+      await engineSendText({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        text: 'What would you like to change about your order? You can modify items, quantities, or add special instructions.',
+        aiGenerated: true,
+      })
+      // Store editing state in conversation metadata
+      await db
+        .from('conversations')
+        .update({ metadata: { ...((await db.from('conversations').select('metadata').eq('id', conversationId).maybeSingle()).data?.metadata || {}), editing_pending_food_order_id: pendingId } })
+        .eq('id', conversationId)
+      break
+    }
+
+    case 'cancel': {
+      await db.from('pending_food_orders').delete().eq('id', pendingId)
+      await engineSendText({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        text: 'Your food order has been cancelled. Let me know if you\'d like to place a new order!',
+        aiGenerated: true,
+      })
+      break
+    }
+
+    default:
+      await engineSendText({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        text: 'I\'m not sure what to do with that action. How can I help?',
+        aiGenerated: true,
+      })
+  }
+}
+
+// ============================================================
+// Reservation Button Handler (Restaurant)
+// ============================================================
+
+async function handleReservationButton(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  configOwnerUserId: string,
+  action: { action: string; reservationId: string },
+): Promise<void> {
+  const { action: btnAction, reservationId: pendingId } = action
+
+  const { data: pending } = await db
+    .from('pending_reservations')
+    .select('*')
+    .eq('id', pendingId)
+    .eq('account_id', accountId)
+    .maybeSingle()
+
+  if (!pending) {
+    await engineSendText({
+      accountId,
+      userId: configOwnerUserId,
+      conversationId,
+      contactId,
+      text: 'This reservation preview has expired or was already processed. Please send your reservation request again.',
+      aiGenerated: true,
+    })
+    return
+  }
+
+  switch (btnAction) {
+    case 'confirm': {
+      // Generate booking number
+      const { data: bookingNum } = await db.rpc('next_booking_number', { p_account_id: accountId })
+      const bookingNumber = bookingNum || `RES-${Date.now()}`
+
+      // Create real reservation (using bookings table with type='reservation')
+      const { data: reservation, error: resError } = await db
+        .from('bookings')
+        .insert({
+          account_id: accountId,
+          booking_number: bookingNumber,
+          contact_id: contactId,
+          status: 'confirmed',
+          start_date: `${pending.reservation_date}T${pending.reservation_time}`,
+          end_date: `${pending.reservation_date}T${pending.reservation_time}`, // Will be updated with duration
+          guests: pending.party_size,
+          currency: 'KES',
+          total: 0,
+          notes: pending.special_requests || null,
+          metadata: {
+            type: 'reservation',
+            guest_name: pending.guest_name,
+            guest_phone: pending.guest_phone,
+            party_size: pending.party_size,
+            reservation_date: pending.reservation_date,
+            reservation_time: pending.reservation_time,
+            duration_minutes: pending.duration_minutes,
+          },
+        })
+        .select()
+        .single()
+
+      if (resError || !reservation) {
+        console.error('[handleReservationButton] create error:', resError)
+        await engineSendText({
+          accountId,
+          userId: configOwnerUserId,
+          conversationId,
+          contactId,
+          text: 'Failed to create your reservation. Please try again.',
+          aiGenerated: true,
+        })
+        return
+      }
+
+      // Format date nicely
+      const dateObj = new Date(`${pending.reservation_date}T${pending.reservation_time}`)
+      const formattedDate = dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+      const formattedTime = dateObj.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+
+      await engineSendText({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        text:
+          `✅ *Reservation Confirmed!*\n\n` +
+          `*Reservation #:* ${bookingNumber}\n` +
+          `*Name:* ${pending.guest_name}\n` +
+          `*Guests:* ${pending.party_size}\n` +
+          `*Date:* ${formattedDate}\n` +
+          `*Time:* ${formattedTime}\n\n` +
+          `We look forward to seeing you!`,
+        aiGenerated: true,
+      })
+
+      await db.from('pending_reservations').delete().eq('id', pendingId)
+      break
+    }
+
+    case 'edit': {
+      await engineSendText({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        text: 'What would you like to change about your reservation? You can modify the date, time, party size, or special requests.',
+        aiGenerated: true,
+      })
+      await db
+        .from('conversations')
+        .update({ metadata: { ...((await db.from('conversations').select('metadata').eq('id', conversationId).maybeSingle()).data?.metadata || {}), editing_pending_reservation_id: pendingId } })
+        .eq('id', conversationId)
+      break
+    }
+
+    case 'cancel': {
+      await db.from('pending_reservations').delete().eq('id', pendingId)
+      await engineSendText({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        text: 'Your reservation has been cancelled. Let me know if you\'d like to make a new reservation!',
+        aiGenerated: true,
+      })
+      break
+    }
+
+    default:
+      await engineSendText({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        text: 'I\'m not sure what to do with that action. How can I help?',
+        aiGenerated: true,
+      })
+  }
+}
+
+// ============================================================
+// Booking Button Handler (Hotel)
+// ============================================================
+
+async function handleBookingButton(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  configOwnerUserId: string,
+  action: { action: string; bookingId: string },
+): Promise<void> {
+  const { action: btnAction, bookingId: pendingId } = action
+
+  const { data: pending } = await db
+    .from('pending_bookings')
+    .select('*')
+    .eq('id', pendingId)
+    .eq('account_id', accountId)
+    .maybeSingle()
+
+  if (!pending) {
+    await engineSendText({
+      accountId,
+      userId: configOwnerUserId,
+      conversationId,
+      contactId,
+      text: 'This booking preview has expired or was already processed. Please send your booking request again.',
+      aiGenerated: true,
+    })
+    return
+  }
+
+  switch (btnAction) {
+    case 'confirm': {
+      // Generate booking number
+      const { data: bookingNum } = await db.rpc('next_booking_number', { p_account_id: accountId })
+      const bookingNumber = bookingNum || `BK-${Date.now()}`
+
+      // Create real booking
+      const { data: booking, error: bookError } = await db
+        .from('bookings')
+        .insert({
+          account_id: accountId,
+          booking_number: bookingNumber,
+          contact_id: contactId,
+          offering_id: pending.offering_id,
+          status: 'confirmed',
+          start_date: pending.check_in_date,
+          end_date: pending.check_out_date,
+          guests: pending.guests,
+          currency: pending.currency || 'KES',
+          total: pending.total_price || 0,
+          notes: pending.special_requests || null,
+          metadata: {
+            type: 'room_booking',
+            guest_name: pending.guest_name,
+            guest_phone: pending.guest_phone,
+            room_name: pending.offering_name,
+            price_per_night: pending.price_per_night,
+            nights: pending.nights,
+          },
+        })
+        .select()
+        .single()
+
+      if (bookError || !booking) {
+        console.error('[handleBookingButton] create error:', bookError)
+        await engineSendText({
+          accountId,
+          userId: configOwnerUserId,
+          conversationId,
+          contactId,
+          text: 'Failed to create your booking. Please try again.',
+          aiGenerated: true,
+        })
+        return
+      }
+
+      // Format dates
+      const checkInObj = new Date(pending.check_in_date)
+      const checkOutObj = new Date(pending.check_out_date)
+      const formattedCheckIn = checkInObj.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+      const formattedCheckOut = checkOutObj.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+
+      await engineSendText({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        text:
+          `✅ *Booking Confirmed!*\n\n` +
+          `*Booking #:* ${bookingNumber}\n` +
+          `*Room:* ${pending.offering_name}\n` +
+          `*Guest:* ${pending.guest_name}\n` +
+          `*Check-in:* ${formattedCheckIn}\n` +
+          `*Check-out:* ${formattedCheckOut}\n` +
+          `*Nights:* ${pending.nights}\n` +
+          `*Guests:* ${pending.guests}\n\n` +
+          `*Total:* KES ${pending.total_price}\n\n` +
+          `We look forward to welcoming you!`,
+        aiGenerated: true,
+      })
+
+      await db.from('pending_bookings').delete().eq('id', pendingId)
+      break
+    }
+
+    case 'edit': {
+      await engineSendText({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        text: 'What would you like to change about your booking? You can modify the dates, room type, or special requests.',
+        aiGenerated: true,
+      })
+      await db
+        .from('conversations')
+        .update({ metadata: { ...((await db.from('conversations').select('metadata').eq('id', conversationId).maybeSingle()).data?.metadata || {}), editing_pending_booking_id: pendingId } })
+        .eq('id', conversationId)
+      break
+    }
+
+    case 'cancel': {
+      await db.from('pending_bookings').delete().eq('id', pendingId)
+      await engineSendText({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        text: 'Your booking has been cancelled. Let me know if you\'d like to make a new booking!',
+        aiGenerated: true,
+      })
+      break
+    }
+
+    default:
+      await engineSendText({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        text: 'I\'m not sure what to do with that action. How can I help?',
+        aiGenerated: true,
+      })
+  }
+}
+
 /**
  * AI auto-reply for a freshly-arrived inbound message.
  *
@@ -478,12 +947,30 @@ export async function dispatchInboundToAiReply(
 
     // ── AI NOT AVAILABLE ──────────────────────────────────────
     if (!config || !config.autoReplyEnabled) {
-      // No AI — but still handle order buttons (they don't need AI)
+      // No AI — but still handle buttons (they don't need AI)
       if (interactiveReplyId) {
-        const buttonAction = parseOrderButtonId(interactiveReplyId)
-        if (buttonAction) {
-          console.log(`[dispatchInboundToAiReply] button click (no AI config): ${buttonAction.action}`)
-          await handleOrderButton(db, accountId, conversationId, contactId, configOwnerUserId, buttonAction)
+        const orderAction = parseOrderButtonId(interactiveReplyId)
+        if (orderAction) {
+          console.log(`[dispatchInboundToAiReply] button click (no AI config): ${orderAction.action}`)
+          await handleOrderButton(db, accountId, conversationId, contactId, configOwnerUserId, orderAction)
+          return
+        }
+        const foodAction = parseFoodOrderButtonId(interactiveReplyId)
+        if (foodAction) {
+          console.log(`[dispatchInboundToAiReply] food order button click (no AI config): ${foodAction.action}`)
+          await handleFoodOrderButton(db, accountId, conversationId, contactId, configOwnerUserId, foodAction)
+          return
+        }
+        const reservationAction = parseReservationButtonId(interactiveReplyId)
+        if (reservationAction) {
+          console.log(`[dispatchInboundToAiReply] reservation button click (no AI config): ${reservationAction.action}`)
+          await handleReservationButton(db, accountId, conversationId, contactId, configOwnerUserId, reservationAction)
+          return
+        }
+        const bookingAction = parseBookingButtonId(interactiveReplyId)
+        if (bookingAction) {
+          console.log(`[dispatchInboundToAiReply] booking button click (no AI config): ${bookingAction.action}`)
+          await handleBookingButton(db, accountId, conversationId, contactId, configOwnerUserId, bookingAction)
           return
         }
       }
@@ -492,12 +979,30 @@ export async function dispatchInboundToAiReply(
     }
 
     // ── BUTTON CLICK HANDLING (before credits check) ──────────
-    // Order buttons always work — they don't consume AI credits.
+    // Buttons always work — they don't consume AI credits.
     if (interactiveReplyId) {
-      const buttonAction = parseOrderButtonId(interactiveReplyId)
-      if (buttonAction) {
-        console.log(`[dispatchInboundToAiReply] button click: ${buttonAction.action} on order ${buttonAction.orderId}`)
-        await handleOrderButton(db, accountId, conversationId, contactId, configOwnerUserId, buttonAction)
+      const orderAction = parseOrderButtonId(interactiveReplyId)
+      if (orderAction) {
+        console.log(`[dispatchInboundToAiReply] button click: ${orderAction.action} on order ${orderAction.orderId}`)
+        await handleOrderButton(db, accountId, conversationId, contactId, configOwnerUserId, orderAction)
+        return
+      }
+      const foodAction = parseFoodOrderButtonId(interactiveReplyId)
+      if (foodAction) {
+        console.log(`[dispatchInboundToAiReply] food order button click: ${foodAction.action}`)
+        await handleFoodOrderButton(db, accountId, conversationId, contactId, configOwnerUserId, foodAction)
+        return
+      }
+      const reservationAction = parseReservationButtonId(interactiveReplyId)
+      if (reservationAction) {
+        console.log(`[dispatchInboundToAiReply] reservation button click: ${reservationAction.action}`)
+        await handleReservationButton(db, accountId, conversationId, contactId, configOwnerUserId, reservationAction)
+        return
+      }
+      const bookingAction = parseBookingButtonId(interactiveReplyId)
+      if (bookingAction) {
+        console.log(`[dispatchInboundToAiReply] booking button click: ${bookingAction.action}`)
+        await handleBookingButton(db, accountId, conversationId, contactId, configOwnerUserId, bookingAction)
         return
       }
     }

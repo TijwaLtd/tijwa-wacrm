@@ -71,6 +71,16 @@ function isLogisticsType(businessType?: string | null): boolean {
   return ['logistics', 'courier', 'delivery', 'logistics_delivery'].includes(businessType)
 }
 
+function isRestaurantType(businessType?: string | null): boolean {
+  if (!businessType) return false
+  return ['restaurant', 'hotel_restaurant'].includes(businessType)
+}
+
+function isHotelType(businessType?: string | null): boolean {
+  if (!businessType) return false
+  return ['hotel', 'hotel_restaurant'].includes(businessType)
+}
+
 export function buildSystemPrompt(args: {
   userPrompt: string | null
   mode: 'draft' | 'auto_reply'
@@ -297,6 +307,68 @@ export function buildSystemPrompt(args: {
       '- working_hours: asks about hours/schedule → use check_working_hours\n' +
       '- zones: asks about coverage → use get_delivery_zones\n\n' +
       'NEVER use search_offerings for delivery/logistics requests.',
+    ] : isRestaurantType(businessType) ? [
+      'TOOL CALLING — RESTAURANT:\n' +
+      'You have restaurant tools. USE THEM. Do NOT describe what you can do — actually do it by calling tools.\n\n' +
+      'MENU BROWSING:\n' +
+      'When a customer asks about the menu, food, drinks, or what\'s available:\n' +
+      '- Call search_menu_items to find matching items\n' +
+      '- Present items with names, prices, and brief descriptions\n' +
+      '- If they want details on a specific item, call get_menu_item\n' +
+      '- NEVER invent menu items, prices, or availability\n\n' +
+      'FOOD ORDERS:\n' +
+      'When a customer wants to order food, you MUST call preview_food_order.\n' +
+      'Do NOT generate a text summary. Do NOT ask "should I proceed?". Just call the tool.\n\n' +
+      'RULE #1: The preview_food_order tool generates the formatted preview with Confirm/Edit/Cancel buttons.\n' +
+      'RULE #2: After calling preview_food_order, do NOT add any text. The tool response IS the message.\n\n' +
+      'WHAT THE TOOL NEEDS:\n' +
+      '1. items — array of {name, quantity, unit_price}\n' +
+      '2. order_type — "dine_in", "takeaway", or "room_service" (default: takeaway)\n\n' +
+      'OPTIONAL: table_number (for dine_in), room_number (for room_service), notes\n\n' +
+      'EXAMPLE:\n' +
+      'Customer: "I want 2 Chicken Burgers and 1 Fries"\n' +
+      'You: Call search_menu_items(query="Chicken Burger") first to get prices, then preview_food_order(items=[{name:"Chicken Burger",quantity:2,unit_price:500},{name:"Fries",quantity:1,unit_price:200}])\n\n' +
+      'RESERVATIONS:\n' +
+      'When a customer wants to reserve a table:\n' +
+      '- Collect: guest_name, party_size, date, time\n' +
+      '- Call preview_reservation with the details\n' +
+      '- The tool returns Confirm/Edit/Cancel buttons\n\n' +
+      'OTHER INTENTS:\n' +
+      '- track_order: "where is my order" → use get_customer_food_orders\n' +
+      '- working_hours: asks about hours → use check_working_hours\n' +
+      '- dietary_info: asks about vegetarian/vegan → use search_menu_items with dietary filter',
+    ] : isHotelType(businessType) ? [
+      'TOOL CALLING — HOTEL:\n' +
+      'You have hotel tools. USE THEM. Do NOT describe what you can do — actually do it by calling tools.\n\n' +
+      'ROOM BROWSING:\n' +
+      'When a customer asks about rooms, availability, or pricing:\n' +
+      '- Call search_rooms to find available rooms\n' +
+      '- Present rooms with names, prices, and key amenities\n' +
+      '- If they want details on a specific room, call get_room\n' +
+      '- NEVER invent room types, prices, or availability\n\n' +
+      'ROOM BOOKINGS:\n' +
+      'When a customer wants to book a room, you MUST call preview_booking.\n' +
+      'Do NOT generate a text summary. Do NOT ask "should I proceed?". Just call the tool.\n\n' +
+      'RULE #1: The preview_booking tool generates the formatted preview with Confirm/Edit/Cancel buttons.\n' +
+      'RULE #2: After calling preview_booking, do NOT add any text. The tool response IS the message.\n\n' +
+      'WHAT THE TOOL NEEDS:\n' +
+      '1. room_id — the room type to book\n' +
+      '2. guest_name — name for the booking\n' +
+      '3. check_in_date — date in YYYY-MM-DD format\n' +
+      '4. check_out_date — date in YYYY-MM-DD format\n\n' +
+      'OPTIONAL: guests (default 1), special_requests\n\n' +
+      'EXAMPLE:\n' +
+      'Customer: "I want to book a Deluxe Room for Dec 20-23"\n' +
+      'You: Call search_rooms(query="Deluxe") first to get room details, then preview_booking(room_id=..., guest_name=..., check_in_date="2024-12-20", check_out_date="2024-12-23")\n\n' +
+      'HOTEL + RESTAURANT (hotel_restaurant):\n' +
+      'If the business is hotel_restaurant, you also have food order tools.\n' +
+      'When a guest wants to order food to their room:\n' +
+      '- Use the restaurant tools (search_menu_items, preview_food_order)\n' +
+      '- Set order_type to "room_service" and include room_number if known\n\n' +
+      'OTHER INTENTS:\n' +
+      '- track_booking: "where is my booking" → use get_customer_bookings\n' +
+      '- working_hours: asks about hours → use check_working_hours\n' +
+      '- hotel_services: asks about spa, gym, etc → use search_offerings',
     ] : [
       'TOOL CALLING:\n' +
       'You have access to a catalogue search tool.\n' +
@@ -318,8 +390,9 @@ export function buildSystemPrompt(args: {
         '- Identity or authorization cannot be established\n' +
         '- The customer disputes a previous business commitment you cannot verify\n' +
         '- The request requires access to private information that is unavailable\n' +
-        'DO NOT hand off for delivery order confirmations — the preview_delivery_order tool ' +
-        'handles this automatically with Confirm/Edit/Cancel buttons. Calling the tool IS the action.\n' +
+        'DO NOT hand off for order/booking confirmations — the preview tools ' +
+        'handle this automatically with Confirm/Edit/Cancel buttons. Calling the tool IS the action.\n' +
+        'This applies to: preview_delivery_order, preview_food_order, preview_reservation, preview_booking.\n' +
         'When you lack specific information, give a friendly helpful response instead of handing off. ' +
         'For example: acknowledge the question, share what you do know, or offer to connect them with the team. ' +
         'Only hand off when truly necessary — not just because you are missing a detail.',

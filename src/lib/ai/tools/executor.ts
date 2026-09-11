@@ -10,6 +10,8 @@
 
 import type { ToolCall, ToolContext, ToolResult, RegisteredTool } from './types'
 import { logisticsTools, logisticsToolHandlers } from './logistics'
+import { restaurantTools, restaurantToolHandlers } from './restaurant'
+import { hotelTools, hotelToolHandlers } from './hotel'
 
 // ============================================================
 // Tool Registry — business type → tools mapping
@@ -41,9 +43,33 @@ export function getToolsForBusinessType(businessType: string | null): Registered
     }
   }
 
-  // Future: add more business-type-specific tools here
-  // if (businessType === 'restaurant') { ... restaurantTools }
-  // if (businessType === 'hotel') { ... hotelTools }
+  // Restaurant tools
+  if (
+    !businessType ||
+    businessType === 'restaurant' ||
+    businessType === 'hotel_restaurant'
+  ) {
+    for (const def of restaurantTools) {
+      const handler = restaurantToolHandlers[def.function.name]
+      if (handler) {
+        tools.push({ definition: def, handler })
+      }
+    }
+  }
+
+  // Hotel tools
+  if (
+    !businessType ||
+    businessType === 'hotel' ||
+    businessType === 'hotel_restaurant'
+  ) {
+    for (const def of hotelTools) {
+      const handler = hotelToolHandlers[def.function.name]
+      if (handler) {
+        tools.push({ definition: def, handler })
+      }
+    }
+  }
 
   // Always include search_offerings for any business type
   if (!tools.find((t) => t.definition.function.name === 'search_offerings')) {
