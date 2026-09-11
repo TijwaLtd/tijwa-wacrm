@@ -1,4 +1,4 @@
 export type { ToolDefinition, ToolCall, ToolResult, ToolContext, ToolHandler, RegisteredTool } from './types'
-export { ORDER_BUTTONS, parseOrderButtonId, parseFoodOrderButtonId, parseReservationButtonId, parseBookingButtonId, parseProductOrderButtonId, parseMenuMoreButtonId, parseRoomMoreButtonId, parseProductMoreButtonId, parseServiceMoreButtonId, parseCartButtonId, parseProductListSelectionId } from './responses'
+export { ORDER_BUTTONS, parseOrderButtonId, parseFoodOrderButtonId, parseReservationButtonId, parseBookingButtonId, parsePropertyInquiryButtonId, parseProductOrderButtonId, parseMenuMoreButtonId, parseRoomMoreButtonId, parseProductMoreButtonId, parseServiceMoreButtonId, parsePropertyMoreButtonId, parseCartButtonId, parseProductListSelectionId } from './responses'
 export { getToolsForBusinessType, getToolDefinitions, executeToolCalls, hasToolCalls } from './executor'
 export { logisticsTools, logisticsToolHandlers } from './logistics'

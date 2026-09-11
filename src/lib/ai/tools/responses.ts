@@ -68,6 +68,16 @@ export function parseBookingButtonId(buttonId: string): { action: string; bookin
   return { action: match[1], bookingId: match[2] }
 }
 
+export function parsePropertyInquiryButtonId(buttonId: string): { action: string; inquiryId: string } | null {
+  // Direct action buttons: property_inquiry_viewing_{id}, property_inquiry_question_{id}, property_inquiry_offer_{id}
+  const directMatch = buttonId.match(/^property_inquiry_(viewing|question|offer)_(.+)$/)
+  if (directMatch) return { action: directMatch[1], inquiryId: directMatch[2] }
+  // Confirm/edit/cancel buttons: property_inquiry_confirm_{id}, etc.
+  const confirmMatch = buttonId.match(/^property_inquiry_(confirm|edit|cancel)_(.+)$/)
+  if (confirmMatch) return { action: confirmMatch[1], inquiryId: confirmMatch[2] }
+  return null
+}
+
 // ---- Pagination (More) Buttons ----
 
 export function parseMenuMoreButtonId(buttonId: string): { offset: number } | null {
@@ -104,6 +114,12 @@ export function parseProductMoreButtonId(buttonId: string): { offset: number } |
 
 export function parseServiceMoreButtonId(buttonId: string): { offset: number } | null {
   const match = buttonId.match(/^service_more_(\d+)$/)
+  if (!match) return null
+  return { offset: parseInt(match[1], 10) }
+}
+
+export function parsePropertyMoreButtonId(buttonId: string): { offset: number } | null {
+  const match = buttonId.match(/^property_more_(\d+)$/)
   if (!match) return null
   return { offset: parseInt(match[1], 10) }
 }

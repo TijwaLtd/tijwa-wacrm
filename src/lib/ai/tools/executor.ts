@@ -14,6 +14,7 @@ import { restaurantTools, restaurantToolHandlers } from './restaurant'
 import { hotelTools, hotelToolHandlers } from './hotel'
 import { retailerTools, retailerToolHandlers } from './retailer'
 import { serviceTools, serviceToolHandlers } from './services'
+import { propertyTools, propertyToolHandlers } from './property'
 
 // ============================================================
 // Tool Registry — business type → tools mapping
@@ -101,6 +102,19 @@ export function getToolsForBusinessType(businessType: string | null): Registered
   ) {
     for (const def of serviceTools) {
       const handler = serviceToolHandlers[def.function.name]
+      if (handler) {
+        tools.push({ definition: def, handler })
+      }
+    }
+  }
+
+  // Property / Real Estate tools
+  if (
+    !businessType ||
+    businessType === 'property_real_estate'
+  ) {
+    for (const def of propertyTools) {
+      const handler = propertyToolHandlers[def.function.name]
       if (handler) {
         tools.push({ definition: def, handler })
       }

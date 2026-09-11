@@ -95,6 +95,11 @@ function isServiceType(businessType?: string | null): boolean {
   ].includes(businessType)
 }
 
+function isPropertyType(businessType?: string | null): boolean {
+  if (!businessType) return false
+  return businessType === 'property_real_estate'
+}
+
 export function buildSystemPrompt(args: {
   userPrompt: string | null
   mode: 'draft' | 'auto_reply'
@@ -487,6 +492,48 @@ export function buildSystemPrompt(args: {
       '- track_booking: "where is my appointment" → use get_customer_service_bookings\n' +
       '- working_hours: asks about hours → use check_working_hours\n' +
       '- pricing: asks about service pricing → use search_services',
+    ] : isPropertyType(businessType) ? [
+      'TOOL CALLING — PROPERTY / REAL ESTATE:\n' +
+      'You have property listing tools. USE THEM. Do NOT describe what you can do — actually do it by calling tools.\n\n' +
+      'PROPERTY BROWSING:\n' +
+      'When a customer asks about properties, listings, or what\'s available:\n' +
+      '- Call search_properties(offset=0) to find matching properties\n' +
+      '- Present properties with names, prices, location, and key details (max 10 per page)\n' +
+      '- After listing, ask: "Do you want to see more?" if has_more is true\n' +
+      '- When customer says yes/more/next, call search_properties again with offset increased by 10\n' +
+      '- If has_more is false, say "That\'s all we have listed" or similar\n' +
+      '- If they want details on a specific property, call get_property\n' +
+      '- NEVER invent property names, prices, or availability\n\n' +
+      'PROPERTY INQUIRIES & VIEWINGS:\n' +
+      'When a customer wants to inquire about or view a property, you MUST call preview_property_inquiry.\n' +
+      'Do NOT generate a text summary. Do NOT ask "should I proceed?". Just call the tool.\n\n' +
+      'RULE #1: The preview_property_inquiry tool generates the formatted preview with Confirm/Edit/Cancel buttons.\n' +
+      'RULE #2: After calling preview_property_inquiry, do NOT add any text. The tool response IS the message.\n\n' +
+      'WHAT THE TOOL NEEDS:\n' +
+      '1. property_id — the property to inquire about\n' +
+      '2. customer_name — name for the inquiry\n\n' +
+      'OPTIONAL: inquiry_type ("inquiry", "viewing", "offer"), preferred_date, preferred_time, budget, notes\n\n' +
+      'INQUIRY TYPES:\n' +
+      '- inquiry: general question about the property → call with inquiry_type="inquiry"\n' +
+      '- viewing: wants to see the property → call with inquiry_type="viewing", include preferred_date\n' +
+      '- offer: wants to make an offer → call with inquiry_type="offer", include budget\n\n' +
+      'EXAMPLES:\n' +
+      'Customer: "I\'m interested in the Kilimani apartment"\n' +
+      'You: Call search_properties(query="Kilimani") first to get property details, then preview_property_inquiry(property_id=..., customer_name=..., inquiry_type="inquiry")\n\n' +
+      'Customer: "I want to view the 3 bedroom house on Saturday"\n' +
+      'You: Call search_properties(query="3 bedroom") first, then preview_property_inquiry(property_id=..., customer_name=..., inquiry_type="viewing", preferred_date="2024-12-21")\n\n' +
+      'Customer: "I\'ll offer 5M for the Westlands villa"\n' +
+      'You: Call search_properties(query="Westlands villa") first, then preview_property_inquiry(property_id=..., customer_name=..., inquiry_type="offer", budget=5000000)\n\n' +
+      'QUICK INQUIRY (clear property mentioned):\n' +
+      'If customer says "tell me more about the Karen house", search first, then call preview_property_inquiry immediately.\n\n' +
+      'FILTERING:\n' +
+      '- "2 bedroom apartments" → search_properties(bedrooms=2, property_type="apartment")\n' +
+      '- "houses for rent" → search_properties(listing_type="rent", property_type="house")\n' +
+      '- "properties under 10M" → search_properties(max_price=10000000)\n\n' +
+      'OTHER INTENTS:\n' +
+      '- track_inquiry: "where is my inquiry" → use get_customer_property_inquiries\n' +
+      '- working_hours: asks about office hours → use check_working_hours\n' +
+      '- financing: asks about mortgage/payment plans → give general advice, offer to connect with team',
     ] : [
       'TOOL CALLING:\n' +
       'You have access to a catalogue search tool.\n' +
@@ -510,7 +557,7 @@ export function buildSystemPrompt(args: {
         '- The request requires access to private information that is unavailable\n' +
         'DO NOT hand off for order/booking confirmations — the preview tools ' +
         'handle this automatically with Confirm/Edit/Cancel buttons. Calling the tool IS the action.\n' +
-        'This applies to: preview_delivery_order, preview_food_order, preview_reservation, preview_booking, preview_product_order, preview_service_booking.\n' +
+        'This applies to: preview_delivery_order, preview_food_order, preview_reservation, preview_booking, preview_product_order, preview_service_booking, preview_property_inquiry.\n' +
         'When you lack specific information, give a friendly helpful response instead of handing off. ' +
         'For example: acknowledge the question, share what you do know, or offer to connect them with the team. ' +
         'Only hand off when truly necessary — not just because you are missing a detail.',

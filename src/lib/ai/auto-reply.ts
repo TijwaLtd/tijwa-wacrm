@@ -13,11 +13,12 @@ import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 import { checkAiCredits, calculateCreditCost } from './credits'
 import { AiError, type ChatMessage } from './types'
 import { getToolsForBusinessType, executeToolCalls, hasToolCalls, ToolContext } from './tools'
-import { parseOrderButtonId, parseFoodOrderButtonId, parseReservationButtonId, parseBookingButtonId, parseProductOrderButtonId, parseMenuMoreButtonId, parseRoomMoreButtonId, parseProductMoreButtonId, parseServiceMoreButtonId, parseCartButtonId } from './tools'
+import { parseOrderButtonId, parseFoodOrderButtonId, parseReservationButtonId, parseBookingButtonId, parsePropertyInquiryButtonId, parseProductOrderButtonId, parseMenuMoreButtonId, parseRoomMoreButtonId, parseProductMoreButtonId, parseServiceMoreButtonId, parsePropertyMoreButtonId, parseCartButtonId } from './tools'
 import { searchMenuItems } from './tools/restaurant'
 import { searchRooms } from './tools/hotel'
 import { searchProducts, getCart, addToCart, clearCart, formatCartSummary, getCartButtons } from './tools/retailer'
 import { searchServices } from './tools/services'
+import { searchProperties } from './tools/property'
 
 interface DispatchArgs {
   accountId: string
@@ -1354,6 +1355,311 @@ async function handleServiceMore(
 }
 
 // ============================================================
+// Property Inquiry Button Handler (no AI)
+// ============================================================
+
+async function handlePropertyInquiryButton(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  configOwnerUserId: string,
+  action: { action: string; inquiryId: string },
+): Promise<void> {
+  const { action: btnAction, inquiryId: pendingId } = action
+
+  // Handle direct actions from property list (viewing/question/offer)
+  if (btnAction === 'viewing' || btnAction === 'question' || btnAction === 'offer') {
+    // The pending record already exists with the right inquiry_type
+    // Clean up the other two pending records for this property
+    const { data: pending } = await db
+      .from('pending_property_inquiries')
+      .select('*')
+      .eq('id', pendingId)
+      .eq('account_id', accountId)
+      .maybeSingle()
+
+    if (!pending) {
+      await engineSendText({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        text: 'This inquiry has expired. Please tap the property again.',
+        aiGenerated: true,
+      })
+      return
+    }
+
+    // Delete other pending records for same property + contact
+    await db
+      .from('pending_property_inquiries')
+      .delete()
+      .eq('account_id', accountId)
+      .eq('contact_id', contactId)
+      .eq('offering_id', pending.offering_id)
+      .neq('id', pendingId)
+
+    if (btnAction === 'viewing') {
+      // Ask for date/time, then AI will handle the rest
+      await engineSendInteractiveButtons({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        bodyText:
+          `📅 *Schedule Viewing*\n\n` +
+          `*Property:* ${pending.offering_name}\n\n` +
+          `When would you like to view this property?\n` +
+          `Please reply with the date and time (e.g. "Saturday 3pm" or "2026-09-15 10:00").`,
+        buttons: [
+          { id: `property_inquiry_confirm_${pendingId}`, title: '✅ Confirm' },
+          { id: `property_inquiry_edit_${pendingId}`, title: '✏️ Change Date' },
+          { id: `property_inquiry_cancel_${pendingId}`, title: '❌ Cancel' },
+        ],
+      })
+    } else if (btnAction === 'offer') {
+      // Ask for offer amount
+      await engineSendInteractiveButtons({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        bodyText:
+          `💰 *Make an Offer*\n\n` +
+          `*Property:* ${pending.offering_name}\n` +
+          `*Listed at:* KES ${pending.budget}\n\n` +
+          `Please reply with your offer amount (e.g. "4500000" or "4.5M").`,
+        buttons: [
+          { id: `property_inquiry_confirm_${pendingId}`, title: '✅ Confirm' },
+          { id: `property_inquiry_edit_${pendingId}`, title: '✏️ Change Amount' },
+          { id: `property_inquiry_cancel_${pendingId}`, title: '❌ Cancel' },
+        ],
+      })
+    } else {
+      // question — direct confirm
+      const { data: bookingNum } = await db.rpc('next_booking_number', { p_account_id: accountId })
+      const bookingNumber = bookingNum || `INQ-${Date.now()}`
+
+      await db.from('bookings').insert({
+        account_id: accountId,
+        booking_number: bookingNumber,
+        contact_id: contactId,
+        offering_id: pending.offering_id,
+        status: 'confirmed',
+        currency: pending.currency || 'KES',
+        total: 0,
+        notes: pending.notes || null,
+        metadata: {
+          type: 'property_inquiry',
+          inquiry_type: 'inquiry',
+          property_name: pending.offering_name,
+          customer_name: pending.customer_name,
+          customer_phone: pending.customer_phone,
+        },
+      })
+
+      await db.from('pending_property_inquiries').delete().eq('id', pendingId)
+
+      await engineSendText({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        text:
+          `📋 *Inquiry Submitted*\n\n` +
+          `*Property:* ${pending.offering_name}\n` +
+          `*Reference:* ${bookingNumber}\n\n` +
+          `Our team will get back to you shortly.`,
+        aiGenerated: true,
+      })
+    }
+    return
+  }
+
+  // Handle confirm/edit/cancel from preview
+  const { data: pending } = await db
+    .from('pending_property_inquiries')
+    .select('*')
+    .eq('id', pendingId)
+    .eq('account_id', accountId)
+    .maybeSingle()
+
+  if (!pending) {
+    await engineSendText({
+      accountId,
+      userId: configOwnerUserId,
+      conversationId,
+      contactId,
+      text: 'This inquiry has expired or was already processed. Please send your request again.',
+      aiGenerated: true,
+    })
+    return
+  }
+
+  switch (btnAction) {
+    case 'confirm': {
+      const { data: bookingNum } = await db.rpc('next_booking_number', { p_account_id: accountId })
+      const bookingNumber = bookingNum || `INQ-${Date.now()}`
+
+      const { data: booking, error: bookError } = await db
+        .from('bookings')
+        .insert({
+          account_id: accountId,
+          booking_number: bookingNumber,
+          contact_id: contactId,
+          offering_id: pending.offering_id,
+          status: 'confirmed',
+          start_date: pending.preferred_date || null,
+          guests: 1,
+          currency: pending.currency || 'KES',
+          total: pending.budget || 0,
+          notes: pending.notes || null,
+          metadata: {
+            type: 'property_inquiry',
+            inquiry_type: pending.inquiry_type,
+            property_name: pending.offering_name,
+            customer_name: pending.customer_name,
+            customer_phone: pending.customer_phone,
+            preferred_date: pending.preferred_date,
+            preferred_time: pending.preferred_time,
+            budget: pending.budget,
+          },
+        })
+        .select()
+        .single()
+
+      if (bookError || !booking) {
+        console.error('[handlePropertyInquiryButton] create error:', bookError)
+        await engineSendText({
+          accountId,
+          userId: configOwnerUserId,
+          conversationId,
+          contactId,
+          text: 'Failed to submit your inquiry. Please try again.',
+          aiGenerated: true,
+        })
+        return
+      }
+
+      const typeLabel = pending.inquiry_type === 'viewing' ? '🏠 Viewing Request' :
+        pending.inquiry_type === 'offer' ? '💰 Offer' : '📋 Property Inquiry'
+
+      await engineSendText({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        text:
+          `${typeLabel} Confirmed!\n\n` +
+          `*Property:* ${pending.offering_name}\n` +
+          `*Reference:* ${bookingNumber}\n` +
+          (pending.preferred_date ? `*Date:* ${pending.preferred_date}` : '') +
+          (pending.preferred_time ? ` at ${pending.preferred_time}` : '') +
+          (pending.preferred_date ? '\n' : '') +
+          (pending.budget && pending.inquiry_type === 'offer' ? `*Offer:* ${pending.currency || 'KES'} ${pending.budget}\n` : '') +
+          `\nOur team will contact you shortly.`,
+        aiGenerated: true,
+      })
+
+      await db.from('pending_property_inquiries').delete().eq('id', pendingId)
+      break
+    }
+    case 'edit': {
+      await engineSendText({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        text: 'Please send your updated details. For example:\n' +
+          '- "Saturday 3pm" (for viewing date)\n' +
+          '- "5000000" (for offer amount)\n' +
+          '- "I need wheelchair access" (for requirements)',
+        aiGenerated: true,
+      })
+      break
+    }
+    case 'cancel': {
+      await db.from('pending_property_inquiries').delete().eq('id', pendingId)
+      await engineSendText({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        text: 'Inquiry cancelled. Feel free to ask about other properties.',
+        aiGenerated: true,
+      })
+      break
+    }
+  }
+}
+
+// ============================================================
+// Property More Handler (no AI — paginated property list)
+// ============================================================
+
+async function handlePropertyMore(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  configOwnerUserId: string,
+  offset: number,
+): Promise<void> {
+  // Fetch search params from conversation metadata
+  const { data: conv } = await db
+    .from('conversations')
+    .select('metadata')
+    .eq('id', conversationId)
+    .maybeSingle()
+
+  const searchParams = (conv?.metadata as Record<string, unknown>)?.property_search_params as Record<string, unknown> | undefined
+
+  const result = await searchProperties(db, accountId, {
+    query: searchParams?.query as string | undefined,
+    property_type: searchParams?.property_type as string | undefined,
+    listing_type: searchParams?.listing_type as string | undefined,
+    min_price: searchParams?.min_price as number | undefined,
+    max_price: searchParams?.max_price as number | undefined,
+    bedrooms: searchParams?.bedrooms as number | undefined,
+    offset,
+  })
+
+  if (result.properties.length === 0) {
+    await engineSendText({
+      accountId,
+      userId: configOwnerUserId,
+      conversationId,
+      contactId,
+      text: 'No more properties to show.',
+      aiGenerated: true,
+    })
+    return
+  }
+
+  // Format properties list
+  let text = `More properties (showing ${offset + 1}–${offset + result.properties.length}):\n\n`
+  for (const prop of result.properties) {
+    text += `• ${prop.name} — ${prop.currency} ${prop.price}\n`
+    if (prop.bedrooms) text += `  ${prop.bedrooms} bed`
+    if (prop.bathrooms) text += ` · ${prop.bathrooms} bath`
+    if (prop.location) text += ` · ${prop.location}`
+    text += '\n'
+  }
+
+  const buttons = result.buttons || []
+
+  await engineSendInteractiveButtons({
+    accountId,
+    userId: configOwnerUserId,
+    conversationId,
+    contactId,
+    bodyText: text,
+    buttons: buttons.map((b) => ({ id: b.id, title: b.title })),
+  })
+}
+
+// ============================================================
 // Product List Selection Handler (no AI — like logistics confirm)
 // ============================================================
 
@@ -1697,6 +2003,131 @@ async function handleServiceListSelect(
 }
 
 // ============================================================
+// Property List Selection Handler (no AI)
+// ============================================================
+
+async function handlePropertyListSelect(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  configOwnerUserId: string,
+  selectionId: string,
+): Promise<void> {
+  // Parse: property_select_{uuid}_{price}
+  const match = selectionId.match(/^property_select_(.+)_(\d+)$/)
+  if (!match) {
+    await engineSendText({
+      accountId,
+      userId: configOwnerUserId,
+      conversationId,
+      contactId,
+      text: 'Invalid property selection.',
+      aiGenerated: true,
+    })
+    return
+  }
+
+  const propertyId = match[1]
+  const price = parseInt(match[2], 10)
+
+  // Look up property details
+  const { data: property } = await db
+    .from('offerings')
+    .select('name, metadata')
+    .eq('id', propertyId)
+    .eq('account_id', accountId)
+    .maybeSingle()
+
+  const propertyName = property?.name || 'Property'
+  const meta = (property?.metadata || {}) as Record<string, unknown>
+  const listingType = (meta.listing_type as string) || 'sale'
+  const bedrooms = meta.bedrooms || null
+  const bathrooms = meta.bathrooms || null
+  const location = (meta.location as Record<string, unknown>) || {}
+  const area = location.area || location.address || ''
+
+  // Create 3 pending records — one per action type
+  // The customer taps one button, the others are cleaned up
+
+  // 1. Viewing request
+  const { data: viewingPending } = await db
+    .from('pending_property_inquiries')
+    .insert({
+      account_id: accountId,
+      contact_id: contactId,
+      conversation_id: conversationId,
+      user_id: configOwnerUserId,
+      offering_id: propertyId,
+      offering_name: propertyName,
+      inquiry_type: 'viewing',
+      budget: price,
+      currency: 'KES',
+    })
+    .select('id')
+    .single()
+
+  // 2. General inquiry
+  const { data: inquiryPending } = await db
+    .from('pending_property_inquiries')
+    .insert({
+      account_id: accountId,
+      contact_id: contactId,
+      conversation_id: conversationId,
+      user_id: configOwnerUserId,
+      offering_id: propertyId,
+      offering_name: propertyName,
+      inquiry_type: 'inquiry',
+      budget: price,
+      currency: 'KES',
+    })
+    .select('id')
+    .single()
+
+  // 3. Offer
+  const { data: offerPending } = await db
+    .from('pending_property_inquiries')
+    .insert({
+      account_id: accountId,
+      contact_id: contactId,
+      conversation_id: conversationId,
+      user_id: configOwnerUserId,
+      offering_id: propertyId,
+      offering_name: propertyName,
+      inquiry_type: 'offer',
+      budget: price,
+      currency: 'KES',
+    })
+    .select('id')
+    .single()
+
+  const bodyText =
+    `🏠 *${propertyName}*\n` +
+    (area ? `📍 ${area}\n` : '') +
+    (bedrooms ? `🛏️ ${bedrooms} bed` : '') +
+    (bathrooms ? ` · 🚿 ${bathrooms} bath` : '') +
+    (bedrooms || bathrooms ? '\n' : '') +
+    `💰 KES ${price} (${listingType})\n\n` +
+    `What would you like to do?`
+
+  // Show 3 action buttons — each routes to a different pending record
+  await engineSendInteractiveButtons({
+    accountId,
+    userId: configOwnerUserId,
+    conversationId,
+    contactId,
+    bodyText,
+    buttons: [
+      { id: `property_inquiry_viewing_${viewingPending?.id || 'x'}`, title: '📅 Schedule Viewing' },
+      { id: `property_inquiry_question_${inquiryPending?.id || 'x'}`, title: '❓ Ask Question' },
+      { id: `property_inquiry_offer_${offerPending?.id || 'x'}`, title: '💰 Make Offer' },
+    ],
+  })
+}
+
+// ============================================================
+// Property Inquiry Button Handler (no AI)
+// ============================================================
 // Cart Button Handler (no AI)
 // ============================================================
 
@@ -1868,6 +2299,12 @@ export async function dispatchInboundToAiReply(
           await handleBookingButton(db, accountId, conversationId, contactId, configOwnerUserId, bookingAction)
           return
         }
+        const propertyInquiryAction = parsePropertyInquiryButtonId(interactiveReplyId)
+        if (propertyInquiryAction) {
+          console.log(`[dispatchInboundToAiReply] property inquiry button click (no AI config): ${propertyInquiryAction.action}`)
+          await handlePropertyInquiryButton(db, accountId, conversationId, contactId, configOwnerUserId, propertyInquiryAction)
+          return
+        }
         const menuMore = parseMenuMoreButtonId(interactiveReplyId)
         if (menuMore) {
           console.log(`[dispatchInboundToAiReply] menu more click (no AI config): offset=${menuMore.offset}`)
@@ -1898,6 +2335,12 @@ export async function dispatchInboundToAiReply(
           await handleServiceMore(db, accountId, conversationId, contactId, configOwnerUserId, serviceMore.offset)
           return
         }
+        const propertyMore = parsePropertyMoreButtonId(interactiveReplyId)
+        if (propertyMore) {
+          console.log(`[dispatchInboundToAiReply] property more click (no AI config): offset=${propertyMore.offset}`)
+          await handlePropertyMore(db, accountId, conversationId, contactId, configOwnerUserId, propertyMore.offset)
+          return
+        }
         const cartAction = parseCartButtonId(interactiveReplyId)
         if (cartAction) {
           console.log(`[dispatchInboundToAiReply] cart button click (no AI config): ${cartAction.action}`)
@@ -1926,6 +2369,12 @@ export async function dispatchInboundToAiReply(
         if (interactiveReplyId.startsWith('service_select_')) {
           console.log(`[dispatchInboundToAiReply] service list select (no AI config): ${interactiveReplyId}`)
           await handleServiceListSelect(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId)
+          return
+        }
+        // Property list selection (WhatsApp list reply)
+        if (interactiveReplyId.startsWith('property_select_')) {
+          console.log(`[dispatchInboundToAiReply] property list select (no AI config): ${interactiveReplyId}`)
+          await handlePropertyListSelect(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId)
           return
         }
       }
@@ -1960,6 +2409,12 @@ export async function dispatchInboundToAiReply(
         await handleBookingButton(db, accountId, conversationId, contactId, configOwnerUserId, bookingAction)
         return
       }
+      const propertyInquiryAction = parsePropertyInquiryButtonId(interactiveReplyId)
+      if (propertyInquiryAction) {
+        console.log(`[dispatchInboundToAiReply] property inquiry button click: ${propertyInquiryAction.action}`)
+        await handlePropertyInquiryButton(db, accountId, conversationId, contactId, configOwnerUserId, propertyInquiryAction)
+        return
+      }
       const menuMore = parseMenuMoreButtonId(interactiveReplyId)
       if (menuMore) {
         console.log(`[dispatchInboundToAiReply] menu more click: offset=${menuMore.offset}`)
@@ -1990,6 +2445,12 @@ export async function dispatchInboundToAiReply(
         await handleServiceMore(db, accountId, conversationId, contactId, configOwnerUserId, serviceMore.offset)
         return
       }
+      const propertyMore = parsePropertyMoreButtonId(interactiveReplyId)
+      if (propertyMore) {
+        console.log(`[dispatchInboundToAiReply] property more click: offset=${propertyMore.offset}`)
+        await handlePropertyMore(db, accountId, conversationId, contactId, configOwnerUserId, propertyMore.offset)
+        return
+      }
       const cartAction = parseCartButtonId(interactiveReplyId)
       if (cartAction) {
         console.log(`[dispatchInboundToAiReply] cart button click: ${cartAction.action}`)
@@ -2018,6 +2479,12 @@ export async function dispatchInboundToAiReply(
       if (interactiveReplyId.startsWith('service_select_')) {
         console.log(`[dispatchInboundToAiReply] service list select: ${interactiveReplyId}`)
         await handleServiceListSelect(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId)
+        return
+      }
+      // Property list selection (WhatsApp list reply)
+      if (interactiveReplyId.startsWith('property_select_')) {
+        console.log(`[dispatchInboundToAiReply] property list select: ${interactiveReplyId}`)
+        await handlePropertyListSelect(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId)
         return
       }
     }
