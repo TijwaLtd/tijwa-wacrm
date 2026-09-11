@@ -70,6 +70,7 @@ export interface Account {
  */
 export interface AccountMember {
   user_id: string;
+  profile_id?: string;
   full_name: string;
   email: string | null;
   avatar_url: string | null;

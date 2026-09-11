@@ -50,7 +50,7 @@ export async function GET() {
 
     const { data: profiles, error: profErr } = await ctx.serviceClient
       .from("profiles")
-      .select("user_id, full_name, email, avatar_url")
+      .select("id, user_id, full_name, email, avatar_url")
       .in("user_id", userIds);
 
     if (profErr) {
@@ -73,6 +73,7 @@ export async function GET() {
         return [
           {
             user_id: row.user_id,
+            profile_id: profile?.id ?? row.user_id,
             full_name: profile?.full_name ?? "",
             email: canSeeEmails ? (profile?.email ?? null) : null,
             avatar_url: profile?.avatar_url ?? null,

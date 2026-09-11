@@ -25,7 +25,7 @@ export async function GET(
 
   const { data: order, error } = await serviceClient
     .from("orders")
-    .select(`*, items:order_items(*)`)
+    .select(`*, items:order_items(*), rider:profiles!orders_assigned_team_member_id_fkey(id, full_name, user_id)`)
     .eq("id", id)
     .single();
 
@@ -105,6 +105,42 @@ export async function PATCH(
   if (body?.contact_id !== undefined) updates.contact_id = body.contact_id || null;
   if (body?.tax_amount !== undefined) updates.tax_amount = parseFloat(body.tax_amount) || 0;
   if (body?.discount_amount !== undefined) updates.discount_amount = parseFloat(body.discount_amount) || 0;
+  if (body?.assigned_team_member_id !== undefined) {
+    updates.assigned_team_member_id = body.assigned_team_member_id || null;
+    let riderUserId: string | null = null;
+    // Look up the profile's user_id for assigned_role from account_memberships
+    if (body.assigned_team_member_id) {
+      const { data: profile } = await serviceClient
+        .from("profiles")
+        .select("user_id")
+        .eq("id", body.assigned_team_member_id)
+        .maybeSingle();
+      if (profile) {
+        riderUserId = profile.user_id;
+        const { data: member } = await serviceClient
+          .from("account_memberships")
+          .select("role")
+          .eq("user_id", profile.user_id)
+          .eq("account_id", existing.account_id)
+          .maybeSingle();
+        if (member) updates.assigned_role = member.role;
+      }
+    } else {
+      updates.assigned_role = null;
+    }
+
+    // Also assign the conversation linked to this order
+    const riderAgentId = riderUserId || null;
+    await serviceClient
+      .from("conversations")
+      .update({
+        assigned_agent_id: riderAgentId,
+        human_assigned_at: riderAgentId ? new Date().toISOString() : null,
+        human_replied: false,
+      })
+      .eq("order_id", id)
+      .eq("account_id", existing.account_id);
+  }
 
   // Recalculate total if tax or discount changed
   if (updates.tax_amount !== undefined || updates.discount_amount !== undefined) {

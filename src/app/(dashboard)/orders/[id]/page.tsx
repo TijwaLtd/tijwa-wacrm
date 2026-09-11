@@ -2,20 +2,31 @@
 
 import { useState, useEffect, use } from 'react';
 import Link from 'next/link';
-import { Loader2, ArrowLeft, Package, CheckCircle, Clock, Truck, CheckCircle2, XCircle } from 'lucide-react';
+import { Loader2, ArrowLeft, Package, CheckCircle, Clock, Truck, CheckCircle2, XCircle, MapPin, User, CreditCard } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/use-auth';
+import { hasMinRole, type AccountRole } from '@/lib/auth/roles';
 import { cn } from '@/lib/utils';
 import { type Order, type OrderItem, type OrderStatus, ORDER_STATUSES, formatCurrency } from '@/lib/business/orders';
 
+interface RiderOption {
+  profile_id: string;
+  full_name: string;
+  user_id: string;
+}
+
 export default function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const { activeAccountId } = useAuth();
+  const { activeAccountId, accountRole } = useAuth();
   const [order, setOrder] = useState<Order | null>(null);
   const [items, setItems] = useState<OrderItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [riders, setRiders] = useState<RiderOption[]>([]);
+  const [assigningRider, setAssigningRider] = useState(false);
+
+  const canAssignRider = accountRole && hasMinRole(accountRole as AccountRole, 'manager');
 
   const fetchOrder = () => {
     if (!id) return;
@@ -31,9 +42,31 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
       .finally(() => setLoading(false));
   };
 
+  const fetchRiders = () => {
+    if (!activeAccountId || !canAssignRider) return;
+    fetch(`/api/account/members`)
+      .then(res => res.json())
+      .then(data => {
+        const members = data.members || [];
+        const riderList = members
+          .filter((m: any) => ['rider', 'driver'].includes(m.role))
+          .map((m: any) => ({
+            profile_id: m.profile_id || m.user_id,
+            full_name: m.full_name || 'Unknown',
+            user_id: m.user_id,
+          }));
+        setRiders(riderList);
+      })
+      .catch(() => {});
+  };
+
   useEffect(() => {
     fetchOrder();
   }, [id]);
+
+  useEffect(() => {
+    fetchRiders();
+  }, [activeAccountId, canAssignRider]);
 
   const handleUpdateStatus = async (newStatus: OrderStatus) => {
     if (!order || !activeAccountId) return;
@@ -56,6 +89,30 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
       toast.error(err instanceof Error ? err.message : 'Failed to update status');
     } finally {
       setUpdatingStatus(false);
+    }
+  };
+
+  const handleAssignRider = async (profileId: string | null) => {
+    if (!order || !activeAccountId) return;
+    setAssigningRider(true);
+    try {
+      const res = await fetch(`/api/orders/${order.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          account_id: activeAccountId,
+          assigned_team_member_id: profileId,
+        }),
+      });
+
+      if (!res.ok) throw new Error('Failed to assign rider');
+
+      toast.success(profileId ? 'Rider assigned' : 'Rider removed');
+      fetchOrder();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to assign rider');
+    } finally {
+      setAssigningRider(false);
     }
   };
 
@@ -82,6 +139,17 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   }
 
   const statusMeta = ORDER_STATUSES[order.status];
+  const meta = (order.metadata || {}) as Record<string, unknown>;
+  const customerName = (meta.customer_name as string) || null;
+  const pickupLocation = (meta.pickup_location as string) || null;
+  const dropoffLocation = (meta.dropoff_location as string) || null;
+  const zoneType = (meta.zone_type as string) || null;
+  const itemDescription = (meta.item_description as string) || null;
+  const weight = (meta.weight as number) || null;
+  const paymentMode = (meta.payment_mode as string) || null;
+  const paymentStatus = (meta.payment_status as string) || 'pending';
+  const paymentAmount = (meta.payment_amount as number) || order.total;
+  const rider = (order as any).rider;
 
   return (
     <div className="space-y-6">
@@ -169,6 +237,133 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                 Cancel
               </Button>
             )}
+          </div>
+        </div>
+      </div>
+
+      {/* Delivery Details - only shown when logistics metadata exists */}
+      {(pickupLocation || dropoffLocation || zoneType || customerName) && (
+        <div className="rounded-xl border border-border/80 bg-card overflow-hidden shadow-xs">
+          <div className="border-b border-border/80 px-4 py-3 bg-muted/30">
+            <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+              <Truck className="h-4 w-4 text-primary" />
+              Delivery Details
+            </h2>
+          </div>
+          <div className="p-4 space-y-3">
+            {/* Customer */}
+            {customerName && (
+              <div className="flex items-start gap-3">
+                <User className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-[11px] text-muted-foreground uppercase tracking-wider font-medium">Customer</p>
+                  <p className="text-sm font-medium text-foreground">{customerName}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Pickup */}
+            {pickupLocation && (
+              <div className="flex items-start gap-3">
+                <MapPin className="h-4 w-4 text-emerald-500 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-[11px] text-muted-foreground uppercase tracking-wider font-medium">Pickup</p>
+                  <p className="text-sm text-foreground">{pickupLocation}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Dropoff */}
+            {dropoffLocation && (
+              <div className="flex items-start gap-3">
+                <MapPin className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-[11px] text-muted-foreground uppercase tracking-wider font-medium">Dropoff</p>
+                  <p className="text-sm text-foreground">{dropoffLocation}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Zone + Item details row */}
+            <div className="flex flex-wrap gap-3 pt-1">
+              {zoneType && (
+                <div className="rounded-lg border border-border/60 bg-muted/30 px-2.5 py-1.5">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Zone</p>
+                  <p className="text-xs font-medium text-foreground capitalize">{zoneType}</p>
+                </div>
+              )}
+              {itemDescription && (
+                <div className="rounded-lg border border-border/60 bg-muted/30 px-2.5 py-1.5">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Item</p>
+                  <p className="text-xs font-medium text-foreground">{itemDescription}</p>
+                </div>
+              )}
+              {weight && (
+                <div className="rounded-lg border border-border/60 bg-muted/30 px-2.5 py-1.5">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Weight</p>
+                  <p className="text-xs font-medium text-foreground">{weight} kg</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Rider Assignment + Payment Side by Side */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {/* Rider Assignment */}
+        <div className="rounded-xl border border-border/80 bg-card p-4 shadow-xs">
+          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-1.5">
+            <Truck className="h-3.5 w-3.5" /> Assigned Rider
+          </h3>
+          {canAssignRider ? (
+            <select
+              value={(order as any).rider?.id || ''}
+              onChange={(e) => handleAssignRider(e.target.value || null)}
+              disabled={assigningRider}
+              className="w-full border-border bg-muted text-foreground rounded-lg px-3 py-2 text-sm disabled:opacity-50"
+            >
+              <option value="">Unassigned</option>
+              {riders.map((r) => (
+                <option key={r.profile_id} value={r.profile_id}>
+                  {r.full_name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <p className="text-sm text-foreground">
+              {rider?.full_name || <span className="text-muted-foreground italic">Unassigned</span>}
+            </p>
+          )}
+        </div>
+
+        {/* Payment Status */}
+        <div className="rounded-xl border border-border/80 bg-card p-4 shadow-xs">
+          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-1.5">
+            <CreditCard className="h-3.5 w-3.5" /> Payment
+          </h3>
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">Method</span>
+              <span className="text-xs font-medium text-foreground capitalize">{paymentMode || 'Not set'}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">Amount</span>
+              <span className="text-xs font-semibold text-foreground font-mono">{formatCurrency(paymentAmount, order.currency)}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">Status</span>
+              <span className={cn(
+                'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider',
+                paymentStatus === 'confirmed'
+                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                  : paymentStatus === 'pending'
+                    ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+                    : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+              )}>
+                {paymentStatus}
+              </span>
+            </div>
           </div>
         </div>
       </div>
