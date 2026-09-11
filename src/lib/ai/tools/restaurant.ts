@@ -158,6 +158,10 @@ export interface MenuSearchResult {
   has_more: boolean
   offset: number
   buttons?: Array<{ id: string; title: string }>
+  list_section?: {
+    title: string
+    rows: Array<{ id: string; title: string; description?: string }>
+  }
 }
 
 export async function searchMenuItems(
@@ -238,6 +242,16 @@ export async function searchMenuItems(
 
   if (has_more) {
     result.buttons = [{ id: `menu_more_${nextOffset}`, title: 'See More →' }]
+  }
+
+  // Build WhatsApp list rows for clickable menu list
+  result.list_section = {
+    title: 'Menu',
+    rows: resultItems.map((item: { id: string; name: string; description: string | null; price: number; currency: string }) => ({
+      id: `menu_add_${item.id}_${Math.round(item.price)}`,
+      title: `${item.name} — ${item.currency} ${item.price}`,
+      description: item.description || undefined,
+    })),
   }
 
   return result
@@ -538,7 +552,7 @@ const getCustomerFoodOrdersHandler: ToolHandler = async (args, ctx) => {
 // Export Handlers
 // ============================================================
 
-export const restaurantToolHandlers: Record<string, ToolHandler> = {
+export const restaurantToolHandlers: Partial<Record<string, ToolHandler>> = {
   search_menu_items: searchMenuItemsHandler,
   get_menu_item: getMenuItemHandler,
   preview_food_order: previewFoodOrderHandler,

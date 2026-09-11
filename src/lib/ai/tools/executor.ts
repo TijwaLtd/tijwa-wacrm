@@ -12,6 +12,7 @@ import type { ToolCall, ToolContext, ToolResult, RegisteredTool } from './types'
 import { logisticsTools, logisticsToolHandlers } from './logistics'
 import { restaurantTools, restaurantToolHandlers } from './restaurant'
 import { hotelTools, hotelToolHandlers } from './hotel'
+import { retailerTools, retailerToolHandlers } from './retailer'
 
 // ============================================================
 // Tool Registry — business type → tools mapping
@@ -63,6 +64,20 @@ export function getToolsForBusinessType(businessType: string | null): Registered
   ) {
     for (const def of hotelTools) {
       const handler = hotelToolHandlers[def.function.name]
+      if (handler) {
+        tools.push({ definition: def, handler })
+      }
+    }
+  }
+
+  // Retailer / Wholesaler tools
+  if (
+    !businessType ||
+    businessType === 'retailer' ||
+    businessType === 'wholesaler'
+  ) {
+    for (const def of retailerTools) {
+      const handler = retailerToolHandlers[def.function.name]
       if (handler) {
         tools.push({ definition: def, handler })
       }

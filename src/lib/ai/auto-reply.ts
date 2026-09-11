@@ -7,15 +7,16 @@ import { buildSystemPrompt } from './defaults'
 import { buildHandoffSummary } from './handoff'
 import { logAiUsage } from './usage'
 import { latestUserMessage } from './query'
-import { engineSendText, engineSendInteractiveButtons, engineSendMedia } from '@/lib/flows/meta-send'
+import { engineSendText, engineSendInteractiveButtons, engineSendMedia, engineSendInteractiveList } from '@/lib/flows/meta-send'
 import { buildPaymentMessage } from './payment'
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 import { checkAiCredits, calculateCreditCost } from './credits'
 import { AiError, type ChatMessage } from './types'
 import { getToolsForBusinessType, executeToolCalls, hasToolCalls, ToolContext } from './tools'
-import { parseOrderButtonId, parseFoodOrderButtonId, parseReservationButtonId, parseBookingButtonId, parseMenuMoreButtonId, parseRoomMoreButtonId } from './tools'
+import { parseOrderButtonId, parseFoodOrderButtonId, parseReservationButtonId, parseBookingButtonId, parseProductOrderButtonId, parseMenuMoreButtonId, parseRoomMoreButtonId, parseProductMoreButtonId, parseCartButtonId } from './tools'
 import { searchMenuItems } from './tools/restaurant'
 import { searchRooms } from './tools/hotel'
+import { searchProducts, getCart, addToCart, clearCart, formatCartSummary, getCartButtons } from './tools/retailer'
 
 interface DispatchArgs {
   accountId: string
@@ -1035,6 +1036,635 @@ async function handleRoomMore(
   }
 }
 
+// ============================================================
+// Product Order Handler (retailer/wholesaler — no AI)
+// ============================================================
+
+async function handleProductOrderButton(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  configOwnerUserId: string,
+  action: { action: string; orderId: string },
+): Promise<void> {
+  const { action: btnAction, orderId: pendingId } = action
+
+  const { data: pending } = await db
+    .from('pending_product_orders')
+    .select('*')
+    .eq('id', pendingId)
+    .eq('account_id', accountId)
+    .maybeSingle()
+
+  if (!pending) {
+    await engineSendText({
+      accountId,
+      userId: configOwnerUserId,
+      conversationId,
+      contactId,
+      text: 'This order preview has expired or was already processed. Please send your order again.',
+      aiGenerated: true,
+    })
+    return
+  }
+
+  switch (btnAction) {
+    case 'confirm': {
+      // Generate order number
+      const { data: orderNum } = await db.rpc('next_order_number', { p_account_id: accountId })
+      if (!orderNum) {
+        await engineSendText({
+          accountId,
+          userId: configOwnerUserId,
+          conversationId,
+          contactId,
+          text: 'Failed to process your order. Please try again.',
+          aiGenerated: true,
+        })
+        return
+      }
+
+      // Create real order
+      const items = (pending.items as any[]) || []
+      const { data: order, error: orderError } = await db
+        .from('orders')
+        .insert({
+          account_id: accountId,
+          order_number: orderNum,
+          contact_id: contactId,
+          status: 'confirmed',
+          currency: pending.currency || 'KES',
+          subtotal: pending.price || 0,
+          tax_amount: 0,
+          discount_amount: 0,
+          total: pending.price || 0,
+          notes: pending.notes || null,
+          metadata: {
+            type: 'product_order',
+            items: items.map((i: any) => ({
+              name: i.name,
+              quantity: i.quantity,
+              unit_price: i.unit_price,
+              product_id: i.product_id || null,
+            })),
+            order_type: pending.order_type,
+            delivery_address: pending.delivery_address,
+            customer_name: pending.customer_name,
+            customer_phone: pending.customer_phone,
+          },
+        })
+        .select()
+        .single()
+
+      if (orderError || !order) {
+        console.error('[handleProductOrderButton] create order error:', orderError)
+        await engineSendText({
+          accountId,
+          userId: configOwnerUserId,
+          conversationId,
+          contactId,
+          text: 'Failed to create your order. Please try again.',
+          aiGenerated: true,
+        })
+        return
+      }
+
+      // Insert order items
+      if (items.length > 0) {
+        const orderItems = items.map((i: any) => ({
+          order_id: order.id,
+          offering_id: i.product_id || null,
+          name: i.name,
+          quantity: i.quantity || 1,
+          unit_price: i.unit_price || 0,
+          total_price: (i.quantity || 1) * (i.unit_price || 0),
+        }))
+        await db.from('order_items').insert(orderItems)
+      }
+
+      // Send confirmation message
+      const itemList = items.map((i: any) => `• ${i.quantity || 1}× ${i.name}`).join('\n')
+      const typeLabel = pending.order_type === 'wholesale' ? 'Wholesale Order'
+        : pending.order_type === 'pickup' ? 'Pickup'
+        : 'Delivery'
+
+      await engineSendText({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        text:
+          `✅ *Order Confirmed!*\n\n` +
+          `*Order #:* ${order.order_number}\n` +
+          `*Type:* ${typeLabel}\n` +
+          `*Items:*\n${itemList}\n\n` +
+          `*Total:* KES ${pending.price}` +
+          (pending.delivery_address ? `\n*Delivery Address:* ${pending.delivery_address}` : '') +
+          `\n\nYour order has been placed. We'll notify you when it's on the way!`,
+        aiGenerated: true,
+      })
+
+      // ── PAYMENT DETAILS ────────────────────────────────────
+      const paymentMsg = await buildPaymentMessage(
+        db, accountId, pending.currency || 'KES', pending.price || 0, order.order_number,
+      )
+      await engineSendText({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        text: paymentMsg,
+        aiGenerated: true,
+      })
+
+      // Delete pending record
+      await db.from('pending_product_orders').delete().eq('id', pendingId)
+      break
+    }
+
+    case 'edit': {
+      await engineSendText({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        text: 'What would you like to change?\n\n• Products\n• Quantities\n• Delivery address\n• Order type (delivery/pickup/wholesale)',
+        aiGenerated: true,
+      })
+      await db
+        .from('conversations')
+        .update({ metadata: { ...((await db.from('conversations').select('metadata').eq('id', conversationId).maybeSingle()).data?.metadata || {}), editing_pending_product_order_id: pendingId } })
+        .eq('id', conversationId)
+      break
+    }
+
+    case 'cancel': {
+      await db.from('pending_product_orders').delete().eq('id', pendingId)
+      await engineSendText({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        text: 'Your order has been cancelled. Let me know if you\'d like to browse products again!',
+        aiGenerated: true,
+      })
+      break
+    }
+
+    default:
+      await engineSendText({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        text: 'I\'m not sure what to do with that action. How can I help?',
+        aiGenerated: true,
+      })
+  }
+}
+
+// ============================================================
+// Direct Pagination Handler — Products (no AI)
+// ============================================================
+
+async function handleProductMore(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  configOwnerUserId: string,
+  offset: number,
+): Promise<void> {
+  const { data: conv } = await db
+    .from('conversations')
+    .select('metadata')
+    .eq('id', conversationId)
+    .maybeSingle()
+
+  const searchParams = (conv?.metadata as Record<string, unknown>)?.product_search_params as Record<string, unknown> | undefined
+
+  const result = await searchProducts(db, accountId, {
+    query: searchParams?.query as string | undefined,
+    category: searchParams?.category as string | undefined,
+    min_price: searchParams?.min_price as number | undefined,
+    max_price: searchParams?.max_price as number | undefined,
+    offset,
+  })
+
+  if (result.items.length === 0) {
+    await engineSendText({
+      accountId,
+      userId: configOwnerUserId,
+      conversationId,
+      contactId,
+      text: 'No more products to show.',
+      aiGenerated: true,
+    })
+    return
+  }
+
+  const lines = result.items.map((item, i) =>
+    `${offset + i + 1}. *${item.name}* — ${item.currency} ${item.price}\n   ${item.description || ''}`,
+  ).join('\n\n')
+
+  const header = `🛒 *Products (continued)*\n\n`
+  const footer = result.has_more ? '\n\nType *more* or tap the button to see more.' : '\n\nThat\'s all we have!'
+
+  if (result.buttons && result.buttons.length > 0) {
+    await engineSendInteractiveButtons({
+      accountId,
+      userId: configOwnerUserId,
+      conversationId,
+      contactId,
+      bodyText: header + lines + footer,
+      buttons: result.buttons.map((b) => ({ id: b.id, title: b.title })),
+    })
+  } else {
+    await engineSendText({
+      accountId,
+      userId: configOwnerUserId,
+      conversationId,
+      contactId,
+      text: header + lines + footer,
+      aiGenerated: true,
+    })
+  }
+}
+
+// ============================================================
+// Product List Selection Handler (no AI — like logistics confirm)
+// ============================================================
+
+async function handleProductListSelect(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  configOwnerUserId: string,
+  selectionId: string,
+): Promise<void> {
+  // Parse: product_add_{uuid}_{price}
+  const match = selectionId.match(/^product_add_(.+)_(\d+)$/)
+  if (!match) {
+    await engineSendText({
+      accountId,
+      userId: configOwnerUserId,
+      conversationId,
+      contactId,
+      text: 'Invalid product selection.',
+      aiGenerated: true,
+    })
+    return
+  }
+
+  const productId = match[1]
+  const price = parseInt(match[2], 10)
+
+  // Look up product name
+  const { data: product } = await db
+    .from('offerings')
+    .select('name')
+    .eq('id', productId)
+    .eq('account_id', accountId)
+    .maybeSingle()
+
+  const productName = product?.name || 'Product'
+
+  // Add to cart
+  const cart = await addToCart(db, conversationId, {
+    name: productName,
+    quantity: 1,
+    unit_price: price,
+    product_id: productId,
+  })
+
+  // Send cart summary with buttons
+  const summary = formatCartSummary(cart)
+  const buttons = getCartButtons(cart.length > 0)
+
+  await engineSendInteractiveButtons({
+    accountId,
+    userId: configOwnerUserId,
+    conversationId,
+    contactId,
+    bodyText: `✅ Added *${productName}* to cart!\n\n${summary}\n\nTap *Checkout* to place order, or browse more products.`,
+    buttons,
+  })
+}
+
+// ============================================================
+// Menu List Selection Handler (no AI — same pattern as product)
+// ============================================================
+
+async function handleMenuListSelect(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  configOwnerUserId: string,
+  selectionId: string,
+): Promise<void> {
+  // Parse: menu_add_{uuid}_{price}
+  const match = selectionId.match(/^menu_add_(.+)_(\d+)$/)
+  if (!match) {
+    await engineSendText({
+      accountId,
+      userId: configOwnerUserId,
+      conversationId,
+      contactId,
+      text: 'Invalid menu item selection.',
+      aiGenerated: true,
+    })
+    return
+  }
+
+  const itemId = match[1]
+  const price = parseInt(match[2], 10)
+
+  // Look up item name
+  const { data: item } = await db
+    .from('offerings')
+    .select('name')
+    .eq('id', itemId)
+    .eq('account_id', accountId)
+    .maybeSingle()
+
+  const itemName = item?.name || 'Menu Item'
+
+  // For menu items, we send a direct order confirmation (no cart for food — order is immediate)
+  // Create pending food order with quantity 1
+  const { data: pending, error: pendingErr } = await db
+    .from('pending_food_orders')
+    .insert({
+      account_id: accountId,
+      contact_id: contactId,
+      conversation_id: conversationId,
+      user_id: configOwnerUserId,
+      items: [{ name: itemName, quantity: 1, unit_price: price }],
+      item_count: 1,
+      order_type: 'takeaway',
+      notes: null,
+      customer_name: null,
+      customer_phone: null,
+      price: price,
+      currency: 'KES',
+    })
+    .select('id')
+    .single()
+
+  if (pendingErr || !pending) {
+    console.error('[handleMenuListSelect] pending insert error:', pendingErr)
+    await engineSendText({
+      accountId,
+      userId: configOwnerUserId,
+      conversationId,
+      contactId,
+      text: 'Failed to create order. Please try again.',
+      aiGenerated: true,
+    })
+    return
+  }
+
+  // Send preview with confirm/edit/cancel buttons
+  await engineSendInteractiveButtons({
+    accountId,
+    userId: configOwnerUserId,
+    conversationId,
+    contactId,
+    bodyText:
+      `🍽️ *Order Summary*\n\n` +
+      `• 1× ${itemName} — KES ${price}\n\n` +
+      `*Total:* KES ${price}\n\n` +
+      `Type: Takeaway`,
+    buttons: [
+      { id: `food_order_confirm_${pending.id}`, title: '✅ Confirm' },
+      { id: `food_order_edit_${pending.id}`, title: '✏️ Edit' },
+      { id: `food_order_cancel_${pending.id}`, title: '❌ Cancel' },
+    ],
+  })
+}
+
+// ============================================================
+// Room List Selection Handler (no AI)
+// ============================================================
+
+async function handleRoomListSelect(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  configOwnerUserId: string,
+  selectionId: string,
+): Promise<void> {
+  // Parse: room_select_{uuid}_{price}
+  const match = selectionId.match(/^room_select_(.+)_(\d+)$/)
+  if (!match) {
+    await engineSendText({
+      accountId,
+      userId: configOwnerUserId,
+      conversationId,
+      contactId,
+      text: 'Invalid room selection.',
+      aiGenerated: true,
+    })
+    return
+  }
+
+  const roomId = match[1]
+  const pricePerNight = parseInt(match[2], 10)
+
+  // Look up room details
+  const { data: room } = await db
+    .from('offerings')
+    .select('name, metadata')
+    .eq('id', roomId)
+    .eq('account_id', accountId)
+    .maybeSingle()
+
+  const roomName = room?.name || 'Room'
+  const meta = (room?.metadata || {}) as Record<string, unknown>
+  const capacity = (meta.capacity || {}) as Record<string, unknown>
+  const maxGuests = (capacity.max_guests as number) || 2
+
+  // Create pending booking
+  const { data: pending, error: pendingErr } = await db
+    .from('pending_bookings')
+    .insert({
+      account_id: accountId,
+      contact_id: contactId,
+      conversation_id: conversationId,
+      user_id: configOwnerUserId,
+      offering_id: roomId,
+      offering_name: roomName,
+      check_in_date: null,
+      check_out_date: null,
+      guests: maxGuests,
+      room_type: roomName,
+      total_price: pricePerNight,
+      currency: 'KES',
+      notes: null,
+      guest_name: null,
+      guest_phone: null,
+      special_requests: null,
+    })
+    .select('id')
+    .single()
+
+  if (pendingErr || !pending) {
+    console.error('[handleRoomListSelect] pending insert error:', pendingErr)
+    await engineSendText({
+      accountId,
+      userId: configOwnerUserId,
+      conversationId,
+      contactId,
+      text: 'Failed to create booking. Please try again.',
+      aiGenerated: true,
+    })
+    return
+  }
+
+  // Send preview with confirm/edit/cancel buttons
+  await engineSendInteractiveButtons({
+    accountId,
+    userId: configOwnerUserId,
+    conversationId,
+    contactId,
+    bodyText:
+      `🏨 *Booking Summary*\n\n` +
+      `*Room:* ${roomName}\n` +
+      `*Guests:* ${maxGuests}\n` +
+      `*Price:* KES ${pricePerNight}/night\n\n` +
+      `Please confirm your booking.`,
+    buttons: [
+      { id: `booking_confirm_${pending.id}`, title: '✅ Confirm' },
+      { id: `booking_edit_${pending.id}`, title: '✏️ Edit' },
+      { id: `booking_cancel_${pending.id}`, title: '❌ Cancel' },
+    ],
+  })
+}
+
+// ============================================================
+// Cart Button Handler (no AI)
+// ============================================================
+
+async function handleCartButton(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  configOwnerUserId: string,
+  action: 'checkout' | 'clear' | 'continue',
+): Promise<void> {
+  switch (action) {
+    case 'checkout': {
+      const cart = await getCart(db, conversationId)
+      if (cart.length === 0) {
+        await engineSendText({
+          accountId,
+          userId: configOwnerUserId,
+          conversationId,
+          contactId,
+          text: 'Your cart is empty! Browse products and add some items first.',
+          aiGenerated: true,
+        })
+        return
+      }
+      // Call preview_product_order directly — same pattern as confirm button
+      // We need to create the pending order and show confirm/edit/cancel
+      const total = cart.reduce((sum, item) => sum + item.quantity * item.unit_price, 0)
+      const itemCount = cart.reduce((sum, item) => sum + item.quantity, 0)
+
+      const { data: pending, error: pendingErr } = await db
+        .from('pending_product_orders')
+        .insert({
+          account_id: accountId,
+          contact_id: contactId,
+          conversation_id: conversationId,
+          user_id: configOwnerUserId,
+          items: cart.map(i => ({
+            name: i.name,
+            quantity: i.quantity,
+            unit_price: i.unit_price,
+            product_id: i.product_id,
+          })),
+          item_count: itemCount,
+          order_type: 'delivery',
+          delivery_address: null,
+          notes: null,
+          customer_name: null,
+          customer_phone: null,
+          price: total,
+          currency: 'KES',
+        })
+        .select('id')
+        .single()
+
+      if (pendingErr || !pending) {
+        console.error('[handleCartButton] checkout pending error:', pendingErr)
+        await engineSendText({
+          accountId,
+          userId: configOwnerUserId,
+          conversationId,
+          contactId,
+          text: 'Failed to create order. Please try again.',
+          aiGenerated: true,
+        })
+        return
+      }
+
+      // Clear cart after creating pending order
+      await clearCart(db, conversationId)
+
+      // Format items list
+      const itemList = cart.map(i => `• ${i.quantity}× ${i.name} — KES ${i.unit_price * i.quantity}`).join('\n')
+
+      // Send preview with confirm/edit/cancel buttons
+      await engineSendInteractiveButtons({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        bodyText:
+          `🛒 *Order Preview*\n\n` +
+          `*Items:*\n${itemList}\n\n` +
+          `*Total:* KES ${total}`,
+        buttons: [
+          { id: `product_order_confirm_${pending.id}`, title: '✅ Confirm' },
+          { id: `product_order_edit_${pending.id}`, title: '✏️ Edit' },
+          { id: `product_order_cancel_${pending.id}`, title: '❌ Cancel' },
+        ],
+      })
+      break
+    }
+
+    case 'clear': {
+      await clearCart(db, conversationId)
+      await engineSendText({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        text: '🗑️ Cart cleared! Browse products and add items when ready.',
+        aiGenerated: true,
+      })
+      break
+    }
+
+    case 'continue': {
+      await engineSendText({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        text: 'What would you like to add? Tell me the product name or say "show products" to browse.',
+        aiGenerated: true,
+      })
+      break
+    }
+  }
+}
+
 /**
  * AI auto-reply for a freshly-arrived inbound message.
  *
@@ -1098,6 +1728,42 @@ export async function dispatchInboundToAiReply(
           await handleRoomMore(db, accountId, conversationId, contactId, configOwnerUserId, roomMore.offset)
           return
         }
+        const productAction = parseProductOrderButtonId(interactiveReplyId)
+        if (productAction) {
+          console.log(`[dispatchInboundToAiReply] product order button click (no AI config): ${productAction.action}`)
+          await handleProductOrderButton(db, accountId, conversationId, contactId, configOwnerUserId, productAction)
+          return
+        }
+        const productMore = parseProductMoreButtonId(interactiveReplyId)
+        if (productMore) {
+          console.log(`[dispatchInboundToAiReply] product more click (no AI config): offset=${productMore.offset}`)
+          await handleProductMore(db, accountId, conversationId, contactId, configOwnerUserId, productMore.offset)
+          return
+        }
+        const cartAction = parseCartButtonId(interactiveReplyId)
+        if (cartAction) {
+          console.log(`[dispatchInboundToAiReply] cart button click (no AI config): ${cartAction.action}`)
+          await handleCartButton(db, accountId, conversationId, contactId, configOwnerUserId, cartAction.action)
+          return
+        }
+        // Product list selection (WhatsApp list reply)
+        if (interactiveReplyId.startsWith('product_add_')) {
+          console.log(`[dispatchInboundToAiReply] product list select (no AI config): ${interactiveReplyId}`)
+          await handleProductListSelect(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId)
+          return
+        }
+        // Menu list selection (WhatsApp list reply)
+        if (interactiveReplyId.startsWith('menu_add_')) {
+          console.log(`[dispatchInboundToAiReply] menu list select (no AI config): ${interactiveReplyId}`)
+          await handleMenuListSelect(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId)
+          return
+        }
+        // Room list selection (WhatsApp list reply)
+        if (interactiveReplyId.startsWith('room_select_')) {
+          console.log(`[dispatchInboundToAiReply] room list select (no AI config): ${interactiveReplyId}`)
+          await handleRoomListSelect(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId)
+          return
+        }
       }
       await sendDefaultMessage(db, accountId, conversationId, contactId, configOwnerUserId, 'noAi')
       return
@@ -1140,6 +1806,42 @@ export async function dispatchInboundToAiReply(
       if (roomMore) {
         console.log(`[dispatchInboundToAiReply] room more click: offset=${roomMore.offset}`)
         await handleRoomMore(db, accountId, conversationId, contactId, configOwnerUserId, roomMore.offset)
+        return
+      }
+      const productAction = parseProductOrderButtonId(interactiveReplyId)
+      if (productAction) {
+        console.log(`[dispatchInboundToAiReply] product order button click: ${productAction.action}`)
+        await handleProductOrderButton(db, accountId, conversationId, contactId, configOwnerUserId, productAction)
+        return
+      }
+      const productMore = parseProductMoreButtonId(interactiveReplyId)
+      if (productMore) {
+        console.log(`[dispatchInboundToAiReply] product more click: offset=${productMore.offset}`)
+        await handleProductMore(db, accountId, conversationId, contactId, configOwnerUserId, productMore.offset)
+        return
+      }
+      const cartAction = parseCartButtonId(interactiveReplyId)
+      if (cartAction) {
+        console.log(`[dispatchInboundToAiReply] cart button click: ${cartAction.action}`)
+        await handleCartButton(db, accountId, conversationId, contactId, configOwnerUserId, cartAction.action)
+        return
+      }
+      // Product list selection (WhatsApp list reply)
+      if (interactiveReplyId.startsWith('product_add_')) {
+        console.log(`[dispatchInboundToAiReply] product list select: ${interactiveReplyId}`)
+        await handleProductListSelect(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId)
+        return
+      }
+      // Menu list selection (WhatsApp list reply)
+      if (interactiveReplyId.startsWith('menu_add_')) {
+        console.log(`[dispatchInboundToAiReply] menu list select: ${interactiveReplyId}`)
+        await handleMenuListSelect(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId)
+        return
+      }
+      // Room list selection (WhatsApp list reply)
+      if (interactiveReplyId.startsWith('room_select_')) {
+        console.log(`[dispatchInboundToAiReply] room list select: ${interactiveReplyId}`)
+        await handleRoomListSelect(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId)
         return
       }
     }
@@ -1363,6 +2065,7 @@ export async function dispatchInboundToAiReply(
     let finalHeader: string | undefined
     let finalFooter: string | undefined
     let finalImageUrl: string | null = null
+    let finalListSection: { title: string; rows: Array<{ id: string; title: string; description?: string }> } | null = null
     let totalUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
     let lastUsage = null
 
@@ -1441,6 +2144,10 @@ export async function dispatchInboundToAiReply(
           // Capture image_url from tool results
           if (parsed.image_url && !finalImageUrl) {
             finalImageUrl = parsed.image_url
+          }
+          // Capture list_section from tool results (for clickable product lists)
+          if (parsed.list_section && !finalListSection) {
+            finalListSection = parsed.list_section
           }
           // Use the structured response message if available
           if (parsed.response && !finalText) {
@@ -1564,8 +2271,42 @@ export async function dispatchInboundToAiReply(
       }
     }
 
+    // Send interactive list if tool returned list_section (clickable product list)
+    if (finalListSection && finalListSection.rows.length > 0) {
+      try {
+        await engineSendInteractiveList({
+          accountId,
+          userId: configOwnerUserId,
+          conversationId,
+          contactId,
+          bodyText: reply.text || 'Tap a product to add to cart:',
+          buttonLabel: 'Browse Products',
+          sections: [finalListSection],
+        })
+        // Send See More button as separate message if there are more items
+        if (finalButtons && finalButtons.length > 0) {
+          await engineSendInteractiveButtons({
+            accountId,
+            userId: configOwnerUserId,
+            conversationId,
+            contactId,
+            bodyText: 'Need more options?',
+            buttons: finalButtons.map((b) => ({ id: b.id, title: b.title })),
+          })
+        }
+      } catch (listErr) {
+        console.error('[ai auto-reply] failed to send list, falling back to text:', listErr)
+        await engineSendText({
+          accountId,
+          userId: configOwnerUserId,
+          conversationId,
+          contactId,
+          text: reply.text || 'Here are the products:',
+          aiGenerated: true,
+        })
+      }
     // Send interactive buttons if available, otherwise plain text
-    if (finalButtons && finalButtons.length > 0 && reply.text) {
+    } else if (finalButtons && finalButtons.length > 0 && reply.text) {
       try {
         await engineSendInteractiveButtons({
           accountId,

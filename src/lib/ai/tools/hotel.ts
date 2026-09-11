@@ -132,6 +132,10 @@ export interface RoomSearchResult {
   offset: number
   search_dates: { check_in: string; check_out: string } | null
   buttons?: Array<{ id: string; title: string }>
+  list_section?: {
+    title: string
+    rows: Array<{ id: string; title: string; description?: string }>
+  }
 }
 
 export async function searchRooms(
@@ -221,6 +225,16 @@ export async function searchRooms(
 
   if (has_more) {
     result.buttons = [{ id: `room_more_${nextOffset}`, title: 'See More →' }]
+  }
+
+  // Build WhatsApp list rows for clickable room list
+  result.list_section = {
+    title: 'Rooms',
+    rows: resultRooms.map((room: { id: string; name: string; description: string | null; price_per_night: number; currency: string; max_guests: number }) => ({
+      id: `room_select_${room.id}_${Math.round(room.price_per_night)}`,
+      title: `${room.name} — ${room.currency} ${room.price_per_night}/night`,
+      description: `${room.max_guests} guests · ${room.description || ''}`.trim(),
+    })),
   }
 
   return result
@@ -463,7 +477,7 @@ const getCustomerBookingsHandler: ToolHandler = async (args, ctx) => {
 // Export Handlers
 // ============================================================
 
-export const hotelToolHandlers: Record<string, ToolHandler> = {
+export const hotelToolHandlers: Partial<Record<string, ToolHandler>> = {
   search_rooms: searchRoomsHandler,
   get_room: getRoomHandler,
   preview_booking: previewBookingHandler,

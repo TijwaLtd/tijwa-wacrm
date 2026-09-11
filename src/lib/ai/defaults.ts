@@ -81,6 +81,11 @@ function isHotelType(businessType?: string | null): boolean {
   return ['hotel', 'hotel_restaurant'].includes(businessType)
 }
 
+function isRetailerType(businessType?: string | null): boolean {
+  if (!businessType) return false
+  return ['retailer', 'wholesaler'].includes(businessType)
+}
+
 export function buildSystemPrompt(args: {
   userPrompt: string | null
   mode: 'draft' | 'auto_reply'
@@ -375,6 +380,65 @@ export function buildSystemPrompt(args: {
       '- track_booking: "where is my booking" → use get_customer_bookings\n' +
       '- working_hours: asks about hours → use check_working_hours\n' +
       '- hotel_services: asks about spa, gym, etc → use search_offerings',
+    ] : isRetailerType(businessType) ? [
+      'TOOL CALLING — RETAILER / WHOLESALER:\n' +
+      'You have product tools. USE THEM. Do NOT describe what you can do — actually do it by calling tools.\n\n' +
+      'PRODUCT BROWSING:\n' +
+      'When a customer asks about products, stock, or what\'s available:\n' +
+      '- Call search_products(offset=0) to find matching products\n' +
+      '- Present products with names, prices, and brief descriptions (max 10 per page)\n' +
+      '- After listing, ask: "Do you want to see more?" if has_more is true\n' +
+      '- When customer says yes/more/next, call search_products again with offset increased by 10\n' +
+      '- If has_more is false, say "That\'s all we have" or similar\n' +
+      '- If they want details on a specific product, call get_product\n' +
+      '- NEVER invent product names, prices, or availability\n\n' +
+      'CART SYSTEM:\n' +
+      'Customers can add multiple products to a cart before checking out.\n\n' +
+      'WHEN CUSTOMER SAYS "add [product] to cart" or "add to cart":\n' +
+      '1. Search for the product using search_products to get price and product_id\n' +
+      '2. Read the current cart from conversation metadata (key: "cart")\n' +
+      '3. Add the item to the cart array: [{name, quantity, unit_price, product_id}]\n' +
+      '4. Save the updated cart back to conversation metadata\n' +
+      '5. Reply with: "Added! 🛒\\n[cart summary with items and total]\\n\\nSay *checkout* when ready, or *add* more items."\n\n' +
+      'WHEN CUSTOMER SAYS "remove [product] from cart":\n' +
+      '1. Read cart from metadata\n' +
+      '2. Remove the matching item\n' +
+      '3. Save updated cart\n' +
+      '4. Reply with updated cart summary\n\n' +
+      'WHEN CUSTOMER SAYS "view cart" or "show cart" or "my cart":\n' +
+      '1. Read cart from metadata\n' +
+      '2. Display all items with quantities, prices, and total\n' +
+      '3. Say "Say *checkout* to place your order, *add* to add more, or *clear* to empty cart."\n\n' +
+      'WHEN CUSTOMER SAYS "clear cart":\n' +
+      '1. Set cart to empty array in metadata\n' +
+      '2. Reply "Cart cleared!"\n\n' +
+      'WHEN CUSTOMER SAYS "checkout" or "place order" or "buy now":\n' +
+      '1. Read cart from metadata\n' +
+      '2. If cart is empty, say "Your cart is empty! Add some products first."\n' +
+      '3. If cart has items, call preview_product_order(items=cart)\n' +
+      '4. Clear the cart from metadata after preview is sent\n\n' +
+      'CART FORMAT in metadata:\n' +
+      'cart: [{ name: "Laptop", quantity: 2, unit_price: 45000, product_id: "uuid" }]\n\n' +
+      'DIRECT ORDER (no cart):\n' +
+      'If customer says "I want 3 laptops and 5 mice" (direct order, not "add to cart"),\n' +
+      'search for prices first, then call preview_product_order with all items at once.\n' +
+      'Only use cart when customer explicitly says "add to cart" or wants to browse and build an order incrementally.\n\n' +
+      'PRODUCT ORDERS:\n' +
+      'When a customer wants to buy products (via cart checkout or direct), call preview_product_order.\n' +
+      'Do NOT generate a text summary. Do NOT ask "should I proceed?". Just call the tool.\n\n' +
+      'RULE #1: The preview_product_order tool generates the formatted preview with Confirm/Edit/Cancel buttons.\n' +
+      'RULE #2: After calling preview_product_order, do NOT add any text. The tool response IS the message.\n\n' +
+      'WHAT THE TOOL NEEDS:\n' +
+      '1. items — array of {name, quantity, unit_price, product_id}\n' +
+      '2. order_type — "delivery", "pickup", or "wholesale" (default: delivery)\n\n' +
+      'OPTIONAL: delivery_address (for delivery orders), notes\n\n' +
+      'WHOLESALER-specific:\n' +
+      'When order_type is "wholesale", mention bulk pricing and minimum order quantities if available in product metadata.\n\n' +
+      'OTHER INTENTS:\n' +
+      '- track_order: "where is my order" → use get_customer_product_orders\n' +
+      '- working_hours: asks about hours → use check_working_hours\n' +
+      '- stock_check: asks about stock → use search_products or get_product\n' +
+      '- pricing: asks about bulk/wholesale pricing → use search_products with query',
     ] : [
       'TOOL CALLING:\n' +
       'You have access to a catalogue search tool.\n' +
@@ -398,7 +462,7 @@ export function buildSystemPrompt(args: {
         '- The request requires access to private information that is unavailable\n' +
         'DO NOT hand off for order/booking confirmations — the preview tools ' +
         'handle this automatically with Confirm/Edit/Cancel buttons. Calling the tool IS the action.\n' +
-        'This applies to: preview_delivery_order, preview_food_order, preview_reservation, preview_booking.\n' +
+        'This applies to: preview_delivery_order, preview_food_order, preview_reservation, preview_booking, preview_product_order.\n' +
         'When you lack specific information, give a friendly helpful response instead of handing off. ' +
         'For example: acknowledge the question, share what you do know, or offer to connect them with the team. ' +
         'Only hand off when truly necessary — not just because you are missing a detail.',

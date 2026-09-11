@@ -81,3 +81,43 @@ export function parseRoomMoreButtonId(buttonId: string): { offset: number } | nu
   if (!match) return null
   return { offset: parseInt(match[1], 10) }
 }
+
+// ---- Retailer / Wholesaler Product Orders ----
+
+export const PRODUCT_ORDER_BUTTONS = {
+  confirm: (pendingOrderId: string) => `product_order_confirm_${pendingOrderId}`,
+  edit: (pendingOrderId: string) => `product_order_edit_${pendingOrderId}`,
+  cancel: (pendingOrderId: string) => `product_order_cancel_${pendingOrderId}`,
+} as const
+
+export function parseProductOrderButtonId(buttonId: string): { action: string; orderId: string } | null {
+  const match = buttonId.match(/^product_order_(confirm|edit|cancel)_(.+)$/)
+  if (!match) return null
+  return { action: match[1], orderId: match[2] }
+}
+
+export function parseProductMoreButtonId(buttonId: string): { offset: number } | null {
+  const match = buttonId.match(/^product_more_(\d+)$/)
+  if (!match) return null
+  return { offset: parseInt(match[1], 10) }
+}
+
+// ---- Cart Buttons ----
+
+export function parseCartButtonId(buttonId: string): { action: 'checkout' | 'clear' | 'continue' } | null {
+  if (buttonId === 'cart_checkout') return { action: 'checkout' }
+  if (buttonId === 'cart_clear') return { action: 'clear' }
+  if (buttonId === 'cart_continue') return { action: 'continue' }
+  return null
+}
+
+// ---- Product List Selection (from WhatsApp list message) ----
+
+export function parseProductListSelectionId(id: string): { productId: string; name: string; price: number } | null {
+  const match = id.match(/^product_add_(.+)_(\d+)$/)
+  if (!match) return null
+  const productId = match[1]
+  const price = parseInt(match[2], 10)
+  // name is not encoded — caller must pass it separately or look it up
+  return { productId, name: '', price }
+}
