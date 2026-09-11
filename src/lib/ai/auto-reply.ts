@@ -13,10 +13,11 @@ import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 import { checkAiCredits, calculateCreditCost } from './credits'
 import { AiError, type ChatMessage } from './types'
 import { getToolsForBusinessType, executeToolCalls, hasToolCalls, ToolContext } from './tools'
-import { parseOrderButtonId, parseFoodOrderButtonId, parseReservationButtonId, parseBookingButtonId, parseProductOrderButtonId, parseMenuMoreButtonId, parseRoomMoreButtonId, parseProductMoreButtonId, parseCartButtonId } from './tools'
+import { parseOrderButtonId, parseFoodOrderButtonId, parseReservationButtonId, parseBookingButtonId, parseProductOrderButtonId, parseMenuMoreButtonId, parseRoomMoreButtonId, parseProductMoreButtonId, parseServiceMoreButtonId, parseCartButtonId } from './tools'
 import { searchMenuItems } from './tools/restaurant'
 import { searchRooms } from './tools/hotel'
 import { searchProducts, getCart, addToCart, clearCart, formatCartSummary, getCartButtons } from './tools/retailer'
+import { searchServices } from './tools/services'
 
 interface DispatchArgs {
   accountId: string
@@ -1293,6 +1294,66 @@ async function handleProductMore(
 }
 
 // ============================================================
+// Service More Handler (no AI — paginated service list)
+// ============================================================
+
+async function handleServiceMore(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  configOwnerUserId: string,
+  offset: number,
+): Promise<void> {
+  // Fetch search params from conversation metadata
+  const { data: conv } = await db
+    .from('conversations')
+    .select('metadata')
+    .eq('id', conversationId)
+    .maybeSingle()
+
+  const searchParams = (conv?.metadata as Record<string, unknown>)?.service_search_params as Record<string, unknown> | undefined
+
+  const result = await searchServices(db, accountId, {
+    query: searchParams?.query as string | undefined,
+    category: searchParams?.category as string | undefined,
+    min_price: searchParams?.min_price as number | undefined,
+    max_price: searchParams?.max_price as number | undefined,
+    offset,
+  })
+
+  if (result.services.length === 0) {
+    await engineSendText({
+      accountId,
+      userId: configOwnerUserId,
+      conversationId,
+      contactId,
+      text: 'No more services to show.',
+      aiGenerated: true,
+    })
+    return
+  }
+
+  // Format services list
+  let text = `More services (showing ${offset + 1}–${offset + result.services.length}):\n\n`
+  for (const svc of result.services) {
+    text += `• ${svc.name} — ${svc.currency} ${svc.price}\n`
+    if (svc.description) text += `  ${svc.description}\n`
+  }
+
+  const buttons = result.buttons || []
+
+  await engineSendInteractiveButtons({
+    accountId,
+    userId: configOwnerUserId,
+    conversationId,
+    contactId,
+    bodyText: text,
+    buttons: buttons.map((b) => ({ id: b.id, title: b.title })),
+  })
+}
+
+// ============================================================
 // Product List Selection Handler (no AI — like logistics confirm)
 // ============================================================
 
@@ -1545,6 +1606,97 @@ async function handleRoomListSelect(
 }
 
 // ============================================================
+// Service List Selection Handler (no AI)
+// ============================================================
+
+async function handleServiceListSelect(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  configOwnerUserId: string,
+  selectionId: string,
+): Promise<void> {
+  // Parse: service_select_{uuid}_{price}
+  const match = selectionId.match(/^service_select_(.+)_(\d+)$/)
+  if (!match) {
+    await engineSendText({
+      accountId,
+      userId: configOwnerUserId,
+      conversationId,
+      contactId,
+      text: 'Invalid service selection.',
+      aiGenerated: true,
+    })
+    return
+  }
+
+  const serviceId = match[1]
+  const price = parseInt(match[2], 10)
+
+  // Look up service name
+  const { data: service } = await db
+    .from('offerings')
+    .select('name, metadata')
+    .eq('id', serviceId)
+    .eq('account_id', accountId)
+    .maybeSingle()
+
+  const serviceName = service?.name || 'Service'
+  const meta = (service?.metadata || {}) as Record<string, unknown>
+  const durationMinutes = (meta.duration_minutes as number) || 60
+
+  // Create pending service booking
+  const { data: pending, error: pendingErr } = await db
+    .from('pending_service_bookings')
+    .insert({
+      account_id: accountId,
+      contact_id: contactId,
+      conversation_id: conversationId,
+      user_id: configOwnerUserId,
+      offering_id: serviceId,
+      offering_name: serviceName,
+      total_price: price,
+      currency: 'KES',
+      duration_minutes: durationMinutes,
+    })
+    .select('id')
+    .single()
+
+  if (pendingErr || !pending) {
+    console.error('[handleServiceListSelect] pending insert error:', pendingErr)
+    await engineSendText({
+      accountId,
+      userId: configOwnerUserId,
+      conversationId,
+      contactId,
+      text: 'Failed to create booking. Please try again.',
+      aiGenerated: true,
+    })
+    return
+  }
+
+  // Send preview with confirm/edit/cancel buttons
+  await engineSendInteractiveButtons({
+    accountId,
+    userId: configOwnerUserId,
+    conversationId,
+    contactId,
+    bodyText:
+      `📋 *Service Booking Summary*\n\n` +
+      `*Service:* ${serviceName}\n` +
+      `*Duration:* ${durationMinutes} min\n` +
+      `*Price:* KES ${price}\n\n` +
+      `Please confirm your booking.`,
+    buttons: [
+      { id: `booking_confirm_${pending.id}`, title: '✅ Confirm' },
+      { id: `booking_edit_${pending.id}`, title: '✏️ Edit' },
+      { id: `booking_cancel_${pending.id}`, title: '❌ Cancel' },
+    ],
+  })
+}
+
+// ============================================================
 // Cart Button Handler (no AI)
 // ============================================================
 
@@ -1740,6 +1892,12 @@ export async function dispatchInboundToAiReply(
           await handleProductMore(db, accountId, conversationId, contactId, configOwnerUserId, productMore.offset)
           return
         }
+        const serviceMore = parseServiceMoreButtonId(interactiveReplyId)
+        if (serviceMore) {
+          console.log(`[dispatchInboundToAiReply] service more click (no AI config): offset=${serviceMore.offset}`)
+          await handleServiceMore(db, accountId, conversationId, contactId, configOwnerUserId, serviceMore.offset)
+          return
+        }
         const cartAction = parseCartButtonId(interactiveReplyId)
         if (cartAction) {
           console.log(`[dispatchInboundToAiReply] cart button click (no AI config): ${cartAction.action}`)
@@ -1762,6 +1920,12 @@ export async function dispatchInboundToAiReply(
         if (interactiveReplyId.startsWith('room_select_')) {
           console.log(`[dispatchInboundToAiReply] room list select (no AI config): ${interactiveReplyId}`)
           await handleRoomListSelect(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId)
+          return
+        }
+        // Service list selection (WhatsApp list reply)
+        if (interactiveReplyId.startsWith('service_select_')) {
+          console.log(`[dispatchInboundToAiReply] service list select (no AI config): ${interactiveReplyId}`)
+          await handleServiceListSelect(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId)
           return
         }
       }
@@ -1820,6 +1984,12 @@ export async function dispatchInboundToAiReply(
         await handleProductMore(db, accountId, conversationId, contactId, configOwnerUserId, productMore.offset)
         return
       }
+      const serviceMore = parseServiceMoreButtonId(interactiveReplyId)
+      if (serviceMore) {
+        console.log(`[dispatchInboundToAiReply] service more click: offset=${serviceMore.offset}`)
+        await handleServiceMore(db, accountId, conversationId, contactId, configOwnerUserId, serviceMore.offset)
+        return
+      }
       const cartAction = parseCartButtonId(interactiveReplyId)
       if (cartAction) {
         console.log(`[dispatchInboundToAiReply] cart button click: ${cartAction.action}`)
@@ -1842,6 +2012,12 @@ export async function dispatchInboundToAiReply(
       if (interactiveReplyId.startsWith('room_select_')) {
         console.log(`[dispatchInboundToAiReply] room list select: ${interactiveReplyId}`)
         await handleRoomListSelect(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId)
+        return
+      }
+      // Service list selection (WhatsApp list reply)
+      if (interactiveReplyId.startsWith('service_select_')) {
+        console.log(`[dispatchInboundToAiReply] service list select: ${interactiveReplyId}`)
+        await handleServiceListSelect(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId)
         return
       }
     }

@@ -102,6 +102,12 @@ export function parseProductMoreButtonId(buttonId: string): { offset: number } |
   return { offset: parseInt(match[1], 10) }
 }
 
+export function parseServiceMoreButtonId(buttonId: string): { offset: number } | null {
+  const match = buttonId.match(/^service_more_(\d+)$/)
+  if (!match) return null
+  return { offset: parseInt(match[1], 10) }
+}
+
 // ---- Cart Buttons ----
 
 export function parseCartButtonId(buttonId: string): { action: 'checkout' | 'clear' | 'continue' } | null {

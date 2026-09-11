@@ -13,6 +13,7 @@ import { logisticsTools, logisticsToolHandlers } from './logistics'
 import { restaurantTools, restaurantToolHandlers } from './restaurant'
 import { hotelTools, hotelToolHandlers } from './hotel'
 import { retailerTools, retailerToolHandlers } from './retailer'
+import { serviceTools, serviceToolHandlers } from './services'
 
 // ============================================================
 // Tool Registry — business type → tools mapping
@@ -78,6 +79,28 @@ export function getToolsForBusinessType(businessType: string | null): Registered
   ) {
     for (const def of retailerTools) {
       const handler = retailerToolHandlers[def.function.name]
+      if (handler) {
+        tools.push({ definition: def, handler })
+      }
+    }
+  }
+
+  // Service business tools (salon, gym, clinic, cleaning, etc.)
+  if (
+    !businessType ||
+    businessType === 'service_business' ||
+    businessType === 'professional_services' ||
+    businessType === 'cleaning_services' ||
+    businessType === 'maintenance' ||
+    businessType === 'beauty_wellness' ||
+    businessType === 'fitness' ||
+    businessType === 'automotive' ||
+    businessType === 'pet_services' ||
+    businessType === 'healthcare' ||
+    businessType === 'healthcare_clinic'
+  ) {
+    for (const def of serviceTools) {
+      const handler = serviceToolHandlers[def.function.name]
       if (handler) {
         tools.push({ definition: def, handler })
       }

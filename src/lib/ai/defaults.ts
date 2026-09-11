@@ -86,6 +86,15 @@ function isRetailerType(businessType?: string | null): boolean {
   return ['retailer', 'wholesaler'].includes(businessType)
 }
 
+function isServiceType(businessType?: string | null): boolean {
+  if (!businessType) return false
+  return [
+    'service_business', 'professional_services', 'cleaning_services',
+    'maintenance', 'beauty_wellness', 'fitness', 'automotive',
+    'pet_services', 'healthcare', 'healthcare_clinic',
+  ].includes(businessType)
+}
+
 export function buildSystemPrompt(args: {
   userPrompt: string | null
   mode: 'draft' | 'auto_reply'
@@ -439,6 +448,45 @@ export function buildSystemPrompt(args: {
       '- working_hours: asks about hours → use check_working_hours\n' +
       '- stock_check: asks about stock → use search_products or get_product\n' +
       '- pricing: asks about bulk/wholesale pricing → use search_products with query',
+    ] : isServiceType(businessType) ? [
+      'TOOL CALLING — SERVICES:\n' +
+      'You have service booking tools. USE THEM. Do NOT describe what you can do — actually do it by calling tools.\n\n' +
+      'SERVICE BROWSING:\n' +
+      'When a customer asks about services, pricing, or availability:\n' +
+      '- Call search_services(offset=0) to find matching services\n' +
+      '- Present services with names, prices, and brief descriptions (max 10 per page)\n' +
+      '- After listing, ask: "Do you want to see more?" if has_more is true\n' +
+      '- When customer says yes/more/next, call search_services again with offset increased by 10\n' +
+      '- If has_more is false, say "That\'s all we have" or similar\n' +
+      '- If they want details on a specific service, call get_service\n' +
+      '- NEVER invent service names, prices, or availability\n\n' +
+      'SERVICE BOOKINGS:\n' +
+      'When a customer wants to book a service, you MUST call preview_service_booking.\n' +
+      'Do NOT generate a text summary. Do NOT ask "should I proceed?". Just call the tool.\n\n' +
+      'RULE #1: The preview_service_booking tool generates the formatted preview with Confirm/Edit/Cancel buttons.\n' +
+      'RULE #2: After calling preview_service_booking, do NOT add any text. The tool response IS the message.\n\n' +
+      'WHAT THE TOOL NEEDS:\n' +
+      '1. service_id — the service to book\n' +
+      '2. customer_name — name for the booking\n' +
+      '3. service_date — date in YYYY-MM-DD format\n\n' +
+      'OPTIONAL: service_time (HH:MM, 24h), notes\n\n' +
+      'EXAMPLE:\n' +
+      'Customer: "I want to book a haircut for tomorrow"\n' +
+      'You: Call search_services(query="haircut") first to get service details, then preview_service_booking(service_id=..., customer_name=..., service_date="2024-12-20")\n\n' +
+      'QUICK BOOKING (clear intent):\n' +
+      'If customer says "I need a massage tomorrow at 3pm", search first to get the service, then call preview_service_booking immediately.\n\n' +
+      'BUSINESS-TYPE LABELS:\n' +
+      '- beauty_wellness: "appointment", "session"\n' +
+      '- fitness: "session", "class"\n' +
+      '- healthcare/healthcare_clinic: "appointment", "consultation"\n' +
+      '- automotive: "service", "appointment"\n' +
+      '- cleaning_services/maintenance: "job", "booking"\n' +
+      '- professional_services: "consultation", "session"\n' +
+      '- pet_services: "appointment", "session"\n\n' +
+      'OTHER INTENTS:\n' +
+      '- track_booking: "where is my appointment" → use get_customer_service_bookings\n' +
+      '- working_hours: asks about hours → use check_working_hours\n' +
+      '- pricing: asks about service pricing → use search_services',
     ] : [
       'TOOL CALLING:\n' +
       'You have access to a catalogue search tool.\n' +
@@ -462,7 +510,7 @@ export function buildSystemPrompt(args: {
         '- The request requires access to private information that is unavailable\n' +
         'DO NOT hand off for order/booking confirmations — the preview tools ' +
         'handle this automatically with Confirm/Edit/Cancel buttons. Calling the tool IS the action.\n' +
-        'This applies to: preview_delivery_order, preview_food_order, preview_reservation, preview_booking, preview_product_order.\n' +
+        'This applies to: preview_delivery_order, preview_food_order, preview_reservation, preview_booking, preview_product_order, preview_service_booking.\n' +
         'When you lack specific information, give a friendly helpful response instead of handing off. ' +
         'For example: acknowledge the question, share what you do know, or offer to connect them with the team. ' +
         'Only hand off when truly necessary — not just because you are missing a detail.',
