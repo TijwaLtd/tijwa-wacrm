@@ -68,7 +68,7 @@ export function aiContextMessageLimit(): number {
  */
 function isLogisticsType(businessType?: string | null): boolean {
   if (!businessType) return true // default to logistics
-  return ['logistics', 'courier', 'delivery', 'logistics_delivery'].includes(businessType)
+  return ['courier', 'logistics_delivery'].includes(businessType)
 }
 
 function isRestaurantType(businessType?: string | null): boolean {
@@ -312,8 +312,11 @@ export function buildSystemPrompt(args: {
       'You have restaurant tools. USE THEM. Do NOT describe what you can do — actually do it by calling tools.\n\n' +
       'MENU BROWSING:\n' +
       'When a customer asks about the menu, food, drinks, or what\'s available:\n' +
-      '- Call search_menu_items to find matching items\n' +
-      '- Present items with names, prices, and brief descriptions\n' +
+      '- Call search_menu_items(query, offset=0) to find matching items\n' +
+      '- Present items with names, prices, and brief descriptions (max 10 per page)\n' +
+      '- After listing, ask: "Do you want to see more?" if has_more is true\n' +
+      '- When customer says yes/more/next, call search_menu_items again with offset increased by 10\n' +
+      '- If has_more is false, say "That\'s all we have" or similar\n' +
       '- If they want details on a specific item, call get_menu_item\n' +
       '- NEVER invent menu items, prices, or availability\n\n' +
       'FOOD ORDERS:\n' +
@@ -342,8 +345,11 @@ export function buildSystemPrompt(args: {
       'You have hotel tools. USE THEM. Do NOT describe what you can do — actually do it by calling tools.\n\n' +
       'ROOM BROWSING:\n' +
       'When a customer asks about rooms, availability, or pricing:\n' +
-      '- Call search_rooms to find available rooms\n' +
-      '- Present rooms with names, prices, and key amenities\n' +
+      '- Call search_rooms(offset=0) to find available rooms\n' +
+      '- Present rooms with names, prices, and key amenities (max 10 per page)\n' +
+      '- After listing, ask: "Do you want to see more?" if has_more is true\n' +
+      '- When customer says yes/more/next, call search_rooms again with offset increased by 10\n' +
+      '- If has_more is false, say "That\'s all we have available" or similar\n' +
       '- If they want details on a specific room, call get_room\n' +
       '- NEVER invent room types, prices, or availability\n\n' +
       'ROOM BOOKINGS:\n' +

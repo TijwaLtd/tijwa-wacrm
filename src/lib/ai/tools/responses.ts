@@ -6,6 +6,8 @@
 //   food_order_<action>_<uuid>   - restaurant food orders
 //   reservation_<action>_<uuid>  - restaurant table reservations
 //   booking_<action>_<uuid>      - hotel room bookings
+//   menu_more_<offset>           - restaurant menu pagination
+//   room_more_<offset>           - hotel room pagination
 //
 // Actions: confirm, edit, cancel
 // ============================================================
@@ -64,4 +66,18 @@ export function parseBookingButtonId(buttonId: string): { action: string; bookin
   const match = buttonId.match(/^booking_(confirm|edit|cancel)_(.+)$/)
   if (!match) return null
   return { action: match[1], bookingId: match[2] }
+}
+
+// ---- Pagination (More) Buttons ----
+
+export function parseMenuMoreButtonId(buttonId: string): { offset: number } | null {
+  const match = buttonId.match(/^menu_more_(\d+)$/)
+  if (!match) return null
+  return { offset: parseInt(match[1], 10) }
+}
+
+export function parseRoomMoreButtonId(buttonId: string): { offset: number } | null {
+  const match = buttonId.match(/^room_more_(\d+)$/)
+  if (!match) return null
+  return { offset: parseInt(match[1], 10) }
 }

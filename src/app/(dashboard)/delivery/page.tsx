@@ -2,24 +2,39 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { Loader2, Truck, MapPin, Clock, CheckCircle2, Package } from 'lucide-react';
+import {
+  Loader2,
+  Truck,
+  MapPin,
+  Clock,
+  CheckCircle2,
+  Package,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/use-auth';
 import { cn } from '@/lib/utils';
-import { type Order, type OrderStatus, formatCurrency } from '@/lib/business/orders';
-import { ResponsiveDataListing, type ColumnDef, type CardMapper } from '@/components/shared/responsive-data-listing';
+import {
+  type Order,
+  type OrderStatus,
+  formatCurrency,
+} from '@/lib/business/orders';
+import {
+  ResponsiveDataListing,
+  type ColumnDef,
+  type CardMapper,
+} from '@/components/shared/responsive-data-listing';
 
 const PAGE_SIZE = 25;
 
 const DELIVERY_TABS = [
-  { key: 'pending', label: 'Pending', icon: Clock },
   { key: 'confirmed', label: 'Confirmed', icon: Package },
+  { key: 'pending', label: 'Pending', icon: Clock },
   { key: 'processing', label: 'In Transit', icon: Truck },
   { key: 'delivered', label: 'Delivered', icon: CheckCircle2 },
 ] as const;
 
-type DeliveryTab = typeof DELIVERY_TABS[number]['key'];
+type DeliveryTab = (typeof DELIVERY_TABS)[number]['key'];
 
 export default function DeliveryPage() {
   const { activeAccountId } = useAuth();
@@ -27,45 +42,48 @@ export default function DeliveryPage() {
   const [loading, setLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<DeliveryTab>('pending');
+  const [activeTab, setActiveTab] = useState<DeliveryTab>('confirmed');
   const [page, setPage] = useState(0);
   const [total, setTotal] = useState(0);
 
-  const fetchDeliveries = useCallback(async (isLoadMore = false) => {
-    if (!activeAccountId) return;
-    if (isLoadMore) setIsLoadingMore(true);
-    else setLoading(true);
+  const fetchDeliveries = useCallback(
+    async (isLoadMore = false) => {
+      if (!activeAccountId) return;
+      if (isLoadMore) setIsLoadingMore(true);
+      else setLoading(true);
 
-    try {
-      const currentPage = isLoadMore ? page + 1 : 0;
-      const params = new URLSearchParams({
-        account_id: activeAccountId,
-        page: String(currentPage),
-        limit: String(PAGE_SIZE),
-        status: activeTab,
-      });
+      try {
+        const currentPage = isLoadMore ? page + 1 : 0;
+        const params = new URLSearchParams({
+          account_id: activeAccountId,
+          page: String(currentPage),
+          limit: String(PAGE_SIZE),
+          status: activeTab,
+        });
 
-      const res = await fetch(`/api/orders?${params}`);
-      if (res.ok) {
-        const data = await res.json();
-        const newOrders = data.orders || [];
-        setTotal(data.total || 0);
+        const res = await fetch(`/api/orders?${params}`);
+        if (res.ok) {
+          const data = await res.json();
+          const newOrders = data.orders || [];
+          setTotal(data.total || 0);
 
-        if (isLoadMore) {
-          setOrders((prev) => [...prev, ...newOrders]);
-          setPage(currentPage);
-        } else {
-          setOrders(newOrders);
-          setPage(0);
+          if (isLoadMore) {
+            setOrders((prev) => [...prev, ...newOrders]);
+            setPage(currentPage);
+          } else {
+            setOrders(newOrders);
+            setPage(0);
+          }
         }
+      } catch (err) {
+        console.error('Failed to fetch deliveries:', err);
+      } finally {
+        setLoading(false);
+        setIsLoadingMore(false);
       }
-    } catch (err) {
-      console.error('Failed to fetch deliveries:', err);
-    } finally {
-      setLoading(false);
-      setIsLoadingMore(false);
-    }
-  }, [activeAccountId, activeTab, page]);
+    },
+    [activeAccountId, activeTab, page]
+  );
 
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
@@ -73,7 +91,10 @@ export default function DeliveryPage() {
   }, [fetchDeliveries]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  const handleStatusUpdate = async (orderId: string, newStatus: OrderStatus) => {
+  const handleStatusUpdate = async (
+    orderId: string,
+    newStatus: OrderStatus
+  ) => {
     try {
       const res = await fetch(`/api/orders/${orderId}`, {
         method: 'PATCH',
@@ -116,7 +137,10 @@ export default function DeliveryPage() {
     {
       header: 'Order #',
       cell: (row) => (
-        <Link href={`/orders/${row.id}`} className="font-medium text-foreground hover:underline">
+        <Link
+          href={`/orders/${row.id}`}
+          className="text-foreground font-medium hover:underline"
+        >
           {row.order_number}
         </Link>
       ),
@@ -132,7 +156,7 @@ export default function DeliveryPage() {
           <div>
             <p className="text-sm font-medium">{customerName}</p>
             {(pickup || dropoff) && (
-              <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+              <p className="text-muted-foreground mt-0.5 flex items-center gap-1 text-xs">
                 <MapPin className="h-3 w-3" />
                 {pickup} → {dropoff}
               </p>
@@ -144,7 +168,9 @@ export default function DeliveryPage() {
     {
       header: 'Amount',
       cell: (row) => (
-        <span className="font-medium">{formatCurrency(row.total, row.currency)}</span>
+        <span className="font-medium">
+          {formatCurrency(row.total, row.currency)}
+        </span>
       ),
     },
     {
@@ -158,8 +184,11 @@ export default function DeliveryPage() {
     {
       header: 'Time',
       cell: (row) => (
-        <span className="text-xs text-muted-foreground">
-          {new Date(row.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        <span className="text-muted-foreground text-xs">
+          {new Date(row.created_at).toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+          })}
         </span>
       ),
     },
@@ -167,15 +196,26 @@ export default function DeliveryPage() {
       header: 'Status',
       cell: (row) => {
         const statusColors: Record<string, string> = {
-          pending: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400',
-          confirmed: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400',
-          processing: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400',
-          shipped: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400',
-          delivered: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
-          cancelled: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400',
+          pending:
+            'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400',
+          confirmed:
+            'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400',
+          processing:
+            'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400',
+          shipped:
+            'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400',
+          delivered:
+            'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
+          cancelled:
+            'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400',
         };
         return (
-          <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium', statusColors[row.status] || '')}>
+          <span
+            className={cn(
+              'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium',
+              statusColors[row.status] || ''
+            )}
+          >
             {row.status}
           </span>
         );
@@ -189,7 +229,10 @@ export default function DeliveryPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={(e) => { e.preventDefault(); handleStatusUpdate(row.id, next); }}
+            onClick={(e) => {
+              e.preventDefault();
+              handleStatusUpdate(row.id, next);
+            }}
             className="h-7 text-xs"
           >
             {getActionLabel(row.status)}
@@ -216,7 +259,12 @@ export default function DeliveryPage() {
         delivered: 'bg-green-100 text-green-800',
       };
       return (
-        <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium', statusColors[row.status] || 'bg-muted')}>
+        <span
+          className={cn(
+            'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium',
+            statusColors[row.status] || 'bg-muted'
+          )}
+        >
           {row.status}
         </span>
       );
@@ -224,15 +272,31 @@ export default function DeliveryPage() {
     detailFields: (row) => {
       const meta = row.metadata as Record<string, unknown> | null;
       return [
-        { icon: Clock, label: 'Time', value: new Date(row.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) },
-        { icon: MapPin, label: 'Dropoff', value: (meta?.dropoff_location as string) || 'No dropoff' },
+        {
+          icon: Clock,
+          label: 'Time',
+          value: new Date(row.created_at).toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+          }),
+        },
+        {
+          icon: MapPin,
+          label: 'Dropoff',
+          value: (meta?.dropoff_location as string) || 'No dropoff',
+        },
       ];
     },
     actions: (row) => {
       const next = getNextStatus(row.status);
-      return next ? [
-        { label: getActionLabel(row.status), onClick: () => handleStatusUpdate(row.id, next) },
-      ] : [];
+      return next
+        ? [
+            {
+              label: getActionLabel(row.status),
+              onClick: () => handleStatusUpdate(row.id, next),
+            },
+          ]
+        : [];
     },
     detailHref: (row) => `/orders/${row.id}`,
   };
@@ -247,12 +311,16 @@ export default function DeliveryPage() {
   return (
     <div className="flex flex-1 flex-col gap-4 p-4 sm:p-6">
       <div>
-        <h1 className="text-xl font-bold tracking-tight text-foreground">Delivery</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Track and manage deliveries in real-time.</p>
+        <h1 className="text-foreground text-xl font-bold tracking-tight">
+          Delivery
+        </h1>
+        <p className="text-muted-foreground mt-0.5 text-sm">
+          Track and manage deliveries in real-time.
+        </p>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 rounded-lg border border-border bg-muted/50 p-1">
+      <div className="border-border bg-muted/50 flex gap-1 rounded-lg border p-1">
         {DELIVERY_TABS.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.key;
@@ -260,7 +328,10 @@ export default function DeliveryPage() {
             <button
               key={tab.key}
               type="button"
-              onClick={() => { setActiveTab(tab.key); setPage(0); }}
+              onClick={() => {
+                setActiveTab(tab.key);
+                setPage(0);
+              }}
               className={cn(
                 'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
                 isActive

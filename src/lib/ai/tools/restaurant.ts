@@ -131,35 +131,60 @@ function calculateFoodTotal(
 }
 
 // ============================================================
-// Tool Handlers
+// Standalone Search Function (used by tool handler + button handler)
 // ============================================================
 
-const searchMenuItemsHandler: ToolHandler = async (args, ctx) => {
-  const { db } = ctx
-  const query = args.query as string | undefined
-  const category = args.category as string | undefined
-  const dietary = args.dietary as string | undefined
-  const limit = Math.min((args.limit as number) || 10, 10)
-  const offset = (args.offset as number) || 0
+export interface MenuSearchParams {
+  query?: string
+  category?: string
+  dietary?: string
+  limit?: number
+  offset?: number
+}
+
+export interface MenuSearchResult {
+  items: Array<{
+    id: string
+    name: string
+    description: string | null
+    price: number
+    currency: string
+    category: string | null
+    dietary_info: Record<string, unknown> | null
+    preparation_time: string | null
+    image_url: string | null
+  }>
+  count: number
+  has_more: boolean
+  offset: number
+  buttons?: Array<{ id: string; title: string }>
+}
+
+export async function searchMenuItems(
+  db: any,
+  accountId: string,
+  params: MenuSearchParams,
+): Promise<MenuSearchResult> {
+  const limit = Math.min(params.limit || 10, 10)
+  const offset = params.offset || 0
 
   let q = db
     .from('offerings')
-    .select('id, name, slug, short_description, description, price, currency, metadata, category_id')
-    .eq('account_id', ctx.accountId)
+    .select('id, name, slug, short_description, description, price, currency, metadata, category_id, media:offering_media(url, alt_text, sort_order, is_primary)')
+    .eq('account_id', accountId)
     .eq('type', 'menu_item')
     .eq('status', 'active')
 
-  if (query) {
-    q = q.or(`name.ilike.%${query}%,short_description.ilike.%${query}%,description.ilike.%${query}%`)
+  if (params.query) {
+    q = q.or(`name.ilike.%${params.query}%,short_description.ilike.%${params.query}%,description.ilike.%${params.query}%`)
   }
 
-  if (category) {
-    // Filter by category name via offering_categories
+  if (params.category) {
     const { data: cats } = await db
       .from('offering_categories')
       .select('id')
-      .eq('account_id', ctx.accountId)
-      .ilike('name', `%${category}%`)
+      .eq('account_id', accountId)
+      .ilike('name', `%${params.category}%`)
       .limit(5)
 
     if (cats && cats.length > 0) {
@@ -172,37 +197,90 @@ const searchMenuItemsHandler: ToolHandler = async (args, ctx) => {
     .range(offset, offset + limit - 1)
 
   if (error) {
-    return { error: 'Failed to search menu', items: [], count: 0 }
+    return { items: [], count: 0, has_more: false, offset }
   }
 
-  // Apply dietary filter in-memory (metadata filter)
   let filtered = items || []
-  if (dietary) {
+  if (params.dietary) {
     filtered = filtered.filter((item: any) => {
       const meta = (item.metadata || {}) as Record<string, unknown>
       const dietaryInfo = meta.dietary_info as Record<string, unknown> | undefined
-      return dietaryInfo?.[dietary] === true
+      return dietaryInfo?.[params.dietary!] === true
     })
   }
 
-  return {
-    items: filtered.map((item: any) => {
-      const meta = (item.metadata || {}) as Record<string, unknown>
-      return {
-        id: item.id,
-        name: item.name,
-        description: item.short_description || item.description,
-        price: item.price,
-        currency: item.currency || 'KES',
-        category: meta.category || null,
-        dietary_info: meta.dietary_info || null,
-        preparation_time: meta.preparation_time || null,
-      }
-    }),
+  const has_more = filtered.length === limit
+  const nextOffset = offset + limit
+
+  const resultItems = filtered.map((item: any) => {
+    const meta = (item.metadata || {}) as Record<string, unknown>
+    const media = (item.media as any[]) || []
+    const primaryImage = media.find((m: any) => m.is_primary)?.url || media[0]?.url || null
+    return {
+      id: item.id,
+      name: item.name,
+      description: item.short_description || item.description,
+      price: item.price,
+      currency: item.currency || 'KES',
+      category: meta.category || null,
+      dietary_info: meta.dietary_info || null,
+      preparation_time: meta.preparation_time || null,
+      image_url: primaryImage,
+    }
+  })
+
+  const result: MenuSearchResult = {
+    items: resultItems,
     count: filtered.length,
-    has_more: filtered.length === limit,
+    has_more,
     offset,
   }
+
+  if (has_more) {
+    result.buttons = [{ id: `menu_more_${nextOffset}`, title: 'See More →' }]
+  }
+
+  return result
+}
+
+// ============================================================
+// Tool Handlers
+// ============================================================
+
+const searchMenuItemsHandler: ToolHandler = async (args, ctx) => {
+  const result = await searchMenuItems(ctx.db, ctx.accountId, {
+    query: args.query as string | undefined,
+    category: args.category as string | undefined,
+    dietary: args.dietary as string | undefined,
+    limit: (args.limit as number) || undefined,
+    offset: (args.offset as number) || undefined,
+  })
+
+  // Store search params in conversation metadata for "More" button
+  if (ctx.conversationId) {
+    const searchParams: MenuSearchParams = {
+      query: args.query as string | undefined,
+      category: args.category as string | undefined,
+      dietary: args.dietary as string | undefined,
+    }
+    const { data: conv } = await ctx.db
+      .from('conversations')
+      .select('metadata')
+      .eq('id', ctx.conversationId)
+      .maybeSingle()
+
+    await ctx.db
+      .from('conversations')
+      .update({
+        metadata: {
+          ...(conv?.metadata || {}),
+          menu_search_params: searchParams,
+        },
+      })
+      .eq('id', ctx.conversationId)
+  }
+
+  return result
 }
 
 const getMenuItemHandler: ToolHandler = async (args, ctx) => {
@@ -211,7 +289,7 @@ const getMenuItemHandler: ToolHandler = async (args, ctx) => {
 
   const { data: item, error } = await db
     .from('offerings')
-    .select('id, name, slug, short_description, description, price, currency, metadata')
+    .select('id, name, slug, short_description, description, price, currency, metadata, media:offering_media(url, alt_text, sort_order, is_primary)')
     .eq('id', itemId)
     .eq('account_id', ctx.accountId)
     .eq('type', 'menu_item')
@@ -222,6 +300,9 @@ const getMenuItemHandler: ToolHandler = async (args, ctx) => {
   }
 
   const meta = (item.metadata || {}) as Record<string, unknown>
+  const media = (item.media as any[]) || []
+  const primaryImage = media.find((m: any) => m.is_primary)?.url || media[0]?.url || null
+  const allImages = media.map((m: any) => m.url).filter(Boolean)
 
   return {
     found: true,
@@ -237,6 +318,8 @@ const getMenuItemHandler: ToolHandler = async (args, ctx) => {
     allergens: meta.allergens || null,
     customizations: meta.customizations || null,
     availability: meta.availability || null,
+    image_url: primaryImage,
+    image_urls: allImages,
   }
 }
 
@@ -260,6 +343,24 @@ const previewFoodOrderHandler: ToolHandler = async (args, ctx) => {
 
   // Default customer_name to contact name
   let customerName = ctx.contactName || null
+
+  // Look up offering image if items reference a specific menu item
+  let offeringImageUrl: string | null = null
+  if (items.length === 1 && items[0].name) {
+    const { data: offering } = await db
+      .from('offerings')
+      .select('id, media:offering_media(url, is_primary)')
+      .eq('account_id', ctx.accountId)
+      .eq('type', 'menu_item')
+      .eq('status', 'active')
+      .ilike('name', `%${items[0].name}%`)
+      .limit(1)
+      .maybeSingle()
+    if (offering) {
+      const media = (offering.media as any[]) || []
+      offeringImageUrl = media.find((m: any) => m.is_primary)?.url || media[0]?.url || null
+    }
+  }
 
   // Store in pending_food_orders
   const { data: pending, error } = await db
@@ -317,6 +418,7 @@ const previewFoodOrderHandler: ToolHandler = async (args, ctx) => {
     currency: 'KES',
     order_type: orderType,
     response: message,
+    image_url: offeringImageUrl,
     buttons: [
       { id: `food_order_confirm_${pendingId}`, title: '✅ Confirm' },
       { id: `food_order_edit_${pendingId}`, title: '✏️ Edit' },

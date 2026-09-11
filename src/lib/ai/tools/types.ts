@@ -24,7 +24,7 @@ export interface ToolParameter {
   type: string
   description?: string
   enum?: string[]
-  items?: { type: string }
+  items?: { type: string; properties?: Record<string, ToolParameter> }
   properties?: Record<string, ToolParameter>
 }
 

@@ -7,12 +7,15 @@ import { buildSystemPrompt } from './defaults'
 import { buildHandoffSummary } from './handoff'
 import { logAiUsage } from './usage'
 import { latestUserMessage } from './query'
-import { engineSendText, engineSendInteractiveButtons } from '@/lib/flows/meta-send'
+import { engineSendText, engineSendInteractiveButtons, engineSendMedia } from '@/lib/flows/meta-send'
+import { buildPaymentMessage } from './payment'
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 import { checkAiCredits, calculateCreditCost } from './credits'
 import { AiError, type ChatMessage } from './types'
 import { getToolsForBusinessType, executeToolCalls, hasToolCalls, ToolContext } from './tools'
-import { parseOrderButtonId, parseFoodOrderButtonId, parseReservationButtonId, parseBookingButtonId } from './tools'
+import { parseOrderButtonId, parseFoodOrderButtonId, parseReservationButtonId, parseBookingButtonId, parseMenuMoreButtonId, parseRoomMoreButtonId } from './tools'
+import { searchMenuItems } from './tools/restaurant'
+import { searchRooms } from './tools/hotel'
 
 interface DispatchArgs {
   accountId: string
@@ -321,66 +324,9 @@ async function handleOrderButton(
       })
 
       // ── MESSAGE 2: PAYMENT DETAILS ─────────────────────────
-      const { data: settings } = await db
-        .from('tenant_settings')
-        .select('payment_methods')
-        .eq('account_id', accountId)
-        .maybeSingle()
-
-      const paymentMethods = (settings?.payment_methods || []) as Array<{
-        type: string
-        name: string
-        till_number?: string
-        paybill_number?: string
-        account_number?: string
-        bank_name?: string
-        instructions?: string
-      }>
-
-      let paymentMsg: string
-
-      const paymentTypeLabel: Record<string, string> = {
-        mpesa_till: 'M-Pesa Till',
-        mpesa_paybill: 'M-Pesa Paybill',
-        bank_transfer: 'Bank Transfer',
-        cash: 'Cash',
-        card: 'Card',
-      }
-
-      if (paymentMethods.length > 0) {
-        let paymentLines = `*Amount:* ${pending.currency} ${order.total}\n*Order:* ${order.order_number}\n`
-        paymentLines += `\n*Payment Methods:*\n`
-        for (const method of paymentMethods) {
-          const typeLabel = paymentTypeLabel[method.type] || method.type
-          if (method.type === 'mpesa_till' && method.till_number) {
-            paymentLines += `• *${method.name}* (${typeLabel})\n  Till: ${method.till_number}\n`
-          } else if (method.type === 'mpesa_paybill' && method.paybill_number) {
-            paymentLines += `• *${method.name}* (${typeLabel})\n  Paybill: ${method.paybill_number}`
-            if (method.account_number) paymentLines += `\n  Account: ${method.account_number}`
-            paymentLines += `\n`
-          } else if (method.type === 'bank_transfer') {
-            paymentLines += `• *${method.name}* (${typeLabel})\n`
-            if (method.bank_name) paymentLines += `  Bank: ${method.bank_name}\n`
-            if (method.account_number) paymentLines += `  Account: ${method.account_number}\n`
-          } else if (method.type === 'cash') {
-            paymentLines += `• *${method.name}* (${typeLabel})\n`
-          } else {
-            paymentLines += `• *${method.name}* (${typeLabel})\n`
-          }
-          if (method.instructions) {
-            paymentLines += `  _${method.instructions}_\n`
-          }
-        }
-        paymentLines += `\nForward your payment confirmation message once paid.`
-        paymentMsg = `💳 *Payment Details*\n\n${paymentLines}`
-      } else {
-        paymentMsg =
-          `💳 *Payment*\n\n` +
-          `*Amount:* ${pending.currency} ${order.total}\n` +
-          `*Order:* ${order.order_number}\n\n` +
-          `Our payment handler will reach out to you shortly with payment instructions.\n` +
-          `Please standby.`
-      }
+      const paymentMsg = await buildPaymentMessage(
+        db, accountId, pending.currency || 'KES', order.total || 0, order.order_number,
+      )
 
       await engineSendText({
         accountId,
@@ -578,6 +524,19 @@ async function handleFoodOrderButton(
           `*Items:*\n${itemList}\n\n` +
           `*Total:* KES ${pending.price}\n\n` +
           `Your order is being prepared. We'll notify you when it's ready!`,
+        aiGenerated: true,
+      })
+
+      // ── PAYMENT DETAILS ────────────────────────────────────
+      const paymentMsg = await buildPaymentMessage(
+        db, accountId, pending.currency || 'KES', pending.price || 0, order.order_number,
+      )
+      await engineSendText({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        text: paymentMsg,
         aiGenerated: true,
       })
 
@@ -877,6 +836,19 @@ async function handleBookingButton(
         aiGenerated: true,
       })
 
+      // ── PAYMENT DETAILS ────────────────────────────────────
+      const paymentMsg = await buildPaymentMessage(
+        db, accountId, pending.currency || 'KES', pending.total_price || 0, bookingNumber,
+      )
+      await engineSendText({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        text: paymentMsg,
+        aiGenerated: true,
+      })
+
       await db.from('pending_bookings').delete().eq('id', pendingId)
       break
     }
@@ -919,6 +891,147 @@ async function handleBookingButton(
         text: 'I\'m not sure what to do with that action. How can I help?',
         aiGenerated: true,
       })
+  }
+}
+
+// ============================================================
+// Direct Pagination Handlers (no AI — like logistics confirm)
+// ============================================================
+
+async function handleMenuMore(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  configOwnerUserId: string,
+  offset: number,
+): Promise<void> {
+  // Fetch search params from conversation metadata
+  const { data: conv } = await db
+    .from('conversations')
+    .select('metadata')
+    .eq('id', conversationId)
+    .maybeSingle()
+
+  const searchParams = (conv?.metadata as Record<string, unknown>)?.menu_search_params as Record<string, unknown> | undefined
+
+  const result = await searchMenuItems(db, accountId, {
+    query: searchParams?.query as string | undefined,
+    category: searchParams?.category as string | undefined,
+    dietary: searchParams?.dietary as string | undefined,
+    offset,
+  })
+
+  if (result.items.length === 0) {
+    await engineSendText({
+      accountId,
+      userId: configOwnerUserId,
+      conversationId,
+      contactId,
+      text: 'No more menu items to show.',
+      aiGenerated: true,
+    })
+    return
+  }
+
+  // Format items list
+  const lines = result.items.map((item, i) =>
+    `${offset + i + 1}. *${item.name}* — ${item.currency} ${item.price}\n   ${item.description || ''}`,
+  ).join('\n\n')
+
+  const header = `📋 *Menu (continued)*\n\n`
+  const footer = result.has_more ? '\n\nType *more* or tap the button to see more.' : '\n\nThat\'s all we have! 🍽️'
+
+  if (result.buttons && result.buttons.length > 0) {
+    await engineSendInteractiveButtons({
+      accountId,
+      userId: configOwnerUserId,
+      conversationId,
+      contactId,
+      bodyText: header + lines + footer,
+      buttons: result.buttons.map((b) => ({ id: b.id, title: b.title })),
+    })
+  } else {
+    await engineSendText({
+      accountId,
+      userId: configOwnerUserId,
+      conversationId,
+      contactId,
+      text: header + lines + footer,
+      aiGenerated: true,
+    })
+  }
+}
+
+async function handleRoomMore(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  configOwnerUserId: string,
+  offset: number,
+): Promise<void> {
+  // Fetch search params from conversation metadata
+  const { data: conv } = await db
+    .from('conversations')
+    .select('metadata')
+    .eq('id', conversationId)
+    .maybeSingle()
+
+  const searchParams = (conv?.metadata as Record<string, unknown>)?.room_search_params as Record<string, unknown> | undefined
+
+  const result = await searchRooms(db, accountId, {
+    check_in: searchParams?.check_in as string | undefined,
+    check_out: searchParams?.check_out as string | undefined,
+    guests: searchParams?.guests as number | undefined,
+    query: searchParams?.query as string | undefined,
+    min_price: searchParams?.min_price as number | undefined,
+    max_price: searchParams?.max_price as number | undefined,
+    offset,
+  })
+
+  if (result.rooms.length === 0) {
+    await engineSendText({
+      accountId,
+      userId: configOwnerUserId,
+      conversationId,
+      contactId,
+      text: 'No more rooms to show.',
+      aiGenerated: true,
+    })
+    return
+  }
+
+  // Format rooms list
+  const lines = result.rooms.map((room, i) =>
+    `${offset + i + 1}. *${room.name}* — ${room.currency} ${room.price_per_night}/night\n` +
+    `   👥 Up to ${room.max_guests} guests | 🛏️ ${room.bed_type || 'Standard'}\n` +
+    `   ${room.amenities.length > 0 ? '✨ ' + room.amenities.slice(0, 3).join(', ') : ''}`,
+  ).join('\n\n')
+
+  const header = result.search_dates
+    ? `🏨 *Available Rooms* (${result.search_dates.check_in} to ${result.search_dates.check_out})\n\n`
+    : `🏨 *Rooms (continued)*\n\n`
+  const footer = result.has_more ? '\n\nType *more* or tap the button to see more.' : '\n\nThat\'s all we have available!'
+
+  if (result.buttons && result.buttons.length > 0) {
+    await engineSendInteractiveButtons({
+      accountId,
+      userId: configOwnerUserId,
+      conversationId,
+      contactId,
+      bodyText: header + lines + footer,
+      buttons: result.buttons.map((b) => ({ id: b.id, title: b.title })),
+    })
+  } else {
+    await engineSendText({
+      accountId,
+      userId: configOwnerUserId,
+      conversationId,
+      contactId,
+      text: header + lines + footer,
+      aiGenerated: true,
+    })
   }
 }
 
@@ -973,6 +1086,18 @@ export async function dispatchInboundToAiReply(
           await handleBookingButton(db, accountId, conversationId, contactId, configOwnerUserId, bookingAction)
           return
         }
+        const menuMore = parseMenuMoreButtonId(interactiveReplyId)
+        if (menuMore) {
+          console.log(`[dispatchInboundToAiReply] menu more click (no AI config): offset=${menuMore.offset}`)
+          await handleMenuMore(db, accountId, conversationId, contactId, configOwnerUserId, menuMore.offset)
+          return
+        }
+        const roomMore = parseRoomMoreButtonId(interactiveReplyId)
+        if (roomMore) {
+          console.log(`[dispatchInboundToAiReply] room more click (no AI config): offset=${roomMore.offset}`)
+          await handleRoomMore(db, accountId, conversationId, contactId, configOwnerUserId, roomMore.offset)
+          return
+        }
       }
       await sendDefaultMessage(db, accountId, conversationId, contactId, configOwnerUserId, 'noAi')
       return
@@ -1003,6 +1128,18 @@ export async function dispatchInboundToAiReply(
       if (bookingAction) {
         console.log(`[dispatchInboundToAiReply] booking button click: ${bookingAction.action}`)
         await handleBookingButton(db, accountId, conversationId, contactId, configOwnerUserId, bookingAction)
+        return
+      }
+      const menuMore = parseMenuMoreButtonId(interactiveReplyId)
+      if (menuMore) {
+        console.log(`[dispatchInboundToAiReply] menu more click: offset=${menuMore.offset}`)
+        await handleMenuMore(db, accountId, conversationId, contactId, configOwnerUserId, menuMore.offset)
+        return
+      }
+      const roomMore = parseRoomMoreButtonId(interactiveReplyId)
+      if (roomMore) {
+        console.log(`[dispatchInboundToAiReply] room more click: offset=${roomMore.offset}`)
+        await handleRoomMore(db, accountId, conversationId, contactId, configOwnerUserId, roomMore.offset)
         return
       }
     }
@@ -1225,6 +1362,7 @@ export async function dispatchInboundToAiReply(
     let finalButtons: Array<{ id: string; title: string }> | null = null
     let finalHeader: string | undefined
     let finalFooter: string | undefined
+    let finalImageUrl: string | null = null
     let totalUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
     let lastUsage = null
 
@@ -1299,6 +1437,10 @@ export async function dispatchInboundToAiReply(
               editingPendingOrder = null
               console.log('[dispatchInboundToAiReply] deleted old pending order after edit')
             }
+          }
+          // Capture image_url from tool results
+          if (parsed.image_url && !finalImageUrl) {
+            finalImageUrl = parsed.image_url
           }
           // Use the structured response message if available
           if (parsed.response && !finalText) {
@@ -1404,6 +1546,23 @@ export async function dispatchInboundToAiReply(
       return
     }
     if (claimed !== true) return
+
+    // ── SEND IMAGE (if tool returned one) ─────────────────────
+    if (finalImageUrl) {
+      try {
+        await engineSendMedia({
+          accountId,
+          userId: configOwnerUserId,
+          conversationId,
+          contactId,
+          kind: 'image',
+          link: finalImageUrl,
+        })
+      } catch (imgErr) {
+        console.error('[ai auto-reply] failed to send image:', imgErr)
+        // Continue to send text/buttons even if image fails
+      }
+    }
 
     // Send interactive buttons if available, otherwise plain text
     if (finalButtons && finalButtons.length > 0 && reply.text) {

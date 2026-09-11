@@ -100,29 +100,60 @@ function calculateNights(checkIn: string, checkOut: string): number {
 }
 
 // ============================================================
-// Tool Handlers
+// Standalone Search Function (used by tool handler + button handler)
 // ============================================================
 
-const searchRoomsHandler: ToolHandler = async (args, ctx) => {
-  const { db } = ctx
-  const checkIn = args.check_in as string | undefined
-  const checkOut = args.check_out as string | undefined
-  const guests = (args.guests as number) || 1
-  const query = args.query as string | undefined
-  const minPrice = (args.min_price as number) || 0
-  const maxPrice = (args.max_price as number) || Infinity
-  const limit = Math.min((args.limit as number) || 10, 10)
-  const offset = (args.offset as number) || 0
+export interface RoomSearchParams {
+  check_in?: string
+  check_out?: string
+  guests?: number
+  query?: string
+  min_price?: number
+  max_price?: number
+  limit?: number
+  offset?: number
+}
+
+export interface RoomSearchResult {
+  rooms: Array<{
+    id: string
+    name: string
+    description: string | null
+    price_per_night: number
+    currency: string
+    max_guests: number
+    bed_type: string | null
+    amenities: string[]
+    view: string | null
+    image_url: string | null
+  }>
+  count: number
+  has_more: boolean
+  offset: number
+  search_dates: { check_in: string; check_out: string } | null
+  buttons?: Array<{ id: string; title: string }>
+}
+
+export async function searchRooms(
+  db: any,
+  accountId: string,
+  params: RoomSearchParams,
+): Promise<RoomSearchResult> {
+  const guests = params.guests || 1
+  const minPrice = params.min_price || 0
+  const maxPrice = params.max_price || Infinity
+  const limit = Math.min(params.limit || 10, 10)
+  const offset = params.offset || 0
 
   let q = db
     .from('offerings')
-    .select('id, name, slug, short_description, description, price, currency, metadata')
-    .eq('account_id', ctx.accountId)
+    .select('id, name, slug, short_description, description, price, currency, metadata, media:offering_media(url, alt_text, sort_order, is_primary)')
+    .eq('account_id', accountId)
     .eq('type', 'room')
     .eq('status', 'active')
 
-  if (query) {
-    q = q.or(`name.ilike.%${query}%,short_description.ilike.%${query}%,description.ilike.%${query}%`)
+  if (params.query) {
+    q = q.or(`name.ilike.%${params.query}%,short_description.ilike.%${params.query}%,description.ilike.%${params.query}%`)
   }
 
   const { data: rooms, error } = await q
@@ -130,10 +161,9 @@ const searchRoomsHandler: ToolHandler = async (args, ctx) => {
     .range(offset, offset + limit - 1)
 
   if (error) {
-    return { error: 'Failed to search rooms', rooms: [], count: 0 }
+    return { rooms: [], count: 0, has_more: false, offset, search_dates: null }
   }
 
-  // Filter by capacity and price in-memory
   let filtered = (rooms || []).filter((room: any) => {
     const meta = (room.metadata || {}) as Record<string, unknown>
     const capacity = (meta.capacity as Record<string, unknown>) || {}
@@ -144,41 +174,102 @@ const searchRoomsHandler: ToolHandler = async (args, ctx) => {
     return true
   })
 
-  // Filter out rooms with existing bookings for the dates
-  if (checkIn && checkOut) {
+  if (params.check_in && params.check_out) {
     const { data: bookedRooms } = await db
       .from('bookings')
       .select('offering_id')
-      .eq('account_id', ctx.accountId)
+      .eq('account_id', accountId)
       .in('status', ['pending', 'confirmed', 'checked_in'])
-      .lt('start_date', checkOut)
-      .gt('end_date', checkIn)
+      .lt('start_date', params.check_out)
+      .gt('end_date', params.check_in)
 
     const bookedIds = new Set((bookedRooms || []).map((b: any) => b.offering_id))
     filtered = filtered.filter((room: any) => !bookedIds.has(room.id))
   }
 
-  return {
-    rooms: filtered.map((room: any) => {
-      const meta = (room.metadata || {}) as Record<string, unknown>
-      const capacity = (meta.capacity as Record<string, unknown>) || {}
-      return {
-        id: room.id,
-        name: room.name,
-        description: room.short_description || room.description,
-        price_per_night: room.price,
-        currency: room.currency || 'KES',
-        max_guests: capacity.max_guests || 2,
-        bed_type: capacity.bed_type || null,
-        amenities: meta.amenities || [],
-        view: meta.view || null,
-      }
-    }),
+  const has_more = filtered.length === limit
+  const nextOffset = offset + limit
+
+  const resultRooms = filtered.map((room: any) => {
+    const meta = (room.metadata || {}) as Record<string, unknown>
+    const capacity = (meta.capacity as Record<string, unknown>) || {}
+    const media = (room.media as any[]) || []
+    const primaryImage = media.find((m: any) => m.is_primary)?.url || media[0]?.url || null
+    return {
+      id: room.id,
+      name: room.name,
+      description: room.short_description || room.description,
+      price_per_night: room.price,
+      currency: room.currency || 'KES',
+      max_guests: capacity.max_guests || 2,
+      bed_type: capacity.bed_type || null,
+      amenities: meta.amenities || [],
+      view: meta.view || null,
+      image_url: primaryImage,
+    }
+  })
+
+  const result: RoomSearchResult = {
+    rooms: resultRooms,
     count: filtered.length,
-    has_more: filtered.length === limit,
+    has_more,
     offset,
-    search_dates: checkIn && checkOut ? { check_in: checkIn, check_out: checkOut } : null,
+    search_dates: params.check_in && params.check_out
+      ? { check_in: params.check_in, check_out: params.check_out }
+      : null,
   }
+
+  if (has_more) {
+    result.buttons = [{ id: `room_more_${nextOffset}`, title: 'See More →' }]
+  }
+
+  return result
+}
+
+// ============================================================
+// Tool Handlers
+// ============================================================
+
+const searchRoomsHandler: ToolHandler = async (args, ctx) => {
+  const result = await searchRooms(ctx.db, ctx.accountId, {
+    check_in: args.check_in as string | undefined,
+    check_out: args.check_out as string | undefined,
+    guests: (args.guests as number) || undefined,
+    query: args.query as string | undefined,
+    min_price: (args.min_price as number) || undefined,
+    max_price: (args.max_price as number) || undefined,
+    limit: (args.limit as number) || undefined,
+    offset: (args.offset as number) || undefined,
+  })
+
+  // Store search params in conversation metadata for "More" button
+  if (ctx.conversationId) {
+    const searchParams: RoomSearchParams = {
+      check_in: args.check_in as string | undefined,
+      check_out: args.check_out as string | undefined,
+      guests: (args.guests as number) || undefined,
+      query: args.query as string | undefined,
+      min_price: (args.min_price as number) || undefined,
+      max_price: (args.max_price as number) || undefined,
+    }
+    const { data: conv } = await ctx.db
+      .from('conversations')
+      .select('metadata')
+      .eq('id', ctx.conversationId)
+      .maybeSingle()
+
+    await ctx.db
+      .from('conversations')
+      .update({
+        metadata: {
+          ...(conv?.metadata || {}),
+          room_search_params: searchParams,
+        },
+      })
+      .eq('id', ctx.conversationId)
+  }
+
+  return result
 }
 
 const getRoomHandler: ToolHandler = async (args, ctx) => {
@@ -187,7 +278,7 @@ const getRoomHandler: ToolHandler = async (args, ctx) => {
 
   const { data: room, error } = await db
     .from('offerings')
-    .select('id, name, slug, short_description, description, price, currency, metadata')
+    .select('id, name, slug, short_description, description, price, currency, metadata, media:offering_media(url, alt_text, sort_order, is_primary)')
     .eq('id', roomId)
     .eq('account_id', ctx.accountId)
     .eq('type', 'room')
@@ -200,6 +291,9 @@ const getRoomHandler: ToolHandler = async (args, ctx) => {
   const meta = (room.metadata || {}) as Record<string, unknown>
   const capacity = (meta.capacity as Record<string, unknown>) || {}
   const policies = (meta.policies as Record<string, unknown>) || {}
+  const media = (room.media as any[]) || []
+  const primaryImage = media.find((m: any) => m.is_primary)?.url || media[0]?.url || null
+  const allImages = media.map((m: any) => m.url).filter(Boolean)
 
   return {
     found: true,
@@ -219,6 +313,8 @@ const getRoomHandler: ToolHandler = async (args, ctx) => {
     check_in_time: policies.check_in || '14:00',
     check_out_time: policies.check_out || '11:00',
     cancellation_policy: policies.cancellation || null,
+    image_url: primaryImage,
+    image_urls: allImages,
   }
 }
 
@@ -241,7 +337,7 @@ const previewBookingHandler: ToolHandler = async (args, ctx) => {
   // Look up room details
   const { data: room } = await db
     .from('offerings')
-    .select('id, name, price, currency, metadata')
+    .select('id, name, price, currency, metadata, media:offering_media(url, is_primary)')
     .eq('id', roomId)
     .eq('account_id', ctx.accountId)
     .eq('type', 'room')
@@ -253,6 +349,8 @@ const previewBookingHandler: ToolHandler = async (args, ctx) => {
 
   const pricePerNight = room.price || 0
   const totalPrice = pricePerNight * nights
+  const media = (room.media as any[]) || []
+  const roomImageUrl = media.find((m: any) => m.is_primary)?.url || media[0]?.url || null
 
   // Store in pending_bookings
   const { data: pending, error } = await db
@@ -310,6 +408,7 @@ const previewBookingHandler: ToolHandler = async (args, ctx) => {
     currency: room.currency || 'KES',
     nights,
     response: message,
+    image_url: roomImageUrl,
     buttons: [
       { id: `booking_confirm_${pendingId}`, title: '✅ Confirm' },
       { id: `booking_edit_${pendingId}`, title: '✏️ Edit' },

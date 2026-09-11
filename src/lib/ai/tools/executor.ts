@@ -30,9 +30,7 @@ export function getToolsForBusinessType(businessType: string | null): Registered
   // Logistics tools for delivery/courier businesses
   if (
     !businessType ||
-    businessType === 'logistics' ||
     businessType === 'courier' ||
-    businessType === 'delivery' ||
     businessType === 'logistics_delivery'
   ) {
     for (const def of logisticsTools) {
