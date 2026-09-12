@@ -453,7 +453,450 @@ async function checkStock(externalId: string): Promise<number> {
 
 ---
 
-## 5. Provider Adapter Interface
+## 5. Plugin Architecture (Store Plugins)
+
+### Overview
+
+Instead of requiring manual API key configuration, we provide **store plugins** that businesses install on their existing platform. The plugin handles all connection setup automatically.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    PLUGIN ARCHITECTURE                           │
+│                                                                  │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐       │
+│  │  Shopify App │    │WooCommerce   │    │  WordPress   │       │
+│  │  (embedded)  │    │  Plugin      │    │  Plugin      │       │
+│  └──────┬───────┘    └──────┬───────┘    └──────┬───────┘       │
+│         │                   │                   │                │
+│         ▼                   ▼                   ▼                │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │              Plugin Registration API                      │   │
+│  │         POST /api/integrations/plugins/register           │   │
+│  └──────────────────────────┬───────────────────────────────┘   │
+│                             │                                    │
+│                             ▼                                    │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │              WACRM Integration Layer                      │   │
+│  │  • Auto-creates connection record                         │   │
+│  │  • Registers webhooks                                    │   │
+│  │  • Starts initial sync                                   │   │
+│  │  • Returns connection_id + status                        │   │
+│  └──────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Plugin Types
+
+| Plugin | Platform | Install Method | Connection |
+|--------|----------|----------------|------------|
+| **Shopify App** | Shopify | Shopify App Store | OAuth2 — one-click install |
+| **WooCommerce Plugin** | WordPress/WooCommerce | WordPress Plugin Directory | REST API key — auto-generated |
+| **WordPress Plugin** | WordPress | WordPress Plugin Directory | Application Passwords — auto-generated |
+| **Custom Webhook** | Any system | Manual config | API key + webhook URL |
+
+### Shopify App (Embedded)
+
+Shopify apps run inside Shopify's admin panel. Our app would:
+
+1. **User installs app** from Shopify App Store
+2. **OAuth2 flow** — Shopify redirects to our callback URL with access token
+3. **Auto-configure** — We create connection record, register webhooks
+4. **Initial sync** — Pull all products, stock, orders
+5. **Real-time** — Webhooks for all changes
+
+```typescript
+// src/app/api/integrations/plugins/shopify/callback/route.ts
+
+export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url)
+  const shop = searchParams.get('shop') // e.g., "mystore.myshopify.com"
+  const code = searchParams.get('code') // OAuth code
+
+  // Exchange code for access token
+  const tokenResponse = await fetch(`https://${shop}/admin/oauth/access_token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      client_id: process.env.SHOPIFY_CLIENT_ID,
+      client_secret: process.env.SHOPIFY_CLIENT_SECRET,
+      code,
+    }),
+  })
+
+  const { access_token } = await tokenResponse.json()
+
+  // Create connection
+  const connection = await createConnection({
+    account_id: accountId, // From session
+    provider_key: 'shopify',
+    name: shop,
+    config: { storeUrl: shop },
+    credentials: { accessToken: access_token },
+    sync_config: { mode: 'full_sync' },
+  })
+
+  // Register webhooks
+  await registerShopifyWebhooks(shop, access_token, connection.id)
+
+  // Start initial sync
+  await startInitialSync(connection.id)
+
+  return NextResponse.redirect(`/settings/integrations?connected=shopify`)
+}
+```
+
+### WooCommerce Plugin (WordPress)
+
+The WooCommerce plugin is a WordPress plugin that:
+
+1. **User installs** via WordPress admin → Plugins → Add New → Search "WACRM"
+2. **Plugin generates** REST API credentials automatically
+3. **Plugin sends** credentials to our API
+4. **We create** connection record and start sync
+5. **Plugin shows** sync status in WordPress admin
+
+```php
+// plugins/wacrm-connector/wacrm-connector.php
+/*
+Plugin Name: WACRM Connector
+Description: Connect your WooCommerce store to WACRM WhatsApp CRM
+Version: 1.0.0
+Author: Tijwa
+*/
+
+// Generate API credentials on activation
+register_activation_hook(__FILE__, 'wacrm_activate');
+function wacrm_activate() {
+    // Generate consumer key/secret
+    $consumer_key = 'ck_' . wp_generate_password(40, false);
+    $consumer_secret = 'cs_' . wp_generate_password(40, false);
+
+    // Store in wp_options
+    update_option('wacrm_consumer_key', $consumer_key);
+    update_option('wacrm_consumer_secret', $consumer_secret);
+    update_option('wacrm_connection_status', 'pending');
+}
+
+// Register REST API endpoint for WACRM to pull data
+add_action('rest_api_init', function () {
+    register_rest_route('wacrm/v1', '/products', array(
+        'methods' => 'GET',
+        'callback' => 'wacrm_get_products',
+        'permission_callback' => 'wacrm_verify_api_key',
+    ));
+
+    register_rest_route('wacrm/v1', '/orders', array(
+        'methods' => 'GET',
+        'callback' => 'wacrm_get_orders',
+        'permission_callback' => 'wacrm_verify_api_key',
+    ));
+
+    register_rest_route('wacrm/v1', '/webhook', array(
+        'methods' => 'POST',
+        'callback' => 'wacrm_receive_webhook',
+        'permission_callback' => 'wacrm_verify_webhook_signature',
+    ));
+});
+
+function wacrm_get_products($request) {
+    $args = array(
+        'post_type' => 'product',
+        'posts_per_page' => -1,
+        'post_status' => 'publish',
+    );
+
+    $products = get_posts($args);
+    $data = array();
+
+    foreach ($products as $product) {
+        $wc_product = wc_get_product($product->ID);
+        $data[] = array(
+            'id' => $product->ID,
+            'name' => $product->post_title,
+            'description' => $product->post_content,
+            'sku' => $wc_product->get_sku(),
+            'price' => $wc_product->get_price(),
+            'stock' => $wc_product->get_stock_quantity(),
+            'status' => $wc_product->get_status(),
+            'images' => wp_get_attachment_url($wc_product->get_image_id()),
+            'categories' => wp_get_post_terms($product->ID, 'product_cat', array('fields' => 'names')),
+        );
+    }
+
+    return rest_ensure_response(array('products' => $data));
+}
+
+function wacrm_get_orders($request) {
+    $args = array(
+        'type' => 'shop_order',
+        'status' => array('wc-processing', 'wc-completed', 'wc-on-hold'),
+        'limit' => -1,
+    );
+
+    $orders = wc_get_orders($args);
+    $data = array();
+
+    foreach ($orders as $order) {
+        $items = array();
+        foreach ($order->get_items() as $item) {
+            $items[] = array(
+                'product_id' => $item->get_product_id(),
+                'name' => $item->get_name(),
+                'quantity' => $item->get_quantity(),
+                'total' => $item->get_total(),
+            );
+        }
+
+        $data[] = array(
+            'id' => $order->get_id(),
+            'number' => $order->get_order_number(),
+            'status' => $order->get_status(),
+            'total' => $order->get_total(),
+            'currency' => $order->get_currency(),
+            'items' => $items,
+            'date_created' => $order->get_date_created()->format('c'),
+        );
+    }
+
+    return rest_ensure_response(array('orders' => $data));
+}
+
+function wacrm_receive_webhook($request) {
+    $payload = $request->get_json_params();
+    $event = $payload['type'] ?? '';
+
+    switch ($event) {
+        case 'order.created':
+        case 'order.updated':
+            // Process order update
+            wacrm_sync_order($payload['data']);
+            break;
+        case 'product.updated':
+            // Process product update
+            wacrm_sync_product($payload['data']);
+            break;
+    }
+
+    return rest_ensure_response(array('received' => true));
+}
+
+// Auto-connect to WACRM on activation
+function wacrm_auto_connect() {
+    $site_url = get_site_url();
+    $consumer_key = get_option('wacrm_consumer_key');
+    $consumer_secret = get_option('wacrm_consumer_secret');
+
+    // Send registration to WACRM
+    $response = wp_remote_post(WACRM_API_URL . '/api/integrations/plugins/register', array(
+        'body' => json_encode(array(
+            'platform' => 'woocommerce',
+            'store_url' => $site_url,
+            'consumer_key' => $consumer_key,
+            'consumer_secret' => $consumer_secret,
+        )),
+        'headers' => array(
+            'Content-Type' => 'application/json',
+            'Authorization' => 'Bearer ' . WACRM_API_KEY,
+        ),
+    ));
+
+    if (is_wp_error($response)) {
+        update_option('wacrm_connection_status', 'error');
+        return;
+    }
+
+    $body = json_decode(wp_remote_retrieve_body($response), true);
+    update_option('wacrm_connection_id', $body['connection_id']);
+    update_option('wacrm_connection_status', 'active');
+}
+```
+
+### Plugin Registration API
+
+```typescript
+// src/app/api/integrations/plugins/register/route.ts
+
+import { NextRequest, NextResponse } from 'next/server'
+import { supabaseAdmin } from '@/lib/supabase/admin'
+
+interface PluginRegistration {
+  platform: 'shopify' | 'woocommerce' | 'wordpress' | 'generic'
+  store_url: string
+  // Platform-specific credentials
+  access_token?: string       // Shopify
+  consumer_key?: string       // WooCommerce
+  consumer_secret?: string    // WooCommerce
+  api_key?: string            // Generic
+}
+
+export async function POST(request: NextRequest) {
+  const body: PluginRegistration = await request.json()
+  const authHeader = request.headers.get('authorization')
+
+  // Verify API key (plugin sends this during registration)
+  const apiKey = authHeader?.replace('Bearer ', '')
+  if (!apiKey) {
+    return NextResponse.json({ error: 'Missing API key' }, { status: 401 })
+  }
+
+  // Find account by API key
+  const { data: keyData } = await supabaseAdmin
+    .from('api_keys')
+    .select('account_id')
+    .eq('key_hash', hashApiKey(apiKey))
+    .eq('is_active', true)
+    .single()
+
+  if (!keyData) {
+    return NextResponse.json({ error: 'Invalid API key' }, { status: 401 })
+  }
+
+  const accountId = keyData.account_id
+
+  // Build credentials based on platform
+  let credentials: Record<string, string> = {}
+  let config: Record<string, unknown> = {}
+
+  switch (body.platform) {
+    case 'shopify':
+      credentials = { accessToken: body.access_token! }
+      config = { storeUrl: body.store_url }
+      break
+    case 'woocommerce':
+      credentials = {
+        storeUrl: body.store_url,
+        consumerKey: body.consumer_key!,
+        consumerSecret: body.consumer_secret!,
+      }
+      break
+    case 'wordpress':
+      credentials = {
+        storeUrl: body.store_url,
+        apiKey: body.api_key!,
+      }
+      break
+    case 'generic':
+      credentials = { apiKey: body.api_key! }
+      config = { apiUrl: body.store_url }
+      break
+  }
+
+  // Test connection
+  const adapter = getAdapter(body.platform === 'wordpress' ? 'woocommerce' : body.platform)
+  if (adapter) {
+    const isValid = await adapter.testConnection(credentials, config)
+    if (!isValid) {
+      return NextResponse.json({ error: 'Connection test failed' }, { status: 400 })
+    }
+  }
+
+  // Create connection
+  const { data: connection, error } = await supabaseAdmin
+    .from('integration_connections')
+    .insert({
+      account_id: accountId,
+      provider_key: body.platform,
+      name: body.store_url,
+      status: 'active',
+      config,
+      credentials, // TODO: Encrypt
+      sync_config: {
+        mode: 'full_sync',
+        inbound: { products: true, stock: true, prices: true, orders: true, customers: true },
+        outbound: { orders: true, order_status: true },
+      },
+    })
+    .select()
+    .single()
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  // Register webhooks for the platform
+  if (body.platform === 'shopify') {
+    await registerShopifyWebhooks(body.store_url, body.access_token!, connection.id)
+  }
+  // WooCommerce uses our webhook endpoint directly
+
+  // Start initial sync (background job)
+  await startInitialSync(connection.id)
+
+  return NextResponse.json({
+    connection_id: connection.id,
+    status: 'active',
+    message: 'Connection established. Initial sync started.',
+  })
+}
+```
+
+### Plugin Dashboard (in-store)
+
+Each plugin shows sync status in the store's admin panel:
+
+```
+┌─────────────────────────────────────────────────┐
+│  WACRM Connector — WooCommerce                   │
+│                                                   │
+│  Status: ✅ Connected                             │
+│  Last Sync: 2 minutes ago                         │
+│                                                   │
+│  Synced Data:                                     │
+│  ┌─────────────────┬──────────┬──────────┐       │
+│  │ Entity          │ Synced   │ Status   │       │
+│  ├─────────────────┼──────────┼──────────┤       │
+│  │ Products        │ 142      │ ✅       │       │
+│  │ Stock Levels    │ 142      │ ✅       │       │
+│  │ Orders (from WA)│ 23       │ ✅       │       │
+│  │ Orders (from WC)│ 156      │ ✅       │       │
+│  └─────────────────┴──────────┴──────────┘       │
+│                                                   │
+│  [🔄 Sync Now]  [⚙️ Settings]  [🔌 Disconnect]  │
+└─────────────────────────────────────────────────┘
+```
+
+### Plugin File Structure
+
+```
+plugins/
+├── shopify-app/
+│   ├── app.toml                    # Shopify app config
+│   ├── pages/
+│   │   ├── index.tsx               # App home page
+│   │   └── settings.tsx            # Settings page
+│   ├── webhooks/
+│   │   └── orders.ts               # Order webhook handler
+│   └── extensions/
+│       └── checkout/
+│           └── ...                  # Checkout extension (optional)
+│
+├── woocommerce-plugin/
+│   ├── wacrm-connector.php         # Main plugin file
+│   ├── includes/
+│   │   ├── class-wacrm-api.php     # REST API handlers
+│   │   ├── class-wacrm-sync.php    # Sync logic
+│   │   └── class-wacrm-webhook.php # Webhook handlers
+│   ├── admin/
+│   │   ├── settings-page.php       # Admin settings
+│   │   └── css/admin.css           # Admin styles
+│   └── readme.txt                  # Plugin readme
+│
+├── wordpress-plugin/
+│   ├── wacrm-connect.php           # Main plugin file
+│   ├── includes/
+│   │   ├── class-wacrm-rest.php    # REST API endpoints
+│   │   └── class-wacrm-sync.php    # Sync logic
+│   └── admin/
+│       └── settings-page.php       # Admin settings
+│
+└── shared/
+    ├── plugin-api.ts               # Shared API client
+    └── sync-status.ts              # Shared status component
+```
+
+---
+
+## 6. Provider Adapter Interface
 
 ```typescript
 // src/lib/integrations/types.ts
@@ -602,7 +1045,7 @@ export interface InternalOrder {
 
 ---
 
-## 6. Provider Adapters
+## 7. Provider Adapters
 
 ### 4.1 Shopify Adapter
 
@@ -1915,7 +2358,7 @@ supabase/migrations/
 
 ---
 
-## 10. Implementation Phases
+## 13. Implementation Phases
 
 ### Phase 1: Foundation (Current)
 - [x] Design document
@@ -1938,13 +2381,24 @@ supabase/migrations/
 - [ ] Signature verification
 - [ ] Event processing
 
-### Phase 5: UI & Management
-- [ ] Connection management page
+### Phase 5: Plugin Registration API
+- [ ] Plugin registration endpoint
+- [ ] Auto-connection flow
+- [ ] Plugin status tracking
+
+### Phase 6: Store Plugins
+- [ ] Shopify App (embedded in Shopify admin)
+- [ ] WooCommerce Plugin (WordPress plugin)
+- [ ] WordPress Plugin (REST API)
+- [ ] Plugin dashboard in store admin
+
+### Phase 7: UI & Management
+- [ ] Connection management page (WACRM settings)
 - [ ] Sync dashboard
 - [ ] Conflict resolution UI
 - [ ] Field mapping configuration
 
-### Phase 6: Production Hardening
+### Phase 8: Production Hardening
 - [ ] Credential encryption
 - [ ] Rate limiting
 - [ ] Retry logic
@@ -1952,7 +2406,7 @@ supabase/migrations/
 
 ---
 
-## 11. Security Considerations
+## 14. Security Considerations
 
 1. **Credential Storage**: All API keys and tokens must be encrypted at rest using AES-256. Never store plaintext credentials.
 2. **Webhook Verification**: Always verify webhook signatures before processing. Use HMAC-SHA256.
