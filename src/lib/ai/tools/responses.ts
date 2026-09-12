@@ -124,6 +124,18 @@ export function parsePropertyMoreButtonId(buttonId: string): { offset: number } 
   return { offset: parseInt(match[1], 10) }
 }
 
+export function parseNgoProgramMoreButtonId(buttonId: string): { offset: number } | null {
+  const match = buttonId.match(/^ngo_program_more_(\d+)$/)
+  if (!match) return null
+  return { offset: parseInt(match[1], 10) }
+}
+
+export function parseNgoCourseMoreButtonId(buttonId: string): { offset: number } | null {
+  const match = buttonId.match(/^ngo_course_more_(\d+)$/)
+  if (!match) return null
+  return { offset: parseInt(match[1], 10) }
+}
+
 // ---- Cart Buttons ----
 
 export function parseCartButtonId(buttonId: string): { action: 'checkout' | 'clear' | 'continue' } | null {

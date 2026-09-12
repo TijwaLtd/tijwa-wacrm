@@ -13,12 +13,13 @@ import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 import { checkAiCredits, calculateCreditCost } from './credits'
 import { AiError, type ChatMessage } from './types'
 import { getToolsForBusinessType, executeToolCalls, hasToolCalls, ToolContext } from './tools'
-import { parseOrderButtonId, parseFoodOrderButtonId, parseReservationButtonId, parseBookingButtonId, parsePropertyInquiryButtonId, parseProductOrderButtonId, parseMenuMoreButtonId, parseRoomMoreButtonId, parseProductMoreButtonId, parseServiceMoreButtonId, parsePropertyMoreButtonId, parseCartButtonId } from './tools'
+import { parseOrderButtonId, parseFoodOrderButtonId, parseReservationButtonId, parseBookingButtonId, parsePropertyInquiryButtonId, parseProductOrderButtonId, parseMenuMoreButtonId, parseRoomMoreButtonId, parseProductMoreButtonId, parseServiceMoreButtonId, parsePropertyMoreButtonId, parseNgoProgramMoreButtonId, parseNgoCourseMoreButtonId, parseCartButtonId } from './tools'
 import { searchMenuItems } from './tools/restaurant'
 import { searchRooms } from './tools/hotel'
 import { searchProducts, getCart, addToCart, clearCart, formatCartSummary, getCartButtons } from './tools/retailer'
 import { searchServices } from './tools/services'
 import { searchProperties } from './tools/property'
+import { searchPrograms, searchCourses } from './tools/ngo'
 
 interface DispatchArgs {
   accountId: string
@@ -2128,6 +2129,159 @@ async function handlePropertyListSelect(
 // ============================================================
 // Property Inquiry Button Handler (no AI)
 // ============================================================
+// NGO Program List Selection Handler (no AI)
+// ============================================================
+
+async function handleNgoProgramListSelect(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  configOwnerUserId: string,
+  selectionId: string,
+): Promise<void> {
+  const match = selectionId.match(/^ngo_program_select_(.+)$/)
+  if (!match) {
+    await engineSendText({ accountId, userId: configOwnerUserId, conversationId, contactId, text: 'Invalid selection.', aiGenerated: true })
+    return
+  }
+
+  const programId = match[1]
+  const { data: program } = await db.from('ngo_programs').select('id, name, description, short_description, category').eq('id', programId).eq('account_id', accountId).maybeSingle()
+
+  if (!program) {
+    await engineSendText({ accountId, userId: configOwnerUserId, conversationId, contactId, text: 'Program not found.', aiGenerated: true })
+    return
+  }
+
+  await engineSendInteractiveButtons({
+    accountId, userId: configOwnerUserId, conversationId, contactId,
+    bodyText: `📋 *${program.name}*\n\n${program.short_description || program.description || ''}\n\nWould you like to apply?`,
+    buttons: [
+      { id: `ngo_apply_${programId}`, title: '✅ Apply Now' },
+      { id: `ngo_info_${programId}`, title: 'ℹ️ More Info' },
+      { id: `ngo_back_${programId}`, title: '🔙 Back' },
+    ],
+  })
+}
+
+// ============================================================
+// NGO Course List Selection Handler (no AI)
+// ============================================================
+
+async function handleNgoCourseListSelect(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  configOwnerUserId: string,
+  selectionId: string,
+): Promise<void> {
+  const match = selectionId.match(/^ngo_course_select_(.+)$/)
+  if (!match) {
+    await engineSendText({ accountId, userId: configOwnerUserId, conversationId, contactId, text: 'Invalid selection.', aiGenerated: true })
+    return
+  }
+
+  const courseId = match[1]
+  const { data: course } = await db.from('training_courses').select('id, name, description, short_description, category, duration_weeks').eq('id', courseId).eq('account_id', accountId).maybeSingle()
+
+  if (!course) {
+    await engineSendText({ accountId, userId: configOwnerUserId, conversationId, contactId, text: 'Course not found.', aiGenerated: true })
+    return
+  }
+
+  await engineSendInteractiveButtons({
+    accountId, userId: configOwnerUserId, conversationId, contactId,
+    bodyText: `🎓 *${course.name}*\n\n${course.short_description || course.description || ''}\n\n⏱️ Duration: ${course.duration_weeks} weeks\n📂 Category: ${course.category || 'general'}`,
+    buttons: [
+      { id: `ngo_enroll_${courseId}`, title: '📝 Enroll Now' },
+      { id: `ngo_course_info_${courseId}`, title: 'ℹ️ More Info' },
+      { id: `ngo_course_back_${courseId}`, title: '🔙 Back' },
+    ],
+  })
+}
+
+// ============================================================
+// NGO Program More Handler (no AI — paginated)
+// ============================================================
+
+async function handleNgoProgramMore(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  configOwnerUserId: string,
+  offset: number,
+): Promise<void> {
+  const { data: conv } = await db.from('conversations').select('metadata').eq('id', conversationId).maybeSingle()
+  const searchParams = (conv?.metadata as Record<string, unknown>)?.ngo_program_search_params as Record<string, unknown> | undefined
+
+  const result = await searchPrograms(db, accountId, {
+    query: searchParams?.query as string | undefined,
+    category: searchParams?.category as string | undefined,
+    offset,
+  })
+
+  if (result.programs.length === 0) {
+    await engineSendText({ accountId, userId: configOwnerUserId, conversationId, contactId, text: 'No more programs to show.', aiGenerated: true })
+    return
+  }
+
+  let text = `More programs (showing ${offset + 1}–${offset + result.programs.length}):\n\n`
+  for (const p of result.programs) {
+    text += `• ${p.name}\n`
+    if (p.short_description) text += `  ${p.short_description}\n`
+  }
+
+  const buttons = result.buttons || []
+  await engineSendInteractiveButtons({
+    accountId, userId: configOwnerUserId, conversationId, contactId,
+    bodyText: text,
+    buttons: buttons.map((b) => ({ id: b.id, title: b.title })),
+  })
+}
+
+// ============================================================
+// NGO Course More Handler (no AI — paginated)
+// ============================================================
+
+async function handleNgoCourseMore(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  configOwnerUserId: string,
+  offset: number,
+): Promise<void> {
+  const { data: conv } = await db.from('conversations').select('metadata').eq('id', conversationId).maybeSingle()
+  const searchParams = (conv?.metadata as Record<string, unknown>)?.ngo_course_search_params as Record<string, unknown> | undefined
+
+  const result = await searchCourses(db, accountId, {
+    query: searchParams?.query as string | undefined,
+    category: searchParams?.category as string | undefined,
+    offset,
+  })
+
+  if (result.courses.length === 0) {
+    await engineSendText({ accountId, userId: configOwnerUserId, conversationId, contactId, text: 'No more courses to show.', aiGenerated: true })
+    return
+  }
+
+  let text = `More courses (showing ${offset + 1}–${offset + result.courses.length}):\n\n`
+  for (const c of result.courses) {
+    text += `• ${c.name} — ${c.duration_weeks} weeks\n`
+  }
+
+  const buttons = result.buttons || []
+  await engineSendInteractiveButtons({
+    accountId, userId: configOwnerUserId, conversationId, contactId,
+    bodyText: text,
+    buttons: buttons.map((b) => ({ id: b.id, title: b.title })),
+  })
+}
+
+// ============================================================
 // Cart Button Handler (no AI)
 // ============================================================
 
@@ -2341,6 +2495,18 @@ export async function dispatchInboundToAiReply(
           await handlePropertyMore(db, accountId, conversationId, contactId, configOwnerUserId, propertyMore.offset)
           return
         }
+        const ngoProgramMore = parseNgoProgramMoreButtonId(interactiveReplyId)
+        if (ngoProgramMore) {
+          console.log(`[dispatchInboundToAiReply] ngo program more click (no AI config): offset=${ngoProgramMore.offset}`)
+          await handleNgoProgramMore(db, accountId, conversationId, contactId, configOwnerUserId, ngoProgramMore.offset)
+          return
+        }
+        const ngoCourseMore = parseNgoCourseMoreButtonId(interactiveReplyId)
+        if (ngoCourseMore) {
+          console.log(`[dispatchInboundToAiReply] ngo course more click (no AI config): offset=${ngoCourseMore.offset}`)
+          await handleNgoCourseMore(db, accountId, conversationId, contactId, configOwnerUserId, ngoCourseMore.offset)
+          return
+        }
         const cartAction = parseCartButtonId(interactiveReplyId)
         if (cartAction) {
           console.log(`[dispatchInboundToAiReply] cart button click (no AI config): ${cartAction.action}`)
@@ -2375,6 +2541,18 @@ export async function dispatchInboundToAiReply(
         if (interactiveReplyId.startsWith('property_select_')) {
           console.log(`[dispatchInboundToAiReply] property list select (no AI config): ${interactiveReplyId}`)
           await handlePropertyListSelect(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId)
+          return
+        }
+        // NGO program list selection (WhatsApp list reply)
+        if (interactiveReplyId.startsWith('ngo_program_select_')) {
+          console.log(`[dispatchInboundToAiReply] ngo program list select (no AI config): ${interactiveReplyId}`)
+          await handleNgoProgramListSelect(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId)
+          return
+        }
+        // NGO course list selection (WhatsApp list reply)
+        if (interactiveReplyId.startsWith('ngo_course_select_')) {
+          console.log(`[dispatchInboundToAiReply] ngo course list select (no AI config): ${interactiveReplyId}`)
+          await handleNgoCourseListSelect(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId)
           return
         }
       }
@@ -2451,6 +2629,18 @@ export async function dispatchInboundToAiReply(
         await handlePropertyMore(db, accountId, conversationId, contactId, configOwnerUserId, propertyMore.offset)
         return
       }
+      const ngoProgramMore = parseNgoProgramMoreButtonId(interactiveReplyId)
+      if (ngoProgramMore) {
+        console.log(`[dispatchInboundToAiReply] ngo program more click: offset=${ngoProgramMore.offset}`)
+        await handleNgoProgramMore(db, accountId, conversationId, contactId, configOwnerUserId, ngoProgramMore.offset)
+        return
+      }
+      const ngoCourseMore = parseNgoCourseMoreButtonId(interactiveReplyId)
+      if (ngoCourseMore) {
+        console.log(`[dispatchInboundToAiReply] ngo course more click: offset=${ngoCourseMore.offset}`)
+        await handleNgoCourseMore(db, accountId, conversationId, contactId, configOwnerUserId, ngoCourseMore.offset)
+        return
+      }
       const cartAction = parseCartButtonId(interactiveReplyId)
       if (cartAction) {
         console.log(`[dispatchInboundToAiReply] cart button click: ${cartAction.action}`)
@@ -2485,6 +2675,18 @@ export async function dispatchInboundToAiReply(
       if (interactiveReplyId.startsWith('property_select_')) {
         console.log(`[dispatchInboundToAiReply] property list select: ${interactiveReplyId}`)
         await handlePropertyListSelect(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId)
+        return
+      }
+      // NGO program list selection (WhatsApp list reply)
+      if (interactiveReplyId.startsWith('ngo_program_select_')) {
+        console.log(`[dispatchInboundToAiReply] ngo program list select: ${interactiveReplyId}`)
+        await handleNgoProgramListSelect(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId)
+        return
+      }
+      // NGO course list selection (WhatsApp list reply)
+      if (interactiveReplyId.startsWith('ngo_course_select_')) {
+        console.log(`[dispatchInboundToAiReply] ngo course list select: ${interactiveReplyId}`)
+        await handleNgoCourseListSelect(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId)
         return
       }
     }

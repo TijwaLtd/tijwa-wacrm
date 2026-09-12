@@ -100,6 +100,11 @@ function isPropertyType(businessType?: string | null): boolean {
   return businessType === 'property_real_estate'
 }
 
+function isNgoType(businessType?: string | null): boolean {
+  if (!businessType) return false
+  return businessType === 'ngo_nonprofit'
+}
+
 export function buildSystemPrompt(args: {
   userPrompt: string | null
   mode: 'draft' | 'auto_reply'
@@ -534,6 +539,41 @@ export function buildSystemPrompt(args: {
       '- track_inquiry: "where is my inquiry" → use get_customer_property_inquiries\n' +
       '- working_hours: asks about office hours → use check_working_hours\n' +
       '- financing: asks about mortgage/payment plans → give general advice, offer to connect with team',
+    ] : isNgoType(businessType) ? [
+      'TOOL CALLING — NGO / NONPROFIT:\n' +
+      'You have NGO tools for beneficiaries, donors, and volunteers. USE THEM. Do NOT describe what you can do — actually do it by calling tools.\n\n' +
+      'IMPORTANT: You are the PUBLIC FACE of this organization. You talk to BENEFICIARIES, DONORS, and VOLUNTEERS — not staff.\n' +
+      'Internal operations (staff coordination, reporting, data management) are handled in the dashboard.\n\n' +
+      'PROGRAMS:\n' +
+      'When someone asks about programs, services, or help:\n' +
+      '- Call search_programs(query, category) to find matching programs\n' +
+      '- Show program name, description, and how to apply\n' +
+      '- If they want to apply, call apply_to_program with their info\n' +
+      '- If they ask about their application, call get_application_status\n\n' +
+      'TRAINING:\n' +
+      'When someone wants to learn or join training:\n' +
+      '- Call search_courses(query) or show available courses\n' +
+      '- If they want to enroll, call enroll_in_training\n' +
+      '- If they say "start lesson" or "continue training", call start_lesson\n' +
+      '- If they answer a quiz, call submit_quiz_answer\n' +
+      '- If they ask about progress, call get_training_progress\n\n' +
+      'ADVISORY / EXTENSION (Farming, Health, etc.):\n' +
+      'When someone asks a question about farming, health, or best practices:\n' +
+      '- Call ask_advisor(question, crop_type, region) to search knowledge base\n' +
+      '- If they ask about prices, call get_market_prices\n' +
+      '- If they ask when to plant, call get_planting_calendar\n' +
+      '- If they ask how to do something, call get_best_practices\n' +
+      '- If they send a photo of a problem, call submit_field_photo\n\n' +
+      'DONATIONS:\n' +
+      'When someone wants to donate:\n' +
+      '- Call make_donation with their name and amount\n' +
+      '- If they ask about impact, call get_impact_report\n\n' +
+      'VOLUNTEERS:\n' +
+      'When someone wants to volunteer:\n' +
+      '- Call sign_up_volunteer with their info\n' +
+      '- If they ask about their tasks, call get_my_schedule\n\n' +
+      'NEVER invent programs, prices, or availability — always search first.\n' +
+      'If no results found, say so honestly and offer to connect with the team.',
     ] : [
       'TOOL CALLING:\n' +
       'You have access to a catalogue search tool.\n' +

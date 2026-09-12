@@ -15,6 +15,7 @@ import { hotelTools, hotelToolHandlers } from './hotel'
 import { retailerTools, retailerToolHandlers } from './retailer'
 import { serviceTools, serviceToolHandlers } from './services'
 import { propertyTools, propertyToolHandlers } from './property'
+import { ngoTools, ngoToolHandlers } from './ngo'
 
 // ============================================================
 // Tool Registry — business type → tools mapping
@@ -115,6 +116,19 @@ export function getToolsForBusinessType(businessType: string | null): Registered
   ) {
     for (const def of propertyTools) {
       const handler = propertyToolHandlers[def.function.name]
+      if (handler) {
+        tools.push({ definition: def, handler })
+      }
+    }
+  }
+
+  // NGO / Nonprofit tools
+  if (
+    !businessType ||
+    businessType === 'ngo_nonprofit'
+  ) {
+    for (const def of ngoTools) {
+      const handler = ngoToolHandlers[def.function.name]
       if (handler) {
         tools.push({ definition: def, handler })
       }
