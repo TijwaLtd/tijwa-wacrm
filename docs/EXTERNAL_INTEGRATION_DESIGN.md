@@ -2,7 +2,15 @@
 
 ## Overview
 
-This document designs the external integration layer for WACRM, enabling businesses to connect their existing inventory/POS/ERP systems. Data flows bidirectionally: inventory syncs from external → our system, orders sync from our system → external.
+This document designs the external integration layer for WACRM, enabling businesses to connect their existing inventory/POS/ERP systems. **Our system acts as a thin client on top of external infrastructure** — external systems are the source of truth for products, stock, and pricing. Orders flow bidirectionally.
+
+### Key Design Principles
+
+1. **External = Source of Truth** — Products, stock levels, prices, and variants live in the external system. We sync (cache) them locally for AI tool queries, but never modify them directly.
+2. **Orders = Bidirectional** — Orders can be created on our system (WhatsApp → push to external) OR on external systems (pull to our system for tracking/AI).
+3. **Real-time Awareness** — Webhooks keep us informed of changes in real-time. Polling is a fallback.
+4. **Provider-Agnostic** — Easy to add new providers via adapter pattern.
+5. **Conflict-Free by Design** — External always wins for inventory. Orders use latest-wins or manual resolution.
 
 **Status:** Design Phase
 **Author:** Tijwa Engineering
@@ -13,41 +21,71 @@ This document designs the external integration layer for WACRM, enabling busines
 ## 1. Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        WACRM System                         │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐   │
-│  │ Offerings│  │  Orders  │  │ Bookings │  │ Contacts │   │
-│  └────┬─────┘  └────┬─────┘  └──────────┘  └──────────┘   │
-│       │              │                                      │
-│  ┌────▼──────────────▼──────────────────────────────────┐  │
-│  │              Sync Engine                              │  │
-│  │  ┌─────────┐  ┌─────────┐  ┌─────────┐              │  │
-│  │  │  Pull   │  │  Push   │  │ Resolve │              │  │
-│  │  │ (inventory)│ │(orders)│  │(conflicts)│             │  │
-│  │  └────┬────┘  └────┬────┘  └─────────┘              │  │
-│  │       │             │                                 │  │
-│  └───────┼─────────────┼─────────────────────────────────┘  │
-│          │             │                                    │
-│  ┌───────▼─────────────▼─────────────────────────────────┐  │
-│  │           Provider Adapters                            │  │
-│  │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐ │  │
-│  │  │ Shopify │  │WooCommerc│ │  Odoo   │  │ Generic │ │  │
-│  │  └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘ │  │
-│  └───────┼─────────────┼───────────┼─────────────┼───────┘  │
-└──────────┼─────────────┼───────────┼─────────────┼──────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                        WACRM System                              │
+│                                                                  │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐        │
+│  │ Offerings│  │  Orders  │  │ Bookings │  │ Contacts │        │
+│  │ (cached) │  │ (local+  │  │          │  │          │        │
+│  │          │  │  synced) │  │          │  │          │        │
+│  └────┬─────┘  └────┬─────┘  └──────────┘  └──────────┘        │
+│       │              │                                           │
+│  ┌────▼──────────────▼──────────────────────────────────────┐   │
+│  │                    Sync Engine                            │   │
+│  │                                                           │   │
+│  │  INBOUND (External → Ours)     OUTBOUND (Ours → External)│   │
+│  │  ┌─────────────────────┐       ┌─────────────────────┐   │   │
+│  │  │ • Products          │       │ • Orders created    │   │   │
+│  │  │ • Stock levels      │       │   on WhatsApp       │   │   │
+│  │  │ • Prices            │       │ • Order status      │   │   │
+│  │  │ • Orders (from ext) │       │   updates           │   │   │
+│  │  │ • Customers         │       │                     │   │   │
+│  │  └─────────┬───────────┘       └──────────┬──────────┘   │   │
+│  │            │                               │              │   │
+│  │  ┌─────────▼───────────────────────────────▼──────────┐   │   │
+│  │  │              Conflict Resolver                      │   │   │
+│  │  │  • External wins for inventory                      │   │   │
+│  │  │  • Latest wins for order status                     │   │   │
+│  │  │  • Manual review for edge cases                     │   │   │
+│  │  └────────────────────────────────────────────────────┘   │   │
+│  └───────────────────────────────────────────────────────────┘   │
+│            │                               │                     │
+│  ┌─────────▼───────────────────────────────▼──────────────────┐  │
+│  │                Provider Adapters                            │  │
+│  │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐      │  │
+│  │  │ Shopify │  │WooCommerc│ │  Odoo   │  │ Generic │      │  │
+│  │  │  (REST) │  │  (REST) │  │  (XML) │  │ (API)   │      │  │
+│  │  └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘      │  │
+│  └───────┼─────────────┼───────────┼─────────────┼────────────┘  │
+└──────────┼─────────────┼───────────┼─────────────┼────────────────┘
            │             │           │             │
      ┌─────▼─────┐ ┌─────▼─────┐ ┌──▼────┐ ┌─────▼─────┐
      │  Shopify  │ │ WooCommerce│ │  Odoo │ │Custom API │
-     │    API    │ │    API    │ │  API  │ │  Webhooks │
+     │    API    │ │    API    │ │  API  │ │ Webhooks  │
      └───────────┘ └───────────┘ └───────┘ └───────────┘
+
+     EXTERNAL SYSTEMS = SOURCE OF TRUTH
 ```
 
 ### Data Flow Directions
 
 | Flow | Direction | Trigger | Description |
 |------|-----------|---------|-------------|
-| **Inventory Pull** | External → Ours | Scheduled / Webhook | Products, stock levels, prices |
-| **Order Push** | Ours → External | On order creation | Create order in external system |
+| **Product Sync** | External → Ours | Webhook / Scheduled | Products, variants, prices, images |
+| **Stock Sync** | External → Ours | Webhook / Scheduled | Real-time stock levels |
+| **Order Pull** | External → Ours | Webhook / Scheduled | Orders created on external system |
+| **Order Push** | Ours → External | On order creation | Orders created on WhatsApp → push to external |
+| **Order Status** | Bidirectional | Webhook | Status updates flow both ways |
+| **Customer Sync** | Bidirectional | On creation | Customer records synced |
+
+### Operating Modes
+
+| Mode | Description | When to Use |
+|------|-------------|-------------|
+| **Full Sync** | All data synced from external | Business uses Shopify/WooCommerce as primary system |
+| **Order-Only** | Only orders synced, products managed locally | Business has simple inventory, wants WhatsApp ordering |
+| **Hybrid** | Products from external, orders bidirectional | Most common — business has POS, wants WhatsApp orders on top |
+| **Standalone** | No external integration | Default mode, all data in our system |
 | **Customer Sync** | Bidirectional | On contact creation | Sync customer records |
 | **Status Sync** | External → Ours | Webhook | Order status updates from external |
 
@@ -65,7 +103,7 @@ CREATE TABLE integration_providers (
   name TEXT NOT NULL,
   description TEXT,
   auth_type TEXT NOT NULL,            -- 'api_key', 'oauth2', 'basic_auth'
-  capabilities JSONB NOT NULL,        -- ['inventory_read', 'inventory_write', 'order_read', 'order_write']
+  capabilities JSONB NOT NULL,        -- ['inventory_read', 'inventory_write', 'order_read', 'order_write', 'customer_read', 'customer_write']
   config_schema JSONB,                -- JSON Schema for provider-specific config
   is_enabled BOOLEAN DEFAULT TRUE,
   created_at TIMESTAMPTZ DEFAULT NOW()
@@ -80,7 +118,21 @@ CREATE TABLE integration_connections (
   status TEXT NOT NULL DEFAULT 'inactive', -- inactive, active, error, paused
   config JSONB NOT NULL DEFAULT '{}',  -- Provider-specific config (store URL, etc.)
   credentials JSONB NOT NULL DEFAULT '{}', -- Encrypted credentials (API keys, tokens)
-  sync_config JSONB NOT NULL DEFAULT '{}', -- Sync rules, field mappings
+  sync_config JSONB NOT NULL DEFAULT '{
+    "mode": "hybrid",
+    "inbound": {
+      "products": true,
+      "stock": true,
+      "prices": true,
+      "orders": true,
+      "customers": true
+    },
+    "outbound": {
+      "orders": true,
+      "order_status": true
+    },
+    "field_mappings": {}
+  }'::jsonb,
   last_sync_at TIMESTAMPTZ,
   last_error TEXT,
   created_by UUID REFERENCES profiles(user_id),
@@ -206,7 +258,202 @@ CREATE POLICY "Users can view their account sync jobs"
 
 ---
 
-## 3. Provider Adapter Interface
+## 3. Order Synchronization Modes
+
+### Scenario: External System is Primary Infrastructure
+
+Many businesses already have a POS, ERP, or e-commerce platform that manages their orders. When they adopt WACRM, they want:
+
+1. **WhatsApp orders → push to their existing system** (our orders become part of their pipeline)
+2. **Orders from their system → visible in our AI** (customer asks "what's my order status?" → we can answer)
+3. **Stock levels from their system → accurate on WhatsApp** (no overselling)
+
+### Order Flow Diagrams
+
+#### Flow 1: Order Created on WhatsApp (Ours → External)
+
+```
+Customer on WhatsApp: "I want 2x Product A"
+        │
+        ▼
+┌─────────────────┐
+│  WACRM AI       │
+│  (auto-reply.ts)│
+│  Creates order  │
+│  in our DB      │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  Sync Engine    │
+│  (outbound)     │
+│  Pushes order   │
+│  to external    │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ Shopify/Woo/etc │
+│  Order created  │
+│  Stock deducted │
+│  Confirmation   │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  Webhook back   │
+│  to WACRM       │
+│  external_id    │
+│  stored in      │
+│  order metadata │
+└─────────────────┘
+```
+
+#### Flow 2: Order Created on External (External → Ours)
+
+```
+Customer buys on Shopify/WooCommerce website
+        │
+        ▼
+┌─────────────────┐
+│ Shopify/Woo/etc │
+│  Order created  │
+│  Stock deducted │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  Webhook to     │
+│  WACRM          │
+│  order.created  │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  Sync Engine    │
+│  (inbound)      │
+│  Creates order  │
+│  in our DB      │
+│  Maps products  │
+│  by external_id │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  WACRM AI       │
+│  Customer asks  │
+│  "what's my     │
+│   order status?"│
+│  → AI can answer│
+└─────────────────┘
+```
+
+#### Flow 3: Hybrid (Both Systems Create Orders)
+
+```
+┌─────────────────────────────────────────────────┐
+│           BOTH SYSTEMS CREATE ORDERS             │
+│                                                  │
+│  WhatsApp Order ──→ Push to External             │
+│                     (external_id stored)          │
+│                                                  │
+│  Website Order ───→ Pull to Ours                 │
+│                     (mapped by external_id)       │
+│                                                  │
+│  Status Updates ──→ Sync both ways               │
+│                     (webhook-based)               │
+└─────────────────────────────────────────────────┘
+```
+
+### Connection Config — Sync Modes
+
+```typescript
+interface SyncConfig {
+  mode: 'full_sync' | 'order_only' | 'hybrid' | 'standalone'
+  inbound: {
+    products: boolean      // Pull products from external
+    stock: boolean         // Pull stock levels
+    prices: boolean        // Pull prices
+    orders: boolean        // Pull orders created on external
+    customers: boolean     // Pull customer records
+  }
+  outbound: {
+    orders: boolean        // Push orders created on WhatsApp
+    order_status: boolean  // Push status updates
+  }
+  field_mappings: Record<string, string>  // external_field → internal_field
+}
+```
+
+| Mode | Products | Stock | Prices | Orders (Ext) | Orders (Ours) | Use Case |
+|------|----------|-------|--------|--------------|---------------|----------|
+| `full_sync` | ✅ Pull | ✅ Pull | ✅ Pull | ✅ Pull | ✅ Push | Full integration with POS/ERP |
+| `order_only` | ❌ | ❌ | ❌ | ✅ Pull | ✅ Push | Simple — just want WhatsApp orders |
+| `hybrid` | ✅ Pull | ✅ Pull | ✅ Pull | ✅ Pull | ✅ Push | Most common — products from ext, orders both ways |
+| `standalone` | ❌ | ❌ | ❌ | ❌ | ❌ | No integration — default mode |
+
+### Order Number Mapping
+
+When orders flow between systems, we need to track both numbers:
+
+```sql
+-- Order metadata example
+{
+  "external_id": "shopify_12345",
+  "external_provider": "shopify",
+  "external_order_number": "#1001",
+  "internal_order_number": "ORD-00042",
+  "sync_direction": "outbound",  -- or "inbound"
+  "synced_at": "2026-09-12T10:30:00Z",
+  "last_status_sync": "2026-09-12T11:00:00Z"
+}
+```
+
+### Stock Level Handling
+
+When external system is source of truth:
+
+```typescript
+// AI tool queries for stock
+async function checkStock(externalId: string): Promise<number> {
+  // 1. Check local cache (fast)
+  const { data } = await db
+    .from('offerings')
+    .select('metadata')
+    .eq('metadata->>external_id', externalId)
+    .single()
+
+  const lastSynced = data?.metadata?.last_synced_at
+  const cacheAge = Date.now() - new Date(lastSynced).getTime()
+
+  // 2. If cache is fresh (< 5 minutes), use it
+  if (cacheAge < 5 * 60 * 1000) {
+    return data?.metadata?.external_stock || 0
+  }
+
+  // 3. If cache is stale, fetch fresh from external
+  const adapter = getAdapter(data?.metadata?.external_provider)
+  const freshStock = await adapter.fetchStockLevel(externalId)
+
+  // 4. Update cache
+  await db
+    .from('offerings')
+    .update({
+      metadata: {
+        ...data?.metadata,
+        external_stock: freshStock,
+        last_synced_at: new Date().toISOString(),
+      },
+    })
+    .eq('metadata->>external_id', externalId)
+
+  return freshStock
+}
+```
+
+---
+
+## 5. Provider Adapter Interface
 
 ```typescript
 // src/lib/integrations/types.ts
@@ -216,6 +463,7 @@ export type SyncDirection = 'inbound' | 'outbound'
 export type EntityType = 'products' | 'orders' | 'customers' | 'inventory'
 export type SyncAction = 'create' | 'update' | 'skip' | 'error'
 export type ConflictResolution = 'external_wins' | 'internal_wins' | 'manual' | 'merged'
+export type SyncMode = 'full_sync' | 'order_only' | 'hybrid' | 'standalone'
 
 export interface ProviderCapability {
   entity: EntityType
@@ -354,7 +602,7 @@ export interface InternalOrder {
 
 ---
 
-## 4. Provider Adapters
+## 6. Provider Adapters
 
 ### 4.1 Shopify Adapter
 
