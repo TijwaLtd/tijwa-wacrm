@@ -38,7 +38,8 @@ function supabaseAdmin() {
 
 interface WhatsAppMessage {
   id: string
-  from: string
+  from?: string
+  from_user_id?: string
   timestamp: string
   type: string
   text?: { body: string }
@@ -82,8 +83,9 @@ interface WhatsAppWebhookEntry {
         phone_number_id: string
       }
       contacts?: Array<{
-        profile: { name: string }
-        wa_id: string
+        profile: { name: string; username?: string }
+        wa_id?: string
+        user_id?: string
       }>
       messages?: WhatsAppMessage[]
       statuses?: Array<{
@@ -95,6 +97,41 @@ interface WhatsAppWebhookEntry {
     }
     field: string
   }>
+}
+
+// ────────────────────────────────────────────────────────────────
+// Phone extraction from Meta message ID
+//
+// When Meta omits `from` (BSUID-only users), the phone number is
+// still embedded in the wamid as binary-encoded BCD digits after
+// a 2-byte version header. This extracts it as a fallback.
+// ────────────────────────────────────────────────────────────────
+function extractPhoneFromMessageId(messageId: string): string | null {
+  try {
+    // Format: wamid.BASE64_DATA
+    const base64Part = messageId.replace(/^wamid\./, '')
+    // Decode base64url → buffer
+    const buf = Buffer.from(base64Part, 'base64')
+    if (buf.length < 4) return null
+
+    // Skip 2-byte version header, read phone digits
+    // Phone is BCD-encoded: each byte holds 2 decimal digits (high nibble, low nibble)
+    let phone = ''
+    for (let i = 2; i < buf.length; i++) {
+      const hi = (buf[i] >> 4) & 0x0f
+      const lo = buf[i] & 0x0f
+      if (hi > 9 || lo > 9) break // non-digit = end of phone
+      phone += String(hi) + String(lo)
+    }
+
+    // Validate: must be 7-15 digits starting with non-zero (E.164-like)
+    if (phone && /^[1-9]\d{6,14}$/.test(phone)) {
+      return phone
+    }
+    return null
+  } catch {
+    return null
+  }
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -350,7 +387,17 @@ async function processWebhook(
       for (let i = 0; i < value.messages.length; i++) {
         const message = value.messages[i]
         const contact = value.contacts[i] || value.contacts[0]
-        console.log('[processWebhook] message[' + i + ']:', 'id:', message.id, 'from:', message.from, 'type:', message.type, 'wa_id:', contact.wa_id, 'contact_name:', contact.profile.name)
+
+        // Resolve identifiers: prefer phone-based, fall back to BSUID
+        const phone = normalizePhone(message.from || '')
+        const waId = contact.wa_id || null
+        const bsuid = contact.user_id || message.from_user_id || null
+        console.log('[processWebhook] message[' + i + ']:', 'id:', message.id, 'from:', message.from ?? 'MISSING', 'type:', message.type, 'wa_id:', contact.wa_id ?? 'MISSING', 'bsuid:', bsuid ?? 'MISSING', 'contact_name:', contact.profile.name)
+
+        if (!phone && !waId && !bsuid) {
+          console.error('[processWebhook] CRITICAL: no phone, wa_id, or bsuid — cannot identify contact. message:', message.id)
+          continue
+        }
 
         await processMessage(
           message,
@@ -569,16 +616,26 @@ async function handleReaction(
 
 async function processMessage(
   message: WhatsAppMessage,
-  contact: { profile: { name: string }; wa_id: string },
+  contact: { profile: { name: string; username?: string }; wa_id?: string; user_id?: string },
   accountId: string,
   configOwnerUserId: string,
   accessToken: string,
 ) {
-  const senderPhone = normalizePhone(message.from)
+  let senderPhone = normalizePhone(message.from || '')
   const contactName = contact.profile.name
   const waId = contact.wa_id || null
+  const bsuid = contact.user_id || message.from_user_id || null
 
-  console.log('[processMessage] senderPhone:', senderPhone, 'contactName:', contactName, 'waId:', waId, 'messageId:', message.id)
+  // Fallback: extract phone from message ID when Meta omits `from`
+  if (!senderPhone && message.id) {
+    const extracted = extractPhoneFromMessageId(message.id)
+    if (extracted) {
+      senderPhone = extracted
+      console.log('[processMessage] extracted phone from message id:', senderPhone)
+    }
+  }
+
+  console.log('[processMessage] senderPhone:', senderPhone || 'MISSING', 'contactName:', contactName, 'waId:', waId ?? 'MISSING', 'bsuid:', bsuid ?? 'MISSING', 'messageId:', message.id)
 
   const contactOutcome = await findOrCreateContact(
     accountId,
@@ -586,6 +643,7 @@ async function processMessage(
     senderPhone,
     contactName,
     waId,
+    bsuid,
   )
   if (!contactOutcome) {
     console.error('[processMessage] findOrCreateContact returned null — aborting message:', message.id)
@@ -1159,8 +1217,9 @@ async function findOrCreateContact(
   phone: string,
   name: string,
   waId: string | null,
+  bsuid: string | null = null,
 ): Promise<ContactOutcome | null> {
-  console.log('[findOrCreateContact] accountId:', accountId, 'phone:', phone, 'waId:', waId, 'name:', name)
+  console.log('[findOrCreateContact] accountId:', accountId, 'phone:', phone || 'MISSING', 'waId:', waId ?? 'MISSING', 'bsuid:', bsuid ?? 'MISSING', 'name:', name)
 
   // 1. Try lookup by Meta's wa_id (business-scoped user ID) first —
   //    this is the most reliable identifier Meta provides.
@@ -1183,6 +1242,14 @@ async function findOrCreateContact(
           .update({ wa_id: waId, updated_at: new Date().toISOString() })
           .eq('id', byWaId.id)
       }
+      // Backfill bsuid if we have one and contact doesn't.
+      if (bsuid && !byWaId.bsuid) {
+        console.log('[findOrCreateContact] backfilling bsuid on wa_id-matched contact:', byWaId.id)
+        await supabaseAdmin()
+          .from('contacts')
+          .update({ bsuid, updated_at: new Date().toISOString() })
+          .eq('id', byWaId.id)
+      }
       // Update name if it changed.
       if (name && name !== byWaId.name) {
         console.log('[findOrCreateContact] updating name on contact:', byWaId.id, 'old:', byWaId.name, 'new:', name)
@@ -1194,6 +1261,48 @@ async function findOrCreateContact(
       return { contact: byWaId, wasCreated: false }
     }
     console.log('[findOrCreateContact] step 1: no contact found by wa_id')
+  }
+
+  // 1b. Try lookup by BSUID — Meta's newer format sends user_id instead
+  //     of wa_id when a user has adopted a username on WhatsApp.
+  if (bsuid) {
+    console.log('[findOrCreateContact] step 1b: looking up by bsuid:', bsuid)
+    const { data: byBsuid } = await supabaseAdmin()
+      .from('contacts')
+      .select('*')
+      .eq('account_id', accountId)
+      .eq('bsuid', bsuid)
+      .maybeSingle()
+
+    if (byBsuid) {
+      console.log('[findOrCreateContact] step 1b: found contact by bsuid — id:', byBsuid.id, 'phone:', byBsuid.phone)
+      // Backfill wa_id if we have one and contact doesn't.
+      if (waId && !byBsuid.wa_id) {
+        console.log('[findOrCreateContact] backfilling wa_id on bsuid-matched contact:', byBsuid.id)
+        await supabaseAdmin()
+          .from('contacts')
+          .update({ wa_id: waId, updated_at: new Date().toISOString() })
+          .eq('id', byBsuid.id)
+      }
+      // Backfill phone if we have one and contact doesn't (or has placeholder).
+      if (phone && (!byBsuid.phone || byBsuid.phone === '' || byBsuid.phone.startsWith('bsuid_'))) {
+        console.log('[findOrCreateContact] backfilling phone on bsuid-matched contact:', byBsuid.id)
+        await supabaseAdmin()
+          .from('contacts')
+          .update({ phone, updated_at: new Date().toISOString() })
+          .eq('id', byBsuid.id)
+      }
+      // Update name if it changed.
+      if (name && name !== byBsuid.name) {
+        console.log('[findOrCreateContact] updating name on bsuid-matched contact:', byBsuid.id, 'old:', byBsuid.name, 'new:', name)
+        await supabaseAdmin()
+          .from('contacts')
+          .update({ name, updated_at: new Date().toISOString() })
+          .eq('id', byBsuid.id)
+      }
+      return { contact: byBsuid, wasCreated: false }
+    }
+    console.log('[findOrCreateContact] step 1b: no contact found by bsuid')
   }
 
   // 2. Fall back to phone-based lookup.
@@ -1214,6 +1323,14 @@ async function findOrCreateContact(
         .update({ wa_id: waId, updated_at: new Date().toISOString() })
         .eq('id', existingContact.id)
     }
+    // Backfill bsuid on contacts created before this migration.
+    if (bsuid && !existingContact.bsuid) {
+      console.log('[findOrCreateContact] backfilling bsuid on phone-matched contact:', existingContact.id)
+      await supabaseAdmin()
+        .from('contacts')
+        .update({ bsuid, updated_at: new Date().toISOString() })
+        .eq('id', existingContact.id)
+    }
     if (name && name !== existingContact.name) {
       console.log('[findOrCreateContact] updating name on phone-matched contact:', existingContact.id, 'old:', existingContact.name, 'new:', name)
       await supabaseAdmin()
@@ -1224,16 +1341,20 @@ async function findOrCreateContact(
     return { contact: existingContact, wasCreated: false }
   }
 
-  // 3. Create new contact — store wa_id alongside phone.
-  console.log('[findOrCreateContact] step 3: creating new contact — phone:', phone, 'wa_id:', waId, 'name:', name || phone)
+  // 3. Create new contact — store wa_id, bsuid alongside phone.
+  //    When Meta sends BSUID only (no phone/wa_id), the contact still
+  //    gets a stable identifier for future webhook matching.
+  const phoneForInsert = phone || `bsuid_${bsuid}`
+  console.log('[findOrCreateContact] step 3: creating new contact — phone:', phoneForInsert, 'wa_id:', waId, 'bsuid:', bsuid, 'name:', name || phoneForInsert)
   const { data: newContact, error: createError } = await supabaseAdmin()
     .from('contacts')
     .insert({
       account_id: accountId,
       user_id: configOwnerUserId,
-      phone,
-      name: name || phone,
+      phone: phoneForInsert,
+      name: name || phoneForInsert,
       wa_id: waId,
+      bsuid,
     })
     .select()
     .single()
@@ -1242,16 +1363,29 @@ async function findOrCreateContact(
     console.error('[findOrCreateContact] step 3: create error:', createError.message, createError.code, createError.details)
     if (isUniqueViolation(createError)) {
       console.log('[findOrCreateContact] step 3: unique violation — retrying phone lookup')
-      const raced = await findExistingContact(supabaseAdmin(), accountId, phone)
+      const raced = await findExistingContact(supabaseAdmin(), accountId, phoneForInsert)
       if (raced) {
         console.log('[findOrCreateContact] step 3: race-resolved contact — id:', raced.id)
         return { contact: raced, wasCreated: false }
+      }
+      // Also try bsuid lookup on race condition
+      if (bsuid) {
+        const { data: racedByBsuid } = await supabaseAdmin()
+          .from('contacts')
+          .select('*')
+          .eq('account_id', accountId)
+          .eq('bsuid', bsuid)
+          .maybeSingle()
+        if (racedByBsuid) {
+          console.log('[findOrCreateContact] step 3: race-resolved by bsuid — id:', racedByBsuid.id)
+          return { contact: racedByBsuid, wasCreated: false }
+        }
       }
     }
     return null
   }
 
-  console.log('[findOrCreateContact] step 3: new contact created — id:', newContact.id, 'phone:', newContact.phone, 'wa_id:', newContact.wa_id)
+  console.log('[findOrCreateContact] step 3: new contact created — id:', newContact.id, 'phone:', newContact.phone, 'wa_id:', newContact.wa_id, 'bsuid:', newContact.bsuid)
   return { contact: newContact, wasCreated: true }
 }
 

@@ -69,17 +69,31 @@ export async function engineSendText(
 
   const { data: contact, error: contactErr } = await db
     .from('contacts')
-    .select('id, phone')
+    .select('id, phone, bsuid')
     .eq('id', args.contactId)
     .eq('account_id', args.accountId)
     .maybeSingle()
-  if (contactErr || !contact?.phone) {
+  if (contactErr || !contact) {
     throw new Error('contact not found for this account')
   }
 
-  const sanitized = sanitizePhoneForMeta(contact.phone)
-  if (!isValidE164(sanitized)) {
-    throw new Error(`contact phone invalid: ${contact.phone}`)
+  // Determine the send target: prefer valid phone, fall back to BSUID
+  let sanitized = ''
+  const rawPhone = contact.phone || ''
+  if (rawPhone && !rawPhone.startsWith('bsuid_')) {
+    sanitized = sanitizePhoneForMeta(rawPhone)
+  }
+
+  const hasValidPhone = sanitized && isValidE164(sanitized)
+  const hasBsuid = !!contact.bsuid
+
+  if (!hasValidPhone && !hasBsuid) {
+    throw new Error(`contact has no valid phone or BSUID — cannot send. contact_id: ${contact.id}`)
+  }
+
+  // If phone is invalid but BSUID exists, we'll try BSUID-based send
+  if (!hasValidPhone && hasBsuid) {
+    console.log('[engineSendText] contact has no valid phone — attempting BSUID send:', contact.bsuid)
   }
 
   const { data: config, error: configErr } = await db
@@ -93,33 +107,46 @@ export async function engineSendText(
 
   const accessToken = decrypt(config.access_token)
 
-  const attempt = async (phone: string): Promise<string> => {
+  const attempt = async (to: string): Promise<string> => {
     const r = await sendTextMessage({
       phoneNumberId: config.phone_number_id,
       accessToken,
-      to: phone,
+      to,
       text: args.text,
     })
     return r.messageId
   }
 
-  const variants = phoneVariants(sanitized)
-  let workingPhone = sanitized
   let waMessageId = ''
-  let lastError: unknown = null
-  for (const v of variants) {
+  let workingPhone = sanitized
+
+  if (hasValidPhone) {
+    // Standard phone-based send with variant retry
+    const variants = phoneVariants(sanitized)
+    let lastError: unknown = null
+    for (const v of variants) {
+      try {
+        waMessageId = await attempt(v)
+        workingPhone = v
+        lastError = null
+        break
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        if (!isRecipientNotAllowedError(msg)) throw err
+        lastError = err
+      }
+    }
+    if (lastError) throw lastError
+  } else if (hasBsuid) {
+    // BSUID-based send — Meta's newer API accepts user_id as `to`
     try {
-      waMessageId = await attempt(v)
-      workingPhone = v
-      lastError = null
-      break
+      waMessageId = await attempt(contact.bsuid!)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      if (!isRecipientNotAllowedError(msg)) throw err
-      lastError = err
+      console.error('[engineSendText] BSUID send failed:', msg)
+      throw new Error(`Cannot send to contact — no valid phone and BSUID send failed: ${msg}`)
     }
   }
-  if (lastError) throw lastError
 
   if (workingPhone !== sanitized) {
     await db.from('contacts').update({ phone: workingPhone }).eq('id', contact.id)
@@ -179,17 +206,24 @@ export async function engineSendMedia(
 
   const { data: contact, error: contactErr } = await db
     .from('contacts')
-    .select('id, phone')
+    .select('id, phone, bsuid')
     .eq('id', args.contactId)
     .eq('account_id', args.accountId)
     .maybeSingle()
-  if (contactErr || !contact?.phone) {
+  if (contactErr || !contact) {
     throw new Error('contact not found for this account')
   }
 
-  const sanitized = sanitizePhoneForMeta(contact.phone)
-  if (!isValidE164(sanitized)) {
-    throw new Error(`contact phone invalid: ${contact.phone}`)
+  let sanitized = ''
+  const rawPhone = contact.phone || ''
+  if (rawPhone && !rawPhone.startsWith('bsuid_')) {
+    sanitized = sanitizePhoneForMeta(rawPhone)
+  }
+  const hasValidPhone = sanitized && isValidE164(sanitized)
+  const hasBsuid = !!contact.bsuid
+
+  if (!hasValidPhone && !hasBsuid) {
+    throw new Error(`contact has no valid phone or BSUID — cannot send. contact_id: ${contact.id}`)
   }
 
   const { data: config, error: configErr } = await db
@@ -203,11 +237,11 @@ export async function engineSendMedia(
 
   const accessToken = decrypt(config.access_token)
 
-  const attempt = async (phone: string): Promise<string> => {
+  const attempt = async (to: string): Promise<string> => {
     const r = await sendMediaMessage({
       phoneNumberId: config.phone_number_id,
       accessToken,
-      to: phone,
+      to,
       kind: args.kind,
       link: args.link,
       caption: args.caption,
@@ -216,23 +250,34 @@ export async function engineSendMedia(
     return r.messageId
   }
 
-  const variants = phoneVariants(sanitized)
-  let workingPhone = sanitized
   let waMessageId = ''
-  let lastError: unknown = null
-  for (const v of variants) {
+  let workingPhone = sanitized
+
+  if (hasValidPhone) {
+    const variants = phoneVariants(sanitized)
+    let lastError: unknown = null
+    for (const v of variants) {
+      try {
+        waMessageId = await attempt(v)
+        workingPhone = v
+        lastError = null
+        break
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        if (!isRecipientNotAllowedError(msg)) throw err
+        lastError = err
+      }
+    }
+    if (lastError) throw lastError
+  } else if (hasBsuid) {
     try {
-      waMessageId = await attempt(v)
-      workingPhone = v
-      lastError = null
-      break
+      waMessageId = await attempt(contact.bsuid!)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      if (!isRecipientNotAllowedError(msg)) throw err
-      lastError = err
+      console.error('[engineSendMedia] BSUID send failed:', msg)
+      throw new Error(`Cannot send to contact — no valid phone and BSUID send failed: ${msg}`)
     }
   }
-  if (lastError) throw lastError
 
   if (workingPhone !== sanitized) {
     await db.from('contacts').update({ phone: workingPhone }).eq('id', contact.id)
@@ -331,17 +376,24 @@ async function sendInteractiveViaMeta(
   // Migration 017 moved both tables to account-scoped tenancy.
   const { data: contact, error: contactErr } = await db
     .from('contacts')
-    .select('id, phone')
+    .select('id, phone, bsuid')
     .eq('id', input.contactId)
     .eq('account_id', input.accountId)
     .maybeSingle()
-  if (contactErr || !contact?.phone) {
+  if (contactErr || !contact) {
     throw new Error('contact not found for this account')
   }
 
-  const sanitized = sanitizePhoneForMeta(contact.phone)
-  if (!isValidE164(sanitized)) {
-    throw new Error(`contact phone invalid: ${contact.phone}`)
+  let sanitized = ''
+  const rawPhone = contact.phone || ''
+  if (rawPhone && !rawPhone.startsWith('bsuid_')) {
+    sanitized = sanitizePhoneForMeta(rawPhone)
+  }
+  const hasValidPhone = sanitized && isValidE164(sanitized)
+  const hasBsuid = !!contact.bsuid
+
+  if (!hasValidPhone && !hasBsuid) {
+    throw new Error(`contact has no valid phone or BSUID — cannot send. contact_id: ${contact.id}`)
   }
 
   const { data: config, error: configErr } = await db
@@ -355,12 +407,12 @@ async function sendInteractiveViaMeta(
 
   const accessToken = decrypt(config.access_token)
 
-  const attempt = async (phone: string): Promise<string> => {
+  const attempt = async (to: string): Promise<string> => {
     if (input.kind === 'buttons') {
       const r = await sendInteractiveButtons({
         phoneNumberId: config.phone_number_id,
         accessToken,
-        to: phone,
+        to,
         bodyText: input.bodyText,
         buttons: input.buttons,
         headerText: input.headerText,
@@ -371,7 +423,7 @@ async function sendInteractiveViaMeta(
     const r = await sendInteractiveList({
       phoneNumberId: config.phone_number_id,
       accessToken,
-      to: phone,
+      to,
       bodyText: input.bodyText,
       buttonLabel: input.buttonLabel,
       sections: input.sections,
@@ -381,26 +433,34 @@ async function sendInteractiveViaMeta(
     return r.messageId
   }
 
-  // Same phone-variant retry as automations/meta-send.ts. Numbers
-  // registered with/without a trunk 0 + Meta's sandbox quirks all
-  // need this to reliably land a message.
-  const variants = phoneVariants(sanitized)
-  let workingPhone = sanitized
   let waMessageId = ''
-  let lastError: unknown = null
-  for (const v of variants) {
+  let workingPhone = sanitized
+
+  if (hasValidPhone) {
+    const variants = phoneVariants(sanitized)
+    let lastError: unknown = null
+    for (const v of variants) {
+      try {
+        waMessageId = await attempt(v)
+        workingPhone = v
+        lastError = null
+        break
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        if (!isRecipientNotAllowedError(msg)) throw err
+        lastError = err
+      }
+    }
+    if (lastError) throw lastError
+  } else if (hasBsuid) {
     try {
-      waMessageId = await attempt(v)
-      workingPhone = v
-      lastError = null
-      break
+      waMessageId = await attempt(contact.bsuid!)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      if (!isRecipientNotAllowedError(msg)) throw err
-      lastError = err
+      console.error('[engineSendInteractiveButtons] BSUID send failed:', msg)
+      throw new Error(`Cannot send to contact — no valid phone and BSUID send failed: ${msg}`)
     }
   }
-  if (lastError) throw lastError
 
   if (workingPhone !== sanitized) {
     await db.from('contacts').update({ phone: workingPhone }).eq('id', contact.id)
