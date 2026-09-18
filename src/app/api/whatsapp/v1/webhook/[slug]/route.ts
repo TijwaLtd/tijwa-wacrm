@@ -292,6 +292,15 @@ export async function POST(
   }
   console.log('[webhook] body parsed — entries:', body.entry?.length ?? 0)
 
+  // Log top-level payload structure for debugging
+  console.log('[webhook] body keys:', Object.keys(body))
+  if (body.entry?.[0]?.changes?.[0]) {
+    const change = body.entry[0].changes[0]
+    console.log('[webhook] change[0] keys:', Object.keys(change))
+    console.log('[webhook] change[0].field:', change.field)
+    console.log('[webhook] change[0].value keys:', Object.keys(change.value))
+  }
+
   // Resolve account from slug upfront — one lookup for the whole
   // delivery instead of per-change.
   const { data: account, error: accountError } = await supabaseAdmin()
@@ -381,6 +390,20 @@ async function processWebhook(
       if (!value.messages || !value.contacts) {
         console.log('[processWebhook] skipping — no messages or contacts in change')
         continue
+      }
+
+      // Log raw payload structure for debugging new Meta formats
+      console.log('[processWebhook] raw value keys:', Object.keys(value))
+      if (value.contacts?.[0]) {
+        console.log('[processWebhook] raw contact[0] keys:', Object.keys(value.contacts[0]))
+        console.log('[processWebhook] raw contact[0] full:', JSON.stringify(value.contacts[0]))
+      }
+      if (value.messages?.[0]) {
+        console.log('[processWebhook] raw message[0] keys:', Object.keys(value.messages[0]))
+        console.log('[processWebhook] raw message[0] full:', JSON.stringify(value.messages[0]))
+      }
+      if (value.metadata) {
+        console.log('[processWebhook] raw metadata:', JSON.stringify(value.metadata))
       }
 
       console.log('[processWebhook] processing', value.messages.length, 'messages with', value.contacts.length, 'contacts')
@@ -635,7 +658,14 @@ async function processMessage(
     }
   }
 
-  console.log('[processMessage] senderPhone:', senderPhone || 'MISSING', 'contactName:', contactName, 'waId:', waId ?? 'MISSING', 'bsuid:', bsuid ?? 'MISSING', 'messageId:', message.id)
+  console.log('[processMessage] === RESOLVED IDENTIFIERS ===')
+  console.log('[processMessage] senderPhone:', senderPhone || 'EMPTY')
+  console.log('[processMessage] contactName:', contactName)
+  console.log('[processMessage] waId:', waId ?? 'NULL')
+  console.log('[processMessage] bsuid:', bsuid ?? 'NULL')
+  console.log('[processMessage] messageId:', message.id)
+  console.log('[processMessage] message type:', message.type)
+  console.log('[processMessage] full contact object:', JSON.stringify(contact))
 
   const contactOutcome = await findOrCreateContact(
     accountId,
