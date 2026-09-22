@@ -8,6 +8,7 @@ import {
   normalizeConversations,
 } from '@/lib/inbox/conversations';
 import { cn } from '@/lib/utils';
+import { displayContactName } from '@/lib/audit/masking';
 import { formatWhatsAppInline } from '@/lib/whatsapp-format';
 import { useAuth } from '@/hooks/use-auth';
 import { hasMinRole, type AccountRole } from '@/lib/auth/roles';
@@ -731,7 +732,7 @@ function ConversationItem({
   const contact = conversation.contact;
   const displayName = isTeam
     ? conversation.team_name || t('teamChat')
-    : contact?.name || contact?.phone || t('unknown');
+    : displayContactName(contact?.name, contact?.phone, t('unknown'));
   const initials = displayName.charAt(0).toUpperCase();
 
   const assignedPresence = conversation.assigned_agent_id

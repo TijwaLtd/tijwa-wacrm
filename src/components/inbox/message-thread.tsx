@@ -57,7 +57,7 @@ import { buildReplyPreview } from "./reply-quote";
 import { toast } from "sonner";
 import { useAuditLogger } from "@/hooks/use-audit-logger";
 import { AuditEventType } from "@/lib/audit/events";
-import { maskPhoneNumber } from "@/lib/audit/masking";
+import { maskPhoneNumber, displayContactPhone, displayContactName } from "@/lib/audit/masking";
 
 interface ReplyDraft {
   id: string;
@@ -1002,7 +1002,7 @@ export function MessageThread({
     return map;
   }, [reactions]);
 
-  const contactDisplayName = contact?.name || contact?.phone || "Customer";
+  const contactDisplayName = displayContactName(contact?.name, contact?.phone, "Customer");
 
   // Author label for a quoted message: "You" when we sent the parent,
   // contact name when the customer sent it.
@@ -1133,7 +1133,7 @@ export function MessageThread({
 
   const displayName = isTeam
     ? (conversation.team_name || 'Team Chat')
-    : (contact?.name || contact?.phone || 'Customer');
+    : displayContactName(contact?.name, contact?.phone, 'Customer');
   const messageGroups = groupMessagesByDate(messages);
   const currentStatus = STATUS_OPTIONS.find(
     (s) => s.value === conversation.status
@@ -1376,7 +1376,7 @@ export function MessageThread({
                           authorLabel:
                             parent.sender_type === "agent" || parent.sender_type === "bot"
                               ? t("me") 
-                              : contact?.name || contact?.phone || "Unknown",
+                              : displayContactName(contact?.name, contact?.phone, "Unknown"),
                           preview: buildReplyPreview(parent, tQuote),
                         }
                       : null;

@@ -45,7 +45,7 @@ import {
 import { useTranslations } from 'next-intl';
 import { useAuditLogger } from '@/hooks/use-audit-logger';
 import { AuditEventType } from '@/lib/audit/events';
-import { maskPhoneNumber, getFullPhone, getPhoneDigits } from '@/lib/audit/masking';
+import { maskPhoneNumber, getFullPhone, getPhoneDigits, displayContactPhone, displayContactName } from '@/lib/audit/masking';
 
 interface ContactDetailViewProps {
   open: boolean;
@@ -424,7 +424,7 @@ export function ContactDetailView({
                 </Avatar>
                 <div className="flex-1 min-w-0">
                   <SheetTitle className="text-popover-foreground truncate">
-                    {contact.name || t('unnamed')}
+                    {displayContactName(contact.name, contact.phone, t('unnamed'))}
                   </SheetTitle>
                   <SheetDescription className="text-muted-foreground text-xs mt-0.5">
                     {t('contactDetailsDesc')}
@@ -437,7 +437,7 @@ export function ContactDetailView({
                       >
                         <Phone className="size-3" />
                         <span className="font-mono">
-                          {showPhone ? contact.phone : maskPhoneNumber(contact.phone)}
+                          {displayContactPhone(contact.phone, showPhone)}
                         </span>
                         {copiedPhone ? (
                           <Check className="size-3 text-primary" />

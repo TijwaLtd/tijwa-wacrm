@@ -34,7 +34,7 @@ import { format } from "date-fns";
 import { useTranslations } from "next-intl";
 import { useAuditLogger } from "@/hooks/use-audit-logger";
 import { AuditEventType } from "@/lib/audit/events";
-import { maskPhoneNumber, getFullPhone, getPhoneDigits } from "@/lib/audit/masking";
+import { maskPhoneNumber, getFullPhone, getPhoneDigits, displayContactPhone, displayContactName, isPlaceholderPhone } from "@/lib/audit/masking";
 
 interface ContactSidebarProps {
   contact: Contact | null;
@@ -199,9 +199,10 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
     );
   }
 
-  const displayName = contact.name || maskPhoneNumber(contact.phone);
-  const initials = (contact.name || contact.phone || '?').charAt(0).toUpperCase();
-  const displayPhone = showPhone ? contact.phone : maskPhoneNumber(contact.phone);
+  const displayName = displayContactName(contact.name, contact.phone, 'WhatsApp user');
+  const initials = displayName.charAt(0).toUpperCase();
+  const hasRealPhone = !isPlaceholderPhone(contact.phone);
+  const displayPhone = displayContactPhone(contact.phone, showPhone);
 
   return (
     <div className="flex h-full w-70 flex-col border-l border-border bg-card">

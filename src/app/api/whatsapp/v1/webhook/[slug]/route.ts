@@ -1375,14 +1375,18 @@ async function findOrCreateContact(
   //    When Meta sends BSUID only (no phone/wa_id), the contact still
   //    gets a stable identifier for future webhook matching.
   const phoneForInsert = phone || `bsuid_${bsuid}`
-  console.log('[findOrCreateContact] step 3: creating new contact — phone:', phoneForInsert, 'wa_id:', waId, 'bsuid:', bsuid, 'name:', name || phoneForInsert)
+  // Never use the bsuid_ placeholder as the display name — the UI
+  // treats a missing name as "Unnamed", which reads better than a
+  // raw identifier.
+  const nameForInsert = name || null
+  console.log('[findOrCreateContact] step 3: creating new contact — phone:', phoneForInsert, 'wa_id:', waId, 'bsuid:', bsuid, 'name:', nameForInsert)
   const { data: newContact, error: createError } = await supabaseAdmin()
     .from('contacts')
     .insert({
       account_id: accountId,
       user_id: configOwnerUserId,
       phone: phoneForInsert,
-      name: name || phoneForInsert,
+      name: nameForInsert,
       wa_id: waId,
       bsuid,
     })

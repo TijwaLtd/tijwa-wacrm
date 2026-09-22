@@ -16,7 +16,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
 import { Search, Plus, MessageSquare, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { maskPhoneNumber } from "@/lib/audit/masking";
+import { maskPhoneNumber, displayContactPhone, displayContactName, isPlaceholderPhone } from "@/lib/audit/masking";
 import type { Contact } from "@/types";
 
 interface NewConversationDialogProps {
@@ -174,8 +174,8 @@ export function NewConversationDialog({
                   const isCreating = creatingId === contact.id;
                   const phoneRevealed = revealedPhones.has(contact.id);
                   const displayPhone = phoneRevealed
-                    ? contact.phone
-                    : maskPhoneNumber(contact.phone || "");
+                    ? displayContactPhone(contact.phone, true)
+                    : displayContactPhone(contact.phone || "");
 
                   return (
                     <button
@@ -202,7 +202,7 @@ export function NewConversationDialog({
                       </Avatar>
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium">
-                          {contact.name || contact.phone || "Unknown"}
+                          {displayContactName(contact.name, contact.phone, "Unknown")}
                         </p>
                         <p className="truncate text-xs text-muted-foreground">
                           {displayPhone}

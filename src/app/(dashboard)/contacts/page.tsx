@@ -68,7 +68,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { WorkspaceBadge } from '@/components/shared/workspace-badge';
 import { Building2, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { maskPhoneNumber } from '@/lib/audit/masking';
+import { maskPhoneNumber, displayContactPhone, displayContactName, isPlaceholderPhone } from '@/lib/audit/masking';
 import { getContactsByTenant } from '@/lib/db';
 
 const PAGE_SIZE = 25;
@@ -818,10 +818,10 @@ export default function ContactsPage() {
                   <TableCell className="text-foreground font-medium">
                     <div className="flex items-center gap-1.5">
                       <span className="truncate">
-                        {contact.name || (
-                          <span className="text-muted-foreground italic">
-                            {t('unnamed')}
-                          </span>
+                        {displayContactName(
+                          contact.name,
+                          contact.phone,
+                          t('unnamed')
                         )}
                       </span>
                       {contact.account_id && (
@@ -835,10 +835,12 @@ export default function ContactsPage() {
                   <TableCell className="text-muted-foreground font-mono text-xs">
                     <div className="flex items-center gap-1.5">
                       <span>
-                        {revealedPhones.has(contact.id)
-                          ? contact.phone
-                          : maskPhoneNumber(contact.phone)}
+                        {displayContactPhone(
+                          contact.phone,
+                          revealedPhones.has(contact.id)
+                        )}
                       </span>
+                      {!isPlaceholderPhone(contact.phone) && (
                       <button
                         onClick={() => {
                           setRevealedPhones((prev) => {
@@ -864,6 +866,7 @@ export default function ContactsPage() {
                           <Eye className="size-3" />
                         )}
                       </button>
+                      )}
                     </div>
                   </TableCell>
                   <TableCell className="text-muted-foreground hidden text-sm md:table-cell">
@@ -1038,12 +1041,17 @@ export default function ContactsPage() {
           </div>
         ) : (
           contacts.map((contact) => {
-            const initials = (contact.name || contact.phone || '?')
-              .charAt(0)
-              .toUpperCase();
-            const displayPhone = revealedPhones.has(contact.id)
-              ? contact.phone
-              : maskPhoneNumber(contact.phone);
+            const displayName = displayContactName(
+              contact.name,
+              contact.phone,
+              t('unnamed')
+            );
+            const initials = displayName.charAt(0).toUpperCase();
+            const showReveal = !isPlaceholderPhone(contact.phone);
+            const displayPhone = displayContactPhone(
+              contact.phone,
+              revealedPhones.has(contact.id)
+            );
             return (
               <div
                 key={contact.id}
@@ -1074,11 +1082,7 @@ export default function ContactsPage() {
                       </div>
                       <div className="min-w-0">
                         <p className="text-foreground truncate text-sm font-medium">
-                          {contact.name || (
-                            <span className="text-muted-foreground italic">
-                              {t('unnamed')}
-                            </span>
-                          )}
+                          {displayName}
                         </p>
                         {contact.company && (
                           <p className="text-muted-foreground truncate text-xs">
@@ -1143,6 +1147,7 @@ export default function ContactsPage() {
                     <span className="text-muted-foreground font-mono text-xs">
                       {displayPhone}
                     </span>
+                    {showReveal && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -1164,6 +1169,7 @@ export default function ContactsPage() {
                         <Eye className="size-3" />
                       )}
                     </button>
+                    )}
                   </div>
                   {contact.email && (
                     <p className="text-muted-foreground mt-1 truncate text-xs">
