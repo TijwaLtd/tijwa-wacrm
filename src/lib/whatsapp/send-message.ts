@@ -230,19 +230,26 @@ export async function sendMessageToConversation(
   }
 
   const contact = conversation.contact;
-  if (!contact?.phone) {
-    throw new SendMessageError(
-      'bad_request',
-      'Contact phone number not found',
-      400
-    );
+  if (!contact) {
+    throw new SendMessageError('bad_request', 'Contact not found', 400);
   }
 
-  const sanitizedPhone = sanitizePhoneForMeta(contact.phone);
-  if (!isValidE164(sanitizedPhone)) {
+  // Determine send target: valid phone, or BSUID fallback. Contacts
+  // created from newer Meta webhooks may have `phone = ''` or the
+  // `bsuid_<id>` placeholder with only `contacts.bsuid` populated.
+  const rawPhone = contact.phone || '';
+  const isPlaceholderPhone =
+    !rawPhone || rawPhone.startsWith('bsuid_');
+  const sanitizedPhone = isPlaceholderPhone
+    ? ''
+    : sanitizePhoneForMeta(rawPhone);
+  const hasValidPhone = !!sanitizedPhone && isValidE164(sanitizedPhone);
+  const hasBsuid = !!contact.bsuid;
+
+  if (!hasValidPhone && !hasBsuid) {
     throw new SendMessageError(
       'bad_request',
-      'Invalid phone number format',
+      'Contact has no valid phone number or WhatsApp user ID',
       400
     );
   }
@@ -395,42 +402,54 @@ export async function sendMessageToConversation(
     return result.messageId;
   };
 
-  // Send via Meta — retry across phone-number variants if Meta rejects
-  // with "recipient not in allowed list"; persist a working variant
-  // back to the contact so the next send goes straight through.
+  // Send via Meta — phone path retries across variants if Meta rejects
+  // with "recipient not in allowed list" and persists a working variant
+  // back to the contact; BSUID path is used when no valid phone exists.
   let waMessageId = '';
   let workingPhone = sanitizedPhone;
   try {
-    const variants = phoneVariants(sanitizedPhone);
-    let lastError: unknown = null;
+    if (hasValidPhone) {
+      const variants = phoneVariants(sanitizedPhone);
+      let lastError: unknown = null;
 
-    for (const variant of variants) {
-      try {
-        waMessageId = await attempt(variant);
-        workingPhone = variant;
-        lastError = null;
-        break;
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        if (!isRecipientNotAllowedError(message)) {
-          throw err;
+      for (const variant of variants) {
+        try {
+          waMessageId = await attempt(variant);
+          workingPhone = variant;
+          lastError = null;
+          break;
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          if (!isRecipientNotAllowedError(message)) {
+            throw err;
+          }
+          lastError = err;
+          console.warn(
+            `[send-message] variant "${variant}" rejected by Meta, trying next…`
+          );
         }
-        lastError = err;
-        console.warn(
-          `[send-message] variant "${variant}" rejected by Meta, trying next…`
-        );
       }
-    }
 
-    if (lastError) throw lastError;
+      if (lastError) throw lastError;
+    } else if (hasBsuid) {
+      // No valid phone — Meta's newer API accepts user_id (BSUID) as `to`.
+      waMessageId = await attempt(contact.bsuid);
+    }
   } catch (err) {
     const message =
       err instanceof Error ? err.message : 'Unknown Meta API error';
-    console.error('[send-message] Meta send failed for all variants:', message);
+    console.error('[send-message] Meta send failed:', message);
+    if (!hasValidPhone && hasBsuid) {
+      throw new SendMessageError(
+        'meta_error',
+        `Meta API error (BSUID send): ${message}`,
+        502
+      );
+    }
     throw new SendMessageError('meta_error', `Meta API error: ${message}`, 502);
   }
 
-  if (workingPhone !== sanitizedPhone) {
+  if (hasValidPhone && workingPhone && workingPhone !== sanitizedPhone) {
     console.log(
       `[send-message] Auto-corrected contact phone: ${sanitizedPhone} → ${workingPhone}`
     );

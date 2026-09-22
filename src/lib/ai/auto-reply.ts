@@ -2877,7 +2877,11 @@ export async function dispatchInboundToAiReply(
       .eq('id', contactId)
       .maybeSingle()
     if (contact) {
-      toolCtx.contactPhone = contact.phone
+      // Skip `bsuid_` placeholder phones — they're not real numbers
+      // and would pollute order/booking customer_phone fields.
+      const phone = contact.phone || ''
+      toolCtx.contactPhone =
+        phone && !phone.startsWith('bsuid_') ? phone : null
       toolCtx.contactName = contact.name
     }
 
