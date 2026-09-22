@@ -14,6 +14,29 @@ const META_API_BASE = `https://graph.facebook.com/${META_API_VERSION}`
 
 export interface MetaSendResult {
   messageId: string
+  /**
+   * Meta's recipient WhatsApp ID from `response.contacts[0].wa_id`.
+   * Present on every successful send — persist it to the contact so
+   * `wa_id`/`bsuid` can be backfilled without waiting for an inbound.
+   */
+  waId?: string
+}
+
+interface MetaSendResponseBody {
+  messages?: { id?: string }[]
+  contacts?: { input?: string; wa_id?: string }[]
+}
+
+/** Parse a Meta /messages success body into {@link MetaSendResult}. */
+function toSendResult(data: MetaSendResponseBody): MetaSendResult {
+  const messageId = data.messages?.[0]?.id
+  if (!messageId) {
+    throw new Error('Meta API response missing messages[0].id')
+  }
+  return {
+    messageId,
+    waId: data.contacts?.[0]?.wa_id || undefined,
+  }
 }
 
 export interface MetaPhoneInfo {
@@ -255,8 +278,7 @@ export async function sendTextMessage(
   if (!response.ok) {
     await throwMetaError(response, `Meta API error: ${response.status}`)
   }
-  const data = await response.json()
-  return { messageId: data.messages[0].id }
+  return toSendResult(await response.json())
 }
 
 export type MediaKind = 'image' | 'video' | 'document' | 'audio'
@@ -321,8 +343,7 @@ export async function sendMediaMessage(
   if (!response.ok) {
     await throwMetaError(response, `Meta API error: ${response.status}`)
   }
-  const data = await response.json()
-  return { messageId: data.messages[0].id }
+  return toSendResult(await response.json())
 }
 
 import type { MessageTemplate } from '@/types'
@@ -439,8 +460,7 @@ export async function sendTemplateMessage(
   if (!response.ok) {
     await throwMetaError(response, `Meta API error: ${response.status}`)
   }
-  const data = await response.json()
-  return { messageId: data.messages[0].id }
+  return toSendResult(await response.json())
 }
 
 // ============================================================
@@ -699,8 +719,7 @@ export async function sendReactionMessage(
   if (!response.ok) {
     await throwMetaError(response, `Meta API error: ${response.status}`)
   }
-  const data = await response.json()
-  return { messageId: data.messages[0].id }
+  return toSendResult(await response.json())
 }
 
 // ============================================================
@@ -829,8 +848,7 @@ export async function sendInteractiveButtons(
   if (!response.ok) {
     await throwMetaError(response, `Meta API error: ${response.status}`)
   }
-  const data = await response.json()
-  return { messageId: data.messages[0].id }
+  return toSendResult(await response.json())
 }
 
 export interface InteractiveListRow {
@@ -961,8 +979,7 @@ export async function sendInteractiveList(
   if (!response.ok) {
     await throwMetaError(response, `Meta API error: ${response.status}`)
   }
-  const data = await response.json()
-  return { messageId: data.messages[0].id }
+  return toSendResult(await response.json())
 }
 
 function validateInteractiveBody(bodyText: string): void {
@@ -1127,8 +1144,7 @@ export async function sendProductList(
   if (!response.ok) {
     await throwMetaError(response, `Meta API error: ${response.status}`)
   }
-  const data = await response.json()
-  return { messageId: data.messages[0].id }
+  return toSendResult(await response.json())
 }
 
 // ============================================================

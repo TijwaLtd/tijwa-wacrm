@@ -3,6 +3,7 @@ import {
   INTERACTIVE_LIMITS,
   sendInteractiveButtons,
   sendInteractiveList,
+  sendTextMessage,
 } from "./meta-api";
 
 // All assertions in this file run BEFORE the network call. We stub fetch
@@ -138,6 +139,61 @@ describe("sendInteractiveButtons — validation", () => {
         },
       },
     });
+  });
+});
+
+describe("MetaSendResult.waId", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("captures contacts[0].wa_id from a successful send", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            messaging_product: "whatsapp",
+            contacts: [{ input: "14155550123", wa_id: "14155550123" }],
+            messages: [{ id: "wamid.WAID" }],
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+
+    const result = await sendTextMessage({
+      phoneNumberId: "pn",
+      accessToken: "tok",
+      to: "+14155550123",
+      text: "hi",
+    });
+
+    expect(result).toEqual({
+      messageId: "wamid.WAID",
+      waId: "14155550123",
+    });
+  });
+
+  it("leaves waId undefined when Meta omits the contacts array", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(JSON.stringify({ messages: [{ id: "wamid.X" }] }), {
+          status: 200,
+        }),
+      ),
+    );
+
+    const result = await sendTextMessage({
+      phoneNumberId: "pn",
+      accessToken: "tok",
+      to: "+14155550123",
+      text: "hi",
+    });
+
+    expect(result.messageId).toBe("wamid.X");
+    expect(result.waId).toBeUndefined();
   });
 });
 

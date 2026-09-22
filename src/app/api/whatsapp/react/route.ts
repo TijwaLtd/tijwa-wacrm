@@ -2,7 +2,12 @@ import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { sendReactionMessage } from '@/lib/whatsapp/meta-api';
 import { decrypt } from '@/lib/whatsapp/encryption';
-import { sanitizePhoneForMeta } from '@/lib/whatsapp/phone-utils';
+import {
+  resolveSendTarget,
+  sendViaTarget,
+  NO_SEND_TARGET_MESSAGE,
+} from '@/lib/whatsapp/send-target';
+import { saveContactMetaIdentity } from '@/lib/whatsapp/contact-meta-identity';
 import {
   checkRateLimit,
   rateLimitResponse,
@@ -66,7 +71,7 @@ export async function POST(request: Request) {
 
     const { data: conversation, error: convError } = await supabase
       .from('conversations')
-      .select('id, account_id, contact:contacts(phone, bsuid)')
+      .select('id, account_id, contact:contacts(id, phone, bsuid)')
       .eq('id', targetMessage.conversation_id)
       .eq('account_id', accountId)
       .maybeSingle();
@@ -88,21 +93,10 @@ export async function POST(request: Request) {
       );
     }
 
-    // Determine send target: valid phone, or BSUID fallback. Contacts
-    // from newer Meta webhooks may have `phone = ''` or the `bsuid_`
-    // placeholder with only `contacts.bsuid` populated.
-    const rawPhone = contact.phone || '';
-    const isPlaceholderPhone = !rawPhone || rawPhone.startsWith('bsuid_');
-    const sanitizedPhone = isPlaceholderPhone
-      ? ''
-      : sanitizePhoneForMeta(rawPhone);
-    const hasValidPhone = !!sanitizedPhone;
-    const hasBsuid = !!contact.bsuid;
-    const toTarget = hasValidPhone ? sanitizedPhone : contact.bsuid;
-
-    if (!hasValidPhone && !hasBsuid) {
+    const sendTarget = resolveSendTarget(contact);
+    if (!sendTarget) {
       return NextResponse.json(
-        { error: 'Contact has no valid phone number or WhatsApp user ID' },
+        { error: NO_SEND_TARGET_MESSAGE },
         { status: 400 },
       );
     }
@@ -124,13 +118,16 @@ export async function POST(request: Request) {
     const accessToken = decrypt(config.access_token);
 
     try {
-      await sendReactionMessage({
-        phoneNumberId: config.phone_number_id,
-        accessToken,
-        to: toTarget,
-        targetMessageId: targetMessage.message_id,
-        emoji,
-      });
+      const result = await sendViaTarget(sendTarget, (to) =>
+        sendReactionMessage({
+          phoneNumberId: config.phone_number_id,
+          accessToken,
+          to,
+          targetMessageId: targetMessage.message_id,
+          emoji,
+        })
+      );
+      await saveContactMetaIdentity(supabase, contact.id, result.waId, accountId);
     } catch (err) {
       const message =
         err instanceof Error ? err.message : 'Unknown Meta API error';

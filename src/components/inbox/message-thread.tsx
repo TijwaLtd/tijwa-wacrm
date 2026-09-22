@@ -57,7 +57,7 @@ import { buildReplyPreview } from "./reply-quote";
 import { toast } from "sonner";
 import { useAuditLogger } from "@/hooks/use-audit-logger";
 import { AuditEventType } from "@/lib/audit/events";
-import { maskPhoneNumber, displayContactPhone, displayContactName } from "@/lib/audit/masking";
+import { maskPhoneNumber, displayContactPhone, displayContactName, isPlaceholderPhone } from "@/lib/audit/masking";
 
 interface ReplyDraft {
   id: string;
@@ -535,9 +535,18 @@ export function MessageThread({
     }
   }, [messages]);
 
-  // Team conversation flag — used to hide WhatsApp-specific UI and
-  // route messages through the team API instead of WhatsApp send.
+  // Team conversations route through the team API; everything else is
+  // WhatsApp (the default conversation type). WhatsApp is only "called"
+  // when the contact has a real phone or a BSUID Meta can deliver to.
   const isTeam = conversation?.type === 'team';
+  const whatsappCalled = isTeam
+    ? true
+    : Boolean(
+        (contact?.phone &&
+          !contact.phone.startsWith('bsuid_') &&
+          contact.phone !== '') ||
+          contact?.bsuid,
+      );
 
   const handleSend = useCallback(
     async (text: string, replyToId?: string) => {
@@ -587,6 +596,14 @@ export function MessageThread({
           toast.error("Failed to send message");
           onUpdateMessage(tempId, { status: "failed" });
         }
+        return;
+      }
+
+      // Default channel is WhatsApp; block free-form send when the
+      // contact has no WhatsApp identity (phone/BSUID) yet.
+      if (!whatsappCalled) {
+        onUpdateMessage(tempId, { status: "failed" });
+        toast.error("This contact has no WhatsApp number or user ID yet.");
         return;
       }
 
@@ -656,12 +673,16 @@ export function MessageThread({
         }
       }
     },
-    [conversation, onNewMessage, onUpdateMessage, isTeam]
+    [conversation, onNewMessage, onUpdateMessage, isTeam, whatsappCalled]
   );
 
   const handleSendMedia = useCallback(
     async (payload: SendMediaPayload) => {
       if (!conversation) return;
+      if (!whatsappCalled) {
+        toast.error("This contact has no WhatsApp number or user ID yet.");
+        return;
+      }
 
       // Documents show their filename in our own bubble (and to the
       // recipient as the Meta caption when no caption was typed); other
@@ -758,12 +779,16 @@ export function MessageThread({
         }
       }
     },
-    [conversation, onNewMessage, onUpdateMessage],
+    [conversation, onNewMessage, onUpdateMessage, whatsappCalled],
   );
 
   const handleSendInteractive = useCallback(
     async (payload: InteractiveMessagePayload, replyToId?: string) => {
       if (!conversation) return;
+      if (!whatsappCalled) {
+        toast.error("This contact has no WhatsApp number or user ID yet.");
+        return;
+      }
 
       const tempId = `temp-${Date.now()}`;
       // Optimistic bubble — renders the buttons/list immediately via the
@@ -842,7 +867,7 @@ export function MessageThread({
         }
       }
     },
-    [conversation, onNewMessage, onUpdateMessage],
+    [conversation, onNewMessage, onUpdateMessage, whatsappCalled],
   );
 
   const handleStatusChange = useCallback(
@@ -1179,7 +1204,7 @@ export function MessageThread({
               <p className="truncate text-xs text-muted-foreground">
                 {conversation.team_participant_ids?.length ?? 0} members
               </p>
-            ) : contact?.phone ? (
+            ) : contact?.phone && !isPlaceholderPhone(contact.phone) ? (
               <p className="truncate text-xs text-muted-foreground font-mono">
                 {maskPhoneNumber(contact.phone)}
               </p>
@@ -1451,6 +1476,7 @@ export function MessageThread({
         replyTo={replyTo}
         onClearReply={() => setReplyTo(null)}
         isTeam={isTeam}
+        whatsappCalled={whatsappCalled}
       />
 
       {/* Template picker — hidden for team conversations */}

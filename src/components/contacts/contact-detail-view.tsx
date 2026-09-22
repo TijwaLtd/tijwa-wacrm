@@ -45,7 +45,7 @@ import {
 import { useTranslations } from 'next-intl';
 import { useAuditLogger } from '@/hooks/use-audit-logger';
 import { AuditEventType } from '@/lib/audit/events';
-import { maskPhoneNumber, getFullPhone, getPhoneDigits, displayContactPhone, displayContactName } from '@/lib/audit/masking';
+import { maskPhoneNumber, getFullPhone, getPhoneDigits, displayContactPhone, displayContactName, isPlaceholderPhone } from '@/lib/audit/masking';
 
 interface ContactDetailViewProps {
   open: boolean;
@@ -201,7 +201,7 @@ export function ContactDetailView({
   }, [open, contactId, fetchContact, fetchTags, fetchNotes, fetchCustomFields, fetchDeals]);
 
   async function copyPhone() {
-    if (!contact) return;
+    if (!contact || isPlaceholderPhone(contact.phone)) return;
     // Always copy the full number with + prefix
     await navigator.clipboard.writeText(getFullPhone(contact.phone));
     setCopiedPhone(true);
@@ -210,14 +210,14 @@ export function ContactDetailView({
   }
 
   function handleCallClick() {
-    if (!contact) return;
+    if (!contact || isPlaceholderPhone(contact.phone)) return;
     auditLog(AuditEventType.CONTACT_CALL_CLICKED, { contactId: contact.id });
     // Use full number with + for tel: link
     window.open(`tel:${getFullPhone(contact.phone)}`, '_self');
   }
 
   function handleWhatsAppClick() {
-    if (!contact) return;
+    if (!contact || isPlaceholderPhone(contact.phone)) return;
     auditLog(AuditEventType.CONTACT_WHATSAPP_CLICKED, { contactId: contact.id });
     window.open(`https://wa.me/${getPhoneDigits(contact.phone)}`, '_blank');
   }
@@ -439,39 +439,47 @@ export function ContactDetailView({
                         <span className="font-mono">
                           {displayContactPhone(contact.phone, showPhone)}
                         </span>
-                        {copiedPhone ? (
-                          <Check className="size-3 text-primary" />
-                        ) : (
-                          <Copy className="size-3" />
+                        {!isPlaceholderPhone(contact.phone) && (
+                          copiedPhone ? (
+                            <Check className="size-3 text-primary" />
+                          ) : (
+                            <Copy className="size-3" />
+                          )
                         )}
                       </button>
-                      <button
-                        onClick={() => {
-                          setShowPhone(!showPhone);
-                          if (!showPhone) {
-                            auditLog(AuditEventType.CONTACT_PHONE_REVEALED, { contactId: contact.id });
-                          }
-                        }}
-                        className="flex items-center justify-center p-1 hover:text-primary transition-colors cursor-pointer"
-                        title={showPhone ? "Hide number" : "Reveal number"}
-                      >
-                        {showPhone ? <EyeOff className="size-3" /> : <Eye className="size-3" />}
-                      </button>
+                      {!isPlaceholderPhone(contact.phone) && (
+                        <button
+                          onClick={() => {
+                            setShowPhone(!showPhone);
+                            if (!showPhone) {
+                              auditLog(AuditEventType.CONTACT_PHONE_REVEALED, { contactId: contact.id });
+                            }
+                          }}
+                          className="flex items-center justify-center p-1 hover:text-primary transition-colors cursor-pointer"
+                          title={showPhone ? "Hide number" : "Reveal number"}
+                        >
+                          {showPhone ? <EyeOff className="size-3" /> : <Eye className="size-3" />}
+                        </button>
+                      )}
                     </div>
-                    <button
-                      onClick={handleCallClick}
-                      className="flex items-center gap-1 hover:text-primary transition-colors cursor-pointer"
-                    >
-                      <PhoneCall className="size-3" />
-                      Call
-                    </button>
-                    <button
-                      onClick={handleWhatsAppClick}
-                      className="flex items-center gap-1 hover:text-primary transition-colors cursor-pointer"
-                    >
-                      <MessageCircle className="size-3" />
-                      WhatsApp
-                    </button>
+                    {!isPlaceholderPhone(contact.phone) && (
+                      <>
+                        <button
+                          onClick={handleCallClick}
+                          className="flex items-center gap-1 hover:text-primary transition-colors cursor-pointer"
+                        >
+                          <PhoneCall className="size-3" />
+                          Call
+                        </button>
+                        <button
+                          onClick={handleWhatsAppClick}
+                          className="flex items-center gap-1 hover:text-primary transition-colors cursor-pointer"
+                        >
+                          <MessageCircle className="size-3" />
+                          WhatsApp
+                        </button>
+                      </>
+                    )}
                     {contact.email && (
                       <span className="flex items-center gap-1">
                         <Mail className="size-3" />

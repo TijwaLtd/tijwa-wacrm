@@ -6,11 +6,11 @@ import {
 } from '@/lib/flows/meta-send'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import {
-  sanitizePhoneForMeta,
-  isValidE164,
-  phoneVariants,
-  isRecipientNotAllowedError,
-} from '@/lib/whatsapp/phone-utils'
+  resolveSendTarget,
+  sendViaTarget,
+  NO_SEND_TARGET_MESSAGE,
+} from '@/lib/whatsapp/send-target'
+import { saveContactMetaIdentity } from '@/lib/whatsapp/contact-meta-identity'
 import { supabaseAdmin } from './admin-client'
 
 // ------------------------------------------------------------
@@ -126,16 +126,11 @@ async function sendViaMeta(input: SendInput): Promise<{ whatsapp_message_id: str
     throw new Error('contact not found for this account')
   }
 
-  let sanitized = ''
-  const rawPhone = contact.phone || ''
-  if (rawPhone && !rawPhone.startsWith('bsuid_')) {
-    sanitized = sanitizePhoneForMeta(rawPhone)
-  }
-  const hasValidPhone = sanitized && isValidE164(sanitized)
-  const hasBsuid = !!contact.bsuid
-
-  if (!hasValidPhone && !hasBsuid) {
-    throw new Error(`contact has no valid phone or BSUID — cannot send. contact_id: ${contact.id}`)
+  const sendTarget = resolveSendTarget(contact)
+  if (!sendTarget) {
+    throw new Error(
+      `${NO_SEND_TARGET_MESSAGE} — cannot send. contact_id: ${contact.id}`,
+    )
   }
 
   const { data: config, error: configErr } = await db
@@ -149,9 +144,9 @@ async function sendViaMeta(input: SendInput): Promise<{ whatsapp_message_id: str
 
   const accessToken = decrypt(config.access_token)
 
-  const attempt = async (to: string): Promise<string> => {
+  const attempt = async (to: string) => {
     if (input.kind === 'template') {
-      const r = await sendTemplateMessage({
+      return sendTemplateMessage({
         phoneNumberId: config.phone_number_id,
         accessToken,
         to,
@@ -159,47 +154,27 @@ async function sendViaMeta(input: SendInput): Promise<{ whatsapp_message_id: str
         language: input.language,
         params: input.params,
       })
-      return r.messageId
     }
-    const r = await sendTextMessage({
+    return sendTextMessage({
       phoneNumberId: config.phone_number_id,
       accessToken,
       to,
       text: input.text,
     })
-    return r.messageId
   }
 
-  let waMessageId = ''
-  let workingPhone = sanitized
+  const { messageId: waMessageId, workingPhone, waId } = await sendViaTarget(
+    sendTarget,
+    attempt,
+  )
 
-  if (hasValidPhone) {
-    const variants = phoneVariants(sanitized)
-    let lastError: unknown = null
-    for (const v of variants) {
-      try {
-        waMessageId = await attempt(v)
-        workingPhone = v
-        lastError = null
-        break
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        if (!isRecipientNotAllowedError(msg)) throw err
-        lastError = err
-      }
-    }
-    if (lastError) throw lastError
-  } else if (hasBsuid) {
-    try {
-      waMessageId = await attempt(contact.bsuid!)
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      console.error('[automations/meta-send] BSUID send failed:', msg)
-      throw new Error(`Cannot send to contact — no valid phone and BSUID send failed: ${msg}`)
-    }
-  }
+  await saveContactMetaIdentity(db, contact.id, waId, input.accountId)
 
-  if (workingPhone !== sanitized) {
+  if (
+    sendTarget.kind === 'phone' &&
+    workingPhone &&
+    workingPhone !== sendTarget.phone
+  ) {
     await db.from('contacts').update({ phone: workingPhone }).eq('id', contact.id)
   }
 

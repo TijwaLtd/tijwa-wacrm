@@ -7,9 +7,12 @@ import { isMessageTemplate } from '@/lib/whatsapp/template-row-guard'
 import {
   sanitizePhoneForMeta,
   isValidE164,
-  phoneVariants,
-  isRecipientNotAllowedError,
 } from '@/lib/whatsapp/phone-utils'
+import {
+  resolveSendTarget,
+  sendViaTarget,
+} from '@/lib/whatsapp/send-target'
+import { saveContactMetaIdentity } from '@/lib/whatsapp/contact-meta-identity'
 import {
   checkRateLimit,
   rateLimitResponse,
@@ -180,35 +183,49 @@ export async function POST(request: Request) {
 
       // Retry with phone variants on "not in allowed list" so numbers
       // that differ only in a trunk-prefix 0 still reach recipients.
-      const variants = phoneVariants(sanitized)
-      let sentMessageId: string | null = null
-      let lastError: string | null = null
+      // Fall back to the contact's BSUID when every phone variant fails.
+      const { data: contactRow } = await supabase
+        .from('contacts')
+        .select('id, phone, bsuid')
+        .eq('account_id', accountId)
+        .like('phone', `%${sanitized.slice(-8)}`)
+        .maybeSingle();
 
-      for (const variant of variants) {
+      const target = resolveSendTarget({
+        phone: contactRow?.phone || sanitized,
+        bsuid: contactRow?.bsuid ?? null,
+      });
+      let sentMessageId: string | null = null;
+      let lastError: string | null = null;
+
+      if (target) {
         try {
-          const result = await sendTemplateMessage({
-            phoneNumberId: config.phone_number_id,
-            accessToken,
-            to: variant,
-            templateName: template_name,
-            language: template_language || 'en_US',
-            template: templateRow ?? undefined,
-            messageParams: recipient.messageParams,
-            params: recipient.params ?? [],
-          })
-          sentMessageId = result.messageId
-          lastError = null
-          break
-        } catch (error) {
-          const errorMessage =
-            error instanceof Error ? error.message : 'Unknown error'
-          if (!isRecipientNotAllowedError(errorMessage)) {
-            lastError = errorMessage
-            break
+          const result = await sendViaTarget(target, async (to) =>
+            sendTemplateMessage({
+              phoneNumberId: config.phone_number_id,
+              accessToken,
+              to,
+              templateName: template_name,
+              language: template_language || 'en_US',
+              template: templateRow ?? undefined,
+              messageParams: recipient.messageParams,
+              params: recipient.params ?? [],
+            })
+          );
+          sentMessageId = result.messageId;
+          if (contactRow?.id) {
+            await saveContactMetaIdentity(
+              supabase,
+              contactRow.id,
+              result.waId,
+              accountId
+            );
           }
-          lastError = errorMessage
-          // retry with next variant
+        } catch (error) {
+          lastError = error instanceof Error ? error.message : 'Unknown error';
         }
+      } else {
+        lastError = 'Contact has no valid phone number or WhatsApp user ID';
       }
 
       if (sentMessageId) {

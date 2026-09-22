@@ -23,9 +23,13 @@ import { decrypt } from '@/lib/whatsapp/encryption';
 import {
   sanitizePhoneForMeta,
   isValidE164,
-  phoneVariants,
-  isRecipientNotAllowedError,
 } from '@/lib/whatsapp/phone-utils';
+import {
+  resolveSendTarget,
+  sendViaTarget,
+  type ContactSendIdentity,
+} from '@/lib/whatsapp/send-target';
+import { saveContactMetaIdentity } from '@/lib/whatsapp/contact-meta-identity';
 import { isMessageTemplate } from '@/lib/whatsapp/template-row-guard';
 import type { MessageTemplate } from '@/types';
 import { findOrCreateContact } from '@/lib/api/v1/contacts';
@@ -58,7 +62,10 @@ export interface CreateBroadcastParams {
 
 interface PlannedRecipient {
   recipientRowId: string;
+  contactId: string;
   phone: string;
+  /** Contact identity for phone-primary / BSUID-fallback delivery. */
+  identity: ContactSendIdentity;
   params: string[];
 }
 
@@ -145,7 +152,12 @@ export async function createBroadcast(
 
   // Resolve each recipient to a contact. Invalid phones are dropped
   // (counted as rejected) rather than aborting the whole broadcast.
-  const resolved: { contactId: string; phone: string; params: string[] }[] = [];
+  const resolved: {
+    contactId: string;
+    phone: string;
+    identity: ContactSendIdentity;
+    params: string[];
+  }[] = [];
   let rejected = 0;
   for (const r of recipients) {
     const sanitized = sanitizePhoneForMeta(typeof r.to === 'string' ? r.to : '');
@@ -156,9 +168,31 @@ export async function createBroadcast(
     const { id } = await findOrCreateContact(db, accountId, auditUserId, {
       phone: sanitized,
     });
+    // Load phone + BSUID so delivery prefers the input phone but can
+    // fall back to BSUID (username-only Meta contacts). Best-effort:
+    // a failed lookup falls back to the input phone rather than
+    // aborting the whole broadcast.
+    let contactPhone = sanitized;
+    let contactBsuid: string | null = null;
+    try {
+      const { data: contactRow } = await db
+        .from('contacts')
+        .select('phone, bsuid')
+        .eq('id', id)
+        .eq('account_id', accountId)
+        .maybeSingle();
+      contactPhone = contactRow?.phone || sanitized;
+      contactBsuid = contactRow?.bsuid ?? null;
+    } catch {
+      // keep sanitized input phone / null bsuid
+    }
     resolved.push({
       contactId: id,
       phone: sanitized,
+      identity: {
+        phone: contactPhone,
+        bsuid: contactBsuid,
+      },
       params: Array.isArray(r.params)
         ? r.params.filter((p): p is string => typeof p === 'string')
         : [],
@@ -225,7 +259,13 @@ export async function createBroadcast(
   const planned: PlannedRecipient[] = createdRows.map(
     (row: { recipient_id: string; contact_id: string }) => {
       const r = byContact.get(row.contact_id)!;
-      return { recipientRowId: row.recipient_id, phone: r.phone, params: r.params };
+      return {
+        recipientRowId: row.recipient_id,
+        contactId: r.contactId,
+        phone: r.phone,
+        identity: r.identity,
+        params: r.params,
+      };
     }
   );
 
@@ -261,30 +301,30 @@ export async function deliverBroadcast(
   let sentCount = 0;
 
   for (const recipient of plan.planned) {
-    const variants = phoneVariants(recipient.phone);
+    const target = resolveSendTarget(recipient.identity);
     let sentMessageId: string | null = null;
     let lastError: string | null = null;
 
-    for (const variant of variants) {
+    if (target) {
       try {
-        const result = await sendTemplateMessage({
-          phoneNumberId: plan.phoneNumberId,
-          accessToken: plan.accessToken,
-          to: variant,
-          templateName: plan.templateName,
-          language: plan.templateLanguage,
-          template: plan.templateRow ?? undefined,
-          params: recipient.params,
-        });
+        const result = await sendViaTarget(target, async (to) =>
+          sendTemplateMessage({
+            phoneNumberId: plan.phoneNumberId,
+            accessToken: plan.accessToken,
+            to,
+            templateName: plan.templateName,
+            language: plan.templateLanguage,
+            template: plan.templateRow ?? undefined,
+            params: recipient.params,
+          })
+        );
         sentMessageId = result.messageId;
-        lastError = null;
-        break;
+        await saveContactMetaIdentity(db, recipient.contactId, result.waId);
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Unknown error';
-        lastError = message;
-        // Only a "recipient not allowed" error is worth another variant.
-        if (!isRecipientNotAllowedError(message)) break;
+        lastError = error instanceof Error ? error.message : 'Unknown error';
       }
+    } else {
+      lastError = 'Contact has no valid phone number or WhatsApp user ID';
     }
 
     if (sentMessageId) {

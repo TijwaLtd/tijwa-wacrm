@@ -33,10 +33,14 @@ export interface ResolvedConversation {
 }
 
 /**
- * Find or create the contact + conversation for `phone` within
- * `accountId`. Throws `SendMessageError` (shared with the send core,
- * so the route maps one error family) on a bad phone, a missing
- * WhatsApp config, or a DB failure.
+ * Find (or create) the contact + conversation for a public-API `to`
+ * value within `accountId`. `to` may be:
+ *   - an E.164 phone (primary), or
+ *   - a BSUID (when the value is not a valid phone — username-era
+ *     Meta contacts have no number).
+ *
+ * Throws `SendMessageError` on a bad identifier, a missing WhatsApp
+ * config, or a DB failure.
  */
 export async function resolveConversationByPhone(
   db: SupabaseClient,
@@ -44,11 +48,15 @@ export async function resolveConversationByPhone(
   phone: string,
   name?: string | null
 ): Promise<ResolvedConversation> {
-  const sanitized = sanitizePhoneForMeta(phone);
-  if (!isValidE164(sanitized)) {
+  const trimmed = (phone || '').trim();
+  const sanitized = sanitizePhoneForMeta(trimmed);
+  const isPhone = !!sanitized && isValidE164(sanitized);
+  const isBsuid = !isPhone && !!trimmed;
+
+  if (!isPhone && !isBsuid) {
     throw new SendMessageError(
       'bad_request',
-      "'to' must be a valid phone number in E.164 format (e.g. +14155550123)",
+      "'to' must be a valid phone number in E.164 format (e.g. +14155550123) or a WhatsApp BSUID",
       400
     );
   }
@@ -88,51 +96,107 @@ export async function resolveConversationByPhone(
   let contactId: string;
   let contactCreated = false;
 
-  const existing = await findExistingContact(db, accountId, sanitized);
-  if (existing) {
-    contactId = existing.id;
-    if (name && name !== existing.name) {
-      await db
-        .from('contacts')
-        .update({ name, updated_at: new Date().toISOString() })
-        .eq('id', existing.id);
-    }
-  } else {
-    const { data: created, error: createErr } = await db
+  if (isBsuid) {
+    const { data: byBsuid } = await db
       .from('contacts')
-      .insert({
-        account_id: accountId,
-        user_id: ownerUserId,
-        phone: sanitized,
-        name: name || sanitized,
-      })
-      .select('id')
-      .single();
+      .select('id, name')
+      .eq('account_id', accountId)
+      .eq('bsuid', trimmed)
+      .maybeSingle();
 
-    if (createErr || !created) {
-      // Lost a race against a concurrent inbound/API create — the
-      // unique index (migration 022) rejected the duplicate. Re-resolve.
-      if (isUniqueViolation(createErr)) {
-        const raced = await findExistingContact(db, accountId, sanitized);
-        if (raced) {
-          contactId = raced.id;
-        } else {
-          throw new SendMessageError(
-            'db_error',
-            'Failed to create contact',
-            500
-          );
-        }
-      } else {
-        console.error(
-          '[resolve-conversation] contact create error:',
-          createErr
-        );
-        throw new SendMessageError('db_error', 'Failed to create contact', 500);
+    if (byBsuid) {
+      contactId = byBsuid.id;
+      if (name && name !== byBsuid.name) {
+        await db
+          .from('contacts')
+          .update({ name, updated_at: new Date().toISOString() })
+          .eq('id', byBsuid.id);
       }
     } else {
-      contactId = created.id;
-      contactCreated = true;
+      // Create a BSUID-only contact — phone stores the same placeholder
+      // the webhook writes so dedupe/UI treat it as "no number".
+      const phoneForInsert = `bsuid_${trimmed}`;
+      const { data: created, error: createErr } = await db
+        .from('contacts')
+        .insert({
+          account_id: accountId,
+          user_id: ownerUserId,
+          phone: phoneForInsert,
+          name: name || null,
+          bsuid: trimmed,
+        })
+        .select('id')
+        .single();
+
+      if (createErr || !created) {
+        if (isUniqueViolation(createErr)) {
+          const { data: raced } = await db
+            .from('contacts')
+            .select('id')
+            .eq('account_id', accountId)
+            .eq('bsuid', trimmed)
+            .maybeSingle();
+          if (raced?.id) {
+            contactId = raced.id;
+          } else {
+            throw new SendMessageError('db_error', 'Failed to create contact', 500);
+          }
+        } else {
+          console.error('[resolve-conversation] bsuid contact create error:', createErr);
+          throw new SendMessageError('db_error', 'Failed to create contact', 500);
+        }
+      } else {
+        contactId = created.id;
+        contactCreated = true;
+      }
+    }
+  } else {
+    const existing = await findExistingContact(db, accountId, sanitized);
+    if (existing) {
+      contactId = existing.id;
+      if (name && name !== existing.name) {
+        await db
+          .from('contacts')
+          .update({ name, updated_at: new Date().toISOString() })
+          .eq('id', existing.id);
+      }
+    } else {
+      const { data: created, error: createErr } = await db
+        .from('contacts')
+        .insert({
+          account_id: accountId,
+          user_id: ownerUserId,
+          phone: sanitized,
+          name: name || sanitized,
+        })
+        .select('id')
+        .single();
+
+      if (createErr || !created) {
+        // Lost a race against a concurrent inbound/API create — the
+        // unique index (migration 022) rejected the duplicate. Re-resolve.
+        if (isUniqueViolation(createErr)) {
+          const raced = await findExistingContact(db, accountId, sanitized);
+          if (raced) {
+            contactId = raced.id;
+          } else {
+            throw new SendMessageError(
+              'db_error',
+              'Failed to create contact',
+              500
+            );
+          }
+        } else {
+          console.error(
+            '[resolve-conversation] contact create error:',
+            createErr
+          );
+          throw new SendMessageError('db_error', 'Failed to create contact', 500);
+        }
+      } else {
+        contactId = created.id;
+        contactCreated = true;
+      }
     }
   }
 

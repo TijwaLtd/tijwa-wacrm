@@ -119,6 +119,13 @@ interface MessageComposerProps {
   onClearReply?: () => void;
   /** When true, only text input is shown (team conversations). */
   isTeam?: boolean;
+  /**
+   * WhatsApp channel is active for this thread (contact has a phone
+   * or BSUID, conversation defaults to WhatsApp). When false on a
+   * non-team thread, free-form send is blocked — templates only.
+   * Defaults to true so team/internal callers stay unaffected.
+   */
+  whatsappCalled?: boolean;
 }
 
 function formatDuration(seconds: number): string {
@@ -142,6 +149,7 @@ export function MessageComposer({
   replyTo,
   onClearReply,
   isTeam = false,
+  whatsappCalled = true,
 }: MessageComposerProps) {
   const t = useTranslations('Inbox.composer');
 
@@ -230,7 +238,9 @@ export function MessageComposer({
   const canSend = useCan('send-messages');
   const readOnly = !canSend;
   // Media (like free-form text) is only allowed inside the 24h window.
-  const inputsDisabled = readOnly || sessionExpired;
+  // WhatsApp must also be the active channel (phone/BSUID identity).
+  const whatsappReady = isTeam || whatsappCalled;
+  const inputsDisabled = readOnly || sessionExpired || !whatsappReady;
 
   const clearTimer = useCallback(() => {
     if (timerRef.current !== null) {
@@ -262,7 +272,7 @@ export function MessageComposer({
 
   const handleSend = useCallback(async () => {
     const trimmed = text.trim();
-    if (!trimmed || sending || sessionExpired) return;
+    if (!trimmed || sending || sessionExpired || !whatsappReady) return;
 
     setSending(true);
     try {
@@ -275,7 +285,7 @@ export function MessageComposer({
     } finally {
       setSending(false);
     }
-  }, [text, sending, sessionExpired, onSend, replyTo?.id, getActiveTextarea]);
+  }, [text, sending, sessionExpired, whatsappReady, onSend, replyTo?.id, getActiveTextarea]);
 
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -480,6 +490,7 @@ export function MessageComposer({
   );
 
   const sendInteractive = useCallback(() => {
+    if (!whatsappReady) return;
     const result = validateInteractivePayload(interactivePayload);
     if (!result.ok) {
       toast.error(result.error);
@@ -488,7 +499,7 @@ export function MessageComposer({
     onSendInteractive?.(interactivePayload, replyTo?.id);
     setInteractiveOpen(false);
     onClearReply?.();
-  }, [interactivePayload, onSendInteractive, replyTo?.id, onClearReply]);
+  }, [interactivePayload, onSendInteractive, replyTo?.id, onClearReply, whatsappReady]);
 
   // Persist the current builder payload as a reusable interactive snippet.
   const saveAsQuickReply = useCallback(async () => {
@@ -923,7 +934,7 @@ export function MessageComposer({
   // ---- Draft send / discard -----------------------------------------
 
   const sendDraft = useCallback(() => {
-    if (!draft || busy || !onSendMedia) return;
+    if (!draft || busy || !onSendMedia || !whatsappReady) return;
     onSendMedia({
       kind: draft.kind,
       mediaUrl: draft.mediaUrl,
@@ -938,7 +949,7 @@ export function MessageComposer({
     // The object is now owned by the sent message — clear without GC.
     setDraft(null);
     onClearReply?.();
-  }, [draft, busy, onSendMedia, replyTo?.id, onClearReply]);
+  }, [draft, busy, onSendMedia, replyTo?.id, onClearReply, whatsappReady]);
 
   // Discard GCs the staged object — it was uploaded but never sent.
   const discardDraft = useCallback(() => {
@@ -966,6 +977,20 @@ export function MessageComposer({
       {sessionExpired && (
         <div className="mb-2 flex items-center justify-between rounded-lg bg-amber-500/10 px-3 py-2">
           <p className="text-xs text-amber-400">{t('sessionExpiredHint')}</p>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs text-amber-400 hover:text-amber-300"
+            onClick={() => onOpenTemplates?.()}
+          >
+            <LayoutTemplate className="mr-1 h-3 w-3" />
+            {t('templates')}
+          </Button>
+        </div>
+      )}
+      {!whatsappReady && (
+        <div className="mb-2 flex items-center justify-between rounded-lg bg-amber-500/10 px-3 py-2">
+          <p className="text-xs text-amber-400">{t('whatsappNotReadyHint')}</p>
           <Button
             variant="ghost"
             size="sm"
@@ -1015,6 +1040,7 @@ export function MessageComposer({
           draft={draft}
           busy={busy}
           readOnly={readOnly}
+          whatsappReady={whatsappReady}
           onCaptionChange={setCaption}
           onDiscard={discardDraft}
           onSend={sendDraft}
@@ -1104,9 +1130,9 @@ export function MessageComposer({
                 <GatedButton
                   variant="ghost"
                   size="sm"
-                  canAct={!readOnly}
+                  canAct={!readOnly && whatsappReady}
                   gateReason="send messages"
-                  disabled={busy || drafting}
+                  disabled={busy || drafting || !whatsappReady}
                   title={readOnly ? undefined : t('attachMedia')}
                   className="text-muted-foreground hover:text-foreground h-10 w-10 shrink-0 p-0"
                   onClick={() => setActionPickerOpen(true)}
@@ -1165,14 +1191,16 @@ export function MessageComposer({
                     ? t('readOnlyPlaceholder')
                     : sessionExpired
                       ? t('sessionExpiredPlaceholder')
-                      : t('typeMessagePlaceholder')
+                      : !whatsappReady
+                        ? t('whatsappNotReadyPlaceholder')
+                        : t('typeMessagePlaceholder')
                 }
-                disabled={sessionExpired || readOnly || drafting}
+                disabled={sessionExpired || readOnly || drafting || !whatsappReady}
                 rows={1}
                 title={readOnly ? t('readOnlyTitle') : undefined}
                 className={cn(
                   'border-border bg-muted text-foreground placeholder-muted-foreground focus:border-primary/50 scrollbar-hidden flex-1 resize-none rounded-xl border px-4 py-2.5 text-sm transition-colors outline-none',
-                  (sessionExpired || readOnly || drafting) &&
+                  (sessionExpired || readOnly || drafting || !whatsappReady) &&
                     'cursor-not-allowed opacity-50'
                 )}
               />
@@ -1180,9 +1208,9 @@ export function MessageComposer({
               {text.trim() ? (
                 <GatedButton
                   size="sm"
-                  canAct={!readOnly}
+                  canAct={!readOnly && whatsappReady}
                   gateReason="send messages"
-                  disabled={sessionExpired || sending}
+                  disabled={sessionExpired || sending || !whatsappReady}
                   onClick={handleSend}
                   className="bg-primary hover:bg-primary/90 h-10 w-10 shrink-0 p-0 disabled:opacity-40"
                 >
@@ -1191,9 +1219,9 @@ export function MessageComposer({
               ) : (
                 <GatedButton
                   size="sm"
-                  canAct={!readOnly}
+                  canAct={!readOnly && whatsappReady}
                   gateReason="send messages"
-                  disabled={sessionExpired || busy}
+                  disabled={sessionExpired || busy || !whatsappReady}
                   onClick={() => void startRecording()}
                   className="text-muted-foreground hover:text-foreground h-10 w-10 shrink-0 p-0 disabled:opacity-40"
                 >
@@ -1226,15 +1254,17 @@ export function MessageComposer({
                   ? t('readOnlyPlaceholder')
                   : sessionExpired
                     ? t('sessionExpiredPlaceholder')
-                    : t('typeMessagePlaceholder')
+                    : !whatsappReady
+                      ? t('whatsappNotReadyPlaceholder')
+                      : t('typeMessagePlaceholder')
               }
-              disabled={sessionExpired || readOnly || drafting}
+              disabled={sessionExpired || readOnly || drafting || !whatsappReady}
               rows={1}
               title={readOnly ? t('readOnlyTitle') : undefined}
               className={cn(
                 'border-border bg-muted text-foreground placeholder-muted-foreground focus:border-primary/50 scrollbar-hidden w-full resize-none border px-4 py-3 text-sm transition-colors outline-none',
                 drafting ? 'rounded-t-none border-t-0' : 'rounded-t-2xl',
-                (sessionExpired || readOnly || drafting) &&
+                (sessionExpired || readOnly || drafting || !whatsappReady) &&
                   'cursor-not-allowed opacity-50'
               )}
             />
@@ -1253,9 +1283,9 @@ export function MessageComposer({
                   <GatedButton
                     variant="ghost"
                     size="sm"
-                    canAct={!readOnly}
+                    canAct={!readOnly && whatsappReady}
                     gateReason="send messages"
-                    disabled={busy}
+                    disabled={busy || !whatsappReady}
                     className="text-muted-foreground hover:text-foreground h-9 w-9 shrink-0 p-0"
                     onClick={() => setActionPickerOpen(true)}
                   >
@@ -1282,9 +1312,9 @@ export function MessageComposer({
                 {text.trim() ? (
                   <GatedButton
                     size="sm"
-                    canAct={!readOnly}
+                    canAct={!readOnly && whatsappReady}
                     gateReason="send messages"
-                    disabled={sessionExpired || sending}
+                    disabled={sessionExpired || sending || !whatsappReady}
                     onClick={handleSend}
                     className="bg-primary text-primary-foreground hover:bg-primary/90 flex h-11 w-11 shrink-0 items-center justify-center rounded-full p-0 disabled:opacity-40"
                   >
@@ -1293,9 +1323,9 @@ export function MessageComposer({
                 ) : (
                   <GatedButton
                     size="sm"
-                    canAct={!readOnly}
+                    canAct={!readOnly && whatsappReady}
                     gateReason="send messages"
-                    disabled={sessionExpired || busy}
+                    disabled={sessionExpired || busy || !whatsappReady}
                     onClick={() => void startRecording()}
                     className="bg-foreground text-background hover:bg-foreground/90 flex h-11 w-11 shrink-0 items-center justify-center rounded-full p-0 disabled:opacity-40"
                   >
@@ -1386,6 +1416,7 @@ function MediaDraftPreview({
   draft,
   busy,
   readOnly,
+  whatsappReady,
   onCaptionChange,
   onDiscard,
   onSend,
@@ -1394,6 +1425,7 @@ function MediaDraftPreview({
   draft: MediaDraft;
   busy: boolean;
   readOnly: boolean;
+  whatsappReady: boolean;
   onCaptionChange: (caption: string) => void;
   onDiscard: () => void;
   onSend: () => void;
@@ -1456,9 +1488,9 @@ function MediaDraftPreview({
         )}
         <GatedButton
           size="sm"
-          canAct={!readOnly}
+          canAct={!readOnly && whatsappReady}
           gateReason="send messages"
-          disabled={busy}
+          disabled={busy || !whatsappReady}
           onClick={onSend}
           className={cn(
             'bg-primary hover:bg-primary/90 h-9 w-9 shrink-0 p-0 disabled:opacity-40',

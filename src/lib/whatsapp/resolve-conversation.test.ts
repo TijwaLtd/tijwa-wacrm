@@ -116,8 +116,13 @@ describe('resolveConversationByPhone', () => {
         throw new Error('should not query');
       },
     } as unknown as SupabaseClient;
+    // Empty/whitespace fails both the phone and BSUID checks; a
+    // non-phone value like 'not-a-phone' is now treated as a BSUID.
+    await expect(resolveConversationByPhone(db, 'acct', '')).rejects.toBeInstanceOf(
+      SendMessageError
+    );
     await expect(
-      resolveConversationByPhone(db, 'acct', 'not-a-phone')
+      resolveConversationByPhone(db, 'acct', '   ')
     ).rejects.toBeInstanceOf(SendMessageError);
   });
 

@@ -215,6 +215,8 @@
     "composer": {
       "draftHint": "Tap the ✨ to draft a reply with AI — you can edit it before sending",
       "sessionExpiredHint": "24-hour session expired. Use a template to re-engage.",
+      "whatsappNotReadyHint": "No WhatsApp number or user ID for this contact. Use a template once they message you on WhatsApp.",
+      "whatsappNotReadyPlaceholder": "WhatsApp not available for this contact",
       "templates": "Templates",
       "readOnlyPlaceholder": "Read-only — viewers can browse but not reply",
       "sessionExpiredPlaceholder": "Session expired - use a template",

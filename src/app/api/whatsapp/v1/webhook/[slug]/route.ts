@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { decrypt, encrypt, isLegacyFormat } from '@/lib/whatsapp/encryption'
 import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/meta-api'
 import { normalizePhone } from '@/lib/whatsapp/phone-utils'
+import { saveContactMetaIdentity } from '@/lib/whatsapp/contact-meta-identity'
 import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe'
 import { reopenClosedConversation } from '@/lib/conversations/reopen'
 import { verifyMetaWebhookSignature } from '@/lib/whatsapp/webhook-signature'
@@ -481,6 +482,36 @@ async function handleStatusUpdate(
 
   if (msgErr) {
     console.error('[webhook] Error updating message status:', msgErr)
+  }
+
+  // 1b) Backfill contact wa_id/bsuid from recipient_id — free second
+  // source of Meta identity on every delivery/read receipt, so phone-only
+  // contacts get a Meta id even before an inbound message arrives.
+  // Best-effort: never let identity bookkeeping break status updates.
+  try {
+    const { data: statusMsg } = await supabaseAdmin()
+      .from('messages')
+      .select('conversation_id, conversations(account_id, contact_id)')
+      .eq('message_id', status.id)
+      .limit(1)
+      .maybeSingle()
+
+    const statusConv = statusMsg?.conversations as
+      | { account_id: string; contact_id: string }
+      | null
+    if (statusConv?.contact_id) {
+      await saveContactMetaIdentity(
+        supabaseAdmin(),
+        statusConv.contact_id,
+        status.recipient_id,
+        statusConv.account_id,
+      )
+    }
+  } catch (err) {
+    console.warn(
+      '[webhook] status identity backfill skipped:',
+      err instanceof Error ? err.message : err,
+    )
   }
 
   // 2) Mirror onto broadcast_recipients via whatsapp_message_id.

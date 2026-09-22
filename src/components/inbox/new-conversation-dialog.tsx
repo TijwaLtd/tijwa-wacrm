@@ -196,7 +196,7 @@ export function NewConversationDialog({
                           />
                         ) : (
                           <AvatarFallback className="bg-muted text-sm">
-                            {(contact.name || contact.phone || "?")?.charAt(0).toUpperCase()}
+                            {displayContactName(contact.name, contact.phone, "?").charAt(0).toUpperCase()}
                           </AvatarFallback>
                         )}
                       </Avatar>

@@ -11,6 +11,30 @@ vi.mock('@/lib/api/v1/contacts', () => ({
   findOrCreateContact: vi.fn(async () => ({ id: 'c1' })),
 }));
 
+// Contact phone/BSUID load for the planned identity — stub a plain row.
+function withContactLookup(db: SupabaseClient): SupabaseClient {
+  const original = db.from.bind(db);
+  (db as unknown as { from: (t: string) => unknown }).from = (table: string) => {
+    if (table === 'contacts') {
+      return {
+        select: () => ({
+          eq: () => ({
+            eq: () => ({
+              maybeSingle: () =>
+                Promise.resolve({
+                  data: { phone: '14155551212', bsuid: null },
+                  error: null,
+                }),
+            }),
+          }),
+        }),
+      };
+    }
+    return original(table);
+  };
+  return db;
+}
+
 // These assertions all fire in the pure validation prologue, before
 // any Supabase call — a bare stub is enough.
 const db = {} as SupabaseClient;
@@ -105,7 +129,7 @@ describe('createBroadcast atomicity (#370)', () => {
       error: null,
     });
 
-    const plan = await createBroadcast(db, 'acc', 'user', {
+    const plan = await createBroadcast(withContactLookup(db), 'acc', 'user', {
       templateName: 'promo',
       recipients: [{ to: '+14155550123' }],
     });
@@ -115,7 +139,13 @@ describe('createBroadcast atomicity (#370)', () => {
     expect(calls.usedDirectInsert).toBe(0);
     expect(plan.broadcastId).toBe('b-1');
     expect(plan.planned).toEqual([
-      { recipientRowId: 'r-1', phone: '14155550123', params: [] },
+      {
+        recipientRowId: 'r-1',
+        contactId: 'c1',
+        phone: '14155550123',
+        identity: { phone: '14155551212', bsuid: null },
+        params: [],
+      },
     ]);
   });
 
@@ -126,7 +156,7 @@ describe('createBroadcast atomicity (#370)', () => {
     });
 
     await expect(
-      createBroadcast(db, 'acc', 'user', {
+      createBroadcast(withContactLookup(db), 'acc', 'user', {
         templateName: 'promo',
         recipients: [{ to: '+14155550123' }],
       })
