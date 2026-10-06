@@ -7,6 +7,8 @@
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createClient as createServiceClient } from "@supabase/supabase-js";
+import { setAccountBusinessType } from "@/lib/business/set-business-type";
 
 export async function GET(
   request: Request,
@@ -41,6 +43,7 @@ export async function GET(
       id,
       name,
       subdomain,
+      business_type,
       created_at,
       tenant_settings!inner(
         display_name,
@@ -89,6 +92,18 @@ export async function PATCH(
 
   const body = await request.json().catch(() => null);
   const updates: Record<string, unknown> = {};
+
+  // Update business type (and recommended capabilities)
+  if (typeof body?.business_type === "string" && body.business_type) {
+    const serviceClient = createServiceClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    );
+    const result = await setAccountBusinessType(serviceClient, id, body.business_type);
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error }, { status: 400 });
+    }
+  }
 
   // Update account
   if (typeof body?.name === "string" && body.name.trim()) {
@@ -153,6 +168,7 @@ export async function PATCH(
       id,
       name,
       subdomain,
+      business_type,
       created_at,
       tenant_settings!inner(
         display_name,

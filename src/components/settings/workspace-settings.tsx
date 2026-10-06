@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import {
@@ -33,18 +33,34 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/use-auth';
+import { BUSINESS_TYPES } from '@/lib/business/capabilities';
 
 export function WorkspaceSettings() {
   const t = useTranslations('WorkspaceSettings');
   const router = useRouter();
-  const { activeWorkspace, refreshProfile, workspaces, switchWorkspace } = useAuth();
+  const {
+    activeWorkspace,
+    refreshProfile,
+    refreshCapabilities,
+    workspaces,
+    switchWorkspace,
+  } = useAuth();
 
   const [name, setName] = useState(activeWorkspace?.account_name ?? '');
   const [logoUrl, setLogoUrl] = useState('');
   const [accentColor, setAccentColor] = useState('#7c3aed');
+  const [businessType, setBusinessType] = useState<string>('');
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   // Leave dialog
   const [showLeaveDialog, setShowLeaveDialog] = useState(false);
@@ -55,20 +71,38 @@ export function WorkspaceSettings() {
   const [deleting, setDeleting] = useState(false);
 
   // Fetch workspace details
-  useState(() => {
+  useEffect(() => {
+    let cancelled = false;
+
     async function fetchSettings() {
-      if (!activeWorkspace?.account_id) return;
+      if (!activeWorkspace?.account_id) {
+        setLoading(false);
+        return;
+      }
       try {
         const res = await fetch(`/api/workspaces/${activeWorkspace.account_id}`);
         if (res.ok) {
-          await res.json();
+          const data = await res.json();
+          const ws = data?.workspace;
+          if (!cancelled && ws) {
+            setName(ws.name ?? '');
+            setLogoUrl(ws.tenant_settings?.logo_url ?? '');
+            setAccentColor(ws.tenant_settings?.accent_color ?? '#7c3aed');
+            setBusinessType(ws.business_type ?? '');
+          }
         }
       } catch (err) {
         console.error('Failed to fetch workspace settings:', err);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     }
     fetchSettings();
-  });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeWorkspace?.account_id]);
 
   const handleSave = async () => {
     if (!activeWorkspace?.account_id) return;
@@ -83,6 +117,7 @@ export function WorkspaceSettings() {
           name: name.trim(),
           logo_url: logoUrl.trim() || null,
           accent_color: accentColor || null,
+          ...(businessType ? { business_type: businessType } : {}),
         }),
       });
 
@@ -92,6 +127,7 @@ export function WorkspaceSettings() {
 
       toast.success(t('saved'));
       await refreshProfile();
+      await refreshCapabilities();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('saveError'));
     } finally {
@@ -169,7 +205,7 @@ export function WorkspaceSettings() {
     }
   };
 
-  if (!activeWorkspace) {
+  if (!activeWorkspace || loading) {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -215,6 +251,33 @@ export function WorkspaceSettings() {
               </p>
             </div>
           )}
+
+          {/* Business type */}
+          <div className="space-y-2">
+            <Label htmlFor="business-type">{t('businessType')}</Label>
+            <Select
+              value={businessType || undefined}
+              onValueChange={(v) => setBusinessType(v ?? '')}
+              disabled={saving}
+            >
+              <SelectTrigger
+                id="business-type"
+                className="w-full border-border bg-muted text-foreground"
+              >
+                <SelectValue placeholder={t('businessTypePlaceholder')} />
+              </SelectTrigger>
+              <SelectContent>
+                {BUSINESS_TYPES.map((bt) => (
+                  <SelectItem key={bt.value} value={bt.value}>
+                    {bt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {t('businessTypeInfo')}
+            </p>
+          </div>
 
           {/* Logo URL */}
           <div className="space-y-2">

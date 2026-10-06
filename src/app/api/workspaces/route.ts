@@ -14,6 +14,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { isValidBusinessType, type BusinessType } from "@/lib/business/capabilities";
+import { setAccountBusinessType } from "@/lib/business/set-business-type";
 
 // GET /api/workspaces - List all workspaces for current user
 // Uses serviceClient to bypass RLS (avoids infinite recursion on account_memberships)
@@ -232,6 +233,14 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  // Update business type (and recommended capabilities)
+  if (typeof body?.business_type === "string" && body.business_type) {
+    const result = await setAccountBusinessType(serviceClient, accountId, body.business_type);
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error }, { status: 400 });
+    }
+  }
+
   // Update account name
   if (typeof body?.name === "string" && body.name.trim()) {
     const newName = body.name.trim();
@@ -315,6 +324,7 @@ export async function PATCH(request: Request) {
       id,
       name,
       subdomain,
+      business_type,
       created_at,
       tenant_settings!inner(
         display_name,

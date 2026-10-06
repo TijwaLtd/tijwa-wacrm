@@ -2,7 +2,9 @@
 // POST /api/seed-data
 //
 // Seeds the current account with realistic sample data based on
-// the account's business_type. Creates:
+// the account's business_type. Optionally accepts business_type
+// in the body — updates accounts.business_type + recommended
+// capabilities BEFORE seeding. Creates:
 //   - Org-specific offering categories
 //   - Sample offerings with images and metadata
 //   - Updates tenant_settings.operating_hours
@@ -15,6 +17,7 @@ import { NextResponse } from "next/server";
 import { requireRole, toErrorResponse } from "@/lib/auth/account";
 import { getSeedDataForBusinessType } from "@/lib/seed/seed-data";
 import type { BusinessType } from "@/lib/business/capabilities";
+import { setAccountBusinessType } from "@/lib/business/set-business-type";
 import {
   checkRateLimit,
   rateLimitResponse,
@@ -30,6 +33,20 @@ export async function POST(request: Request) {
       RATE_LIMITS.adminAction,
     );
     if (!limit.success) return rateLimitResponse(limit);
+
+    const body = await request.json().catch(() => null);
+
+    // Update business type (and recommended capabilities) BEFORE seeding
+    if (typeof body?.business_type === "string" && body.business_type) {
+      const result = await setAccountBusinessType(
+        ctx.serviceClient,
+        ctx.accountId,
+        body.business_type,
+      );
+      if (!result.ok) {
+        return NextResponse.json({ error: result.error }, { status: 400 });
+      }
+    }
 
     // Get account's business_type
     const { data: account, error: acctErr } = await ctx.serviceClient

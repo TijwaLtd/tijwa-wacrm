@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import {
   Database,
@@ -11,7 +11,6 @@ import {
   Folder,
   Clock,
   Trash2,
-  RotateCcw,
   AlertCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -24,8 +23,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useAuth } from '@/hooks/use-auth';
 import { RequireRole } from '@/components/auth/require-role';
+import { BUSINESS_TYPES } from '@/lib/business/capabilities';
 
 interface SeedResult {
   ok: boolean;
@@ -44,12 +52,19 @@ interface ResetResult {
 }
 
 export default function SeedDataPage() {
-  const { businessType, activeAccountId } = useAuth();
+  const { businessType, activeAccountId, refreshProfile, refreshCapabilities } = useAuth();
+  const [selectedType, setSelectedType] = useState<string>('');
   const [seeding, setSeeding] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [seedResult, setSeedResult] = useState<SeedResult | null>(null);
   const [resetResult, setResetResult] = useState<ResetResult | null>(null);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+
+  useEffect(() => {
+    if (businessType && !selectedType) {
+      setSelectedType(businessType);
+    }
+  }, [businessType, selectedType]);
 
   async function handleSeed() {
     if (!activeAccountId) return;
@@ -60,7 +75,10 @@ export default function SeedDataPage() {
       const res = await fetch('/api/seed-data', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ account_id: activeAccountId }),
+        body: JSON.stringify({
+          account_id: activeAccountId,
+          ...(selectedType ? { business_type: selectedType } : {}),
+        }),
       });
 
       const data = await res.json();
@@ -71,6 +89,10 @@ export default function SeedDataPage() {
       }
 
       setSeedResult(data);
+      if (selectedType && selectedType !== businessType) {
+        await refreshProfile();
+        await refreshCapabilities();
+      }
       toast.success(
         `Seeded ${data.offerings_created} offerings and ${data.categories_created} categories`,
       );
@@ -125,22 +147,38 @@ export default function SeedDataPage() {
 
       {/* Current business type */}
       <Card>
-        <CardContent className="flex items-center gap-4 p-4">
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-            <Database className="size-5 text-primary" />
+        <CardContent className="space-y-3 p-4">
+          <div className="flex items-center gap-4">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+              <Database className="size-5 text-primary" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <Label htmlFor="seed-business-type">Business Type</Label>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Sample data is generated for this business type. Changing it
+                here updates your workspace before seeding.
+              </p>
+            </div>
           </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-foreground">
-              Business Type
-            </p>
-            <p className="text-sm text-muted-foreground">
-              {businessType
-                ? businessType
-                    .replace(/_/g, ' ')
-                    .replace(/\b\w/g, (c) => c.toUpperCase())
-                : 'Not set'}
-            </p>
-          </div>
+          <Select
+            value={selectedType || undefined}
+            onValueChange={(v) => setSelectedType(v ?? '')}
+            disabled={seeding || resetting}
+          >
+            <SelectTrigger
+              id="seed-business-type"
+              className="w-full border-border bg-muted text-foreground"
+            >
+              <SelectValue placeholder="Select a business type" />
+            </SelectTrigger>
+            <SelectContent>
+              {BUSINESS_TYPES.map((bt) => (
+                <SelectItem key={bt.value} value={bt.value}>
+                  {bt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </CardContent>
       </Card>
 
@@ -149,7 +187,7 @@ export default function SeedDataPage() {
         <div className="flex flex-wrap gap-3">
           <Button
             onClick={handleSeed}
-            disabled={seeding || resetting || !businessType}
+            disabled={seeding || resetting || !selectedType}
             className="bg-primary hover:bg-primary/90 text-primary-foreground"
           >
             {seeding ? (
@@ -335,9 +373,10 @@ export default function SeedDataPage() {
       <div className="rounded-lg border border-border bg-muted/50 p-4 text-xs text-muted-foreground space-y-2">
         <p>
           <strong className="text-foreground">Typical workflow:</strong>{' '}
-          <span className="text-foreground">Reset All Data</span> → change
-          business type in settings if needed →{' '}
-          <span className="text-foreground">Seed Sample Data</span>
+          <span className="text-foreground">Reset All Data</span> → pick a{' '}
+          <span className="text-foreground">business type</span> above →{' '}
+          <span className="text-foreground">Seed Sample Data</span> (type is
+          updated first, then sample data is created)
         </p>
         <p>
           <strong className="text-foreground">Full nuclear reset:</strong> Run{' '}
