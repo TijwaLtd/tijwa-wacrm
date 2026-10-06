@@ -20,6 +20,7 @@ import { searchProducts, getCart, addToCart, clearCart, formatCartSummary, getCa
 import { searchServices } from './tools/services'
 import { searchProperties } from './tools/property'
 import { searchPrograms, searchCourses } from './tools/ngo'
+import { getEnabledCapabilityKeys } from '@/lib/business/account-capabilities'
 
 interface DispatchArgs {
   accountId: string
@@ -2790,6 +2791,10 @@ export async function dispatchInboundToAiReply(
       .maybeSingle()
     const businessType = account?.business_type || null
 
+    // Enabled capabilities — gates toolsets and prompt tool sections
+    // (undefined = unknown → business-type fallback inside the helpers)
+    const capabilities = await getEnabledCapabilityKeys(db, accountId)
+
     const acctLimit = checkRateLimit(
       `ai-autoreply:${accountId}`,
       RATE_LIMITS.aiAutoReplyAccount,
@@ -2813,6 +2818,7 @@ export async function dispatchInboundToAiReply(
       mode: 'auto_reply',
       knowledge,
       businessType,
+      capabilities,
     })
 
     // ── EDIT MODE CONTEXT ────────────────────────────────────
@@ -2850,11 +2856,12 @@ export async function dispatchInboundToAiReply(
     // AI gets tools based on business type. If it returns tool calls,
     // we execute them and feed results back. Max 5 iterations to
     // prevent infinite loops.
-    const tools = getToolsForBusinessType(businessType)
+    const tools = getToolsForBusinessType(businessType, capabilities)
     const toolDefs = tools.map((t) => ({ type: 'function' as const, function: t.definition.function }))
 
     console.log('[ai-tool-loop] tools configured:', {
       businessType,
+      capabilities,
       toolCount: toolDefs.length,
       toolNames: toolDefs.map((t) => t.function.name),
     })
@@ -2867,6 +2874,7 @@ export async function dispatchInboundToAiReply(
       contactPhone: null,
       contactName: null,
       businessType,
+      capabilities,
       userId: configOwnerUserId,
     }
 

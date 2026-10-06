@@ -54,6 +54,9 @@ export interface ToolContext {
   contactPhone: string | null
   contactName: string | null
   businessType: string | null
+  /** Enabled capability keys for the account (capability-driven tool gating).
+   *  undefined = unknown (falls back to businessType heuristics). */
+  capabilities?: string[] | null
   userId: string // config owner user ID
 }
 

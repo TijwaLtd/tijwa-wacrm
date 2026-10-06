@@ -4,6 +4,7 @@ import { loadAiConfig } from '@/lib/ai/config'
 import { buildSystemPrompt } from '@/lib/ai/defaults'
 import { buildConversationContext } from '@/lib/ai/context'
 import { getToolsForBusinessType, executeToolCalls, hasToolCalls } from '@/lib/ai/tools/executor'
+import { getEnabledCapabilityKeys } from '@/lib/business/account-capabilities'
 import { generateReply } from '@/lib/ai/generate'
 import type { ChatMessage } from '@/lib/ai/types'
 
@@ -71,6 +72,8 @@ export async function POST(request: Request) {
       .maybeSingle()
     const businessType = account?.business_type || null
     log(`businessType: ${businessType}`)
+    const capabilities = await getEnabledCapabilityKeys(db, accountId)
+    log(`capabilities: ${capabilities ? capabilities.join(',') : 'unknown'}`)
 
     // 3. Build conversation context (from existing conversation or empty)
     let contextMessages: ChatMessage[] = []
@@ -90,11 +93,12 @@ export async function POST(request: Request) {
       mode: 'auto_reply',
       knowledge: [],
       businessType,
+      capabilities,
     })
     log(`system prompt: ${systemPrompt.length} chars`)
 
     // 5. Load tools
-    const tools = getToolsForBusinessType(businessType)
+    const tools = getToolsForBusinessType(businessType, capabilities)
     const toolDefs = tools.map((t) => ({ type: 'function' as const, function: t.definition.function }))
     log(`tools: ${toolDefs.map((t) => t.function.name).join(', ')}`)
 
@@ -143,6 +147,7 @@ export async function POST(request: Request) {
       contactPhone: null,
       contactName: 'Test Contact',
       businessType,
+      capabilities,
       userId: configOwnerUserId(config),
     }
 

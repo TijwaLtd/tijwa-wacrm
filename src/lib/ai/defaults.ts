@@ -66,43 +66,21 @@ export function aiContextMessageLimit(): number {
  *
  * Auto-reply mode adds a strict handoff protocol.
  */
-function isLogisticsType(businessType?: string | null): boolean {
-  if (!businessType) return true // default to logistics
-  return ['courier', 'logistics_delivery'].includes(businessType)
-}
-
-function isRestaurantType(businessType?: string | null): boolean {
+/**
+ * Whether a domain's tool-calling section should be included.
+ * - capabilities known (array): capability keys win (capability-driven).
+ * - capabilities unknown: fall back to business type.
+ * - neither: inactive (never assume a domain).
+ */
+function domainActive(
+  businessType: string | null | undefined,
+  capabilities: string[] | null | undefined,
+  types: string[],
+  capabilityKeys: string[],
+): boolean {
+  if (capabilities) return capabilityKeys.some((k) => capabilities.includes(k))
   if (!businessType) return false
-  return ['restaurant', 'hotel_restaurant'].includes(businessType)
-}
-
-function isHotelType(businessType?: string | null): boolean {
-  if (!businessType) return false
-  return ['hotel', 'hotel_restaurant'].includes(businessType)
-}
-
-function isRetailerType(businessType?: string | null): boolean {
-  if (!businessType) return false
-  return ['retailer', 'wholesaler'].includes(businessType)
-}
-
-function isServiceType(businessType?: string | null): boolean {
-  if (!businessType) return false
-  return [
-    'service_business', 'professional_services', 'cleaning_services',
-    'maintenance', 'beauty_wellness', 'fitness', 'automotive',
-    'pet_services', 'healthcare', 'healthcare_clinic',
-  ].includes(businessType)
-}
-
-function isPropertyType(businessType?: string | null): boolean {
-  if (!businessType) return false
-  return businessType === 'property_real_estate'
-}
-
-function isNgoType(businessType?: string | null): boolean {
-  if (!businessType) return false
-  return businessType === 'ngo_nonprofit'
+  return types.includes(businessType)
 }
 
 export function buildSystemPrompt(args: {
@@ -112,8 +90,24 @@ export function buildSystemPrompt(args: {
   knowledge?: string[]
   /** Business type for tone adaptation */
   businessType?: string | null
+  /** Enabled capability keys — controls which tool-calling sections appear.
+   *  undefined = unknown (falls back to businessType heuristics). */
+  capabilities?: string[] | null
 }): string {
-  const { userPrompt, mode, knowledge, businessType } = args
+  const { userPrompt, mode, knowledge, businessType, capabilities } = args
+
+  // Domain activation (capability-driven, business-type fallback)
+  const hasLogistics = domainActive(businessType, capabilities, ['courier', 'logistics_delivery', 'transportation'], ['delivery'])
+  const hasRestaurant = domainActive(businessType, capabilities, ['restaurant', 'hotel_restaurant'], ['menu', 'food_orders'])
+  const hasHotel = domainActive(businessType, capabilities, ['hotel', 'hotel_restaurant'], ['accommodation'])
+  const hasRetailer = domainActive(businessType, capabilities, ['retailer', 'wholesaler'], ['products', 'product_catalog'])
+  const hasService = domainActive(businessType, capabilities, [
+    'service_business', 'professional_services', 'cleaning_services',
+    'maintenance', 'beauty_wellness', 'fitness', 'automotive',
+    'pet_services', 'healthcare', 'healthcare_clinic',
+  ], ['services', 'appointments'])
+  const hasProperty = domainActive(businessType, capabilities, ['property_real_estate'], ['property_listings'])
+  const hasNgo = domainActive(businessType, capabilities, ['ngo_nonprofit'], ['programs', 'ngo_services'])
 
   const parts: string[] = [
     // ---- IDENTITY ----
@@ -297,7 +291,7 @@ export function buildSystemPrompt(args: {
       'Do not attempt to use nodes that are not available for the current business.',
 
     // ---- TOOL CALLING (INTENT-FIRST, business-type aware) ----
-    ...(isLogisticsType(businessType) ? [
+    ...(hasLogistics ? [
       'TOOL CALLING — DELIVERY BUSINESS:\n' +
       'You have delivery/logistics tools. USE THEM. Do NOT describe what you can do — actually do it by calling tools.\n\n' +
       'RULE #1: When a customer wants to send or deliver something, you MUST call preview_delivery_order. ' +
@@ -331,7 +325,7 @@ export function buildSystemPrompt(args: {
       '- working_hours: asks about hours/schedule → use check_working_hours\n' +
       '- zones: asks about coverage → use get_delivery_zones\n\n' +
       'NEVER use search_offerings for delivery/logistics requests.',
-    ] : isRestaurantType(businessType) ? [
+    ] : hasRestaurant ? [
       'TOOL CALLING — RESTAURANT:\n' +
       'You have restaurant tools. USE THEM. Do NOT describe what you can do — actually do it by calling tools.\n\n' +
       'MENU BROWSING:\n' +
@@ -364,7 +358,7 @@ export function buildSystemPrompt(args: {
       '- track_order: "where is my order" → use get_customer_food_orders\n' +
       '- working_hours: asks about hours → use check_working_hours\n' +
       '- dietary_info: asks about vegetarian/vegan → use search_menu_items with dietary filter',
-    ] : isHotelType(businessType) ? [
+    ] : hasHotel ? [
       'TOOL CALLING — HOTEL:\n' +
       'You have hotel tools. USE THEM. Do NOT describe what you can do — actually do it by calling tools.\n\n' +
       'ROOM BROWSING:\n' +
@@ -399,7 +393,7 @@ export function buildSystemPrompt(args: {
       '- track_booking: "where is my booking" → use get_customer_bookings\n' +
       '- working_hours: asks about hours → use check_working_hours\n' +
       '- hotel_services: asks about spa, gym, etc → use search_offerings',
-    ] : isRetailerType(businessType) ? [
+    ] : hasRetailer ? [
       'TOOL CALLING — RETAILER / WHOLESALER:\n' +
       'You have product tools. USE THEM. Do NOT describe what you can do — actually do it by calling tools.\n\n' +
       'PRODUCT BROWSING:\n' +
@@ -458,7 +452,7 @@ export function buildSystemPrompt(args: {
       '- working_hours: asks about hours → use check_working_hours\n' +
       '- stock_check: asks about stock → use search_products or get_product\n' +
       '- pricing: asks about bulk/wholesale pricing → use search_products with query',
-    ] : isServiceType(businessType) ? [
+    ] : hasService ? [
       'TOOL CALLING — SERVICES:\n' +
       'You have service booking tools. USE THEM. Do NOT describe what you can do — actually do it by calling tools.\n\n' +
       'SERVICE BROWSING:\n' +
@@ -497,7 +491,7 @@ export function buildSystemPrompt(args: {
       '- track_booking: "where is my appointment" → use get_customer_service_bookings\n' +
       '- working_hours: asks about hours → use check_working_hours\n' +
       '- pricing: asks about service pricing → use search_services',
-    ] : isPropertyType(businessType) ? [
+    ] : hasProperty ? [
       'TOOL CALLING — PROPERTY / REAL ESTATE:\n' +
       'You have property listing tools. USE THEM. Do NOT describe what you can do — actually do it by calling tools.\n\n' +
       'PROPERTY BROWSING:\n' +
@@ -539,7 +533,7 @@ export function buildSystemPrompt(args: {
       '- track_inquiry: "where is my inquiry" → use get_customer_property_inquiries\n' +
       '- working_hours: asks about office hours → use check_working_hours\n' +
       '- financing: asks about mortgage/payment plans → give general advice, offer to connect with team',
-    ] : isNgoType(businessType) ? [
+    ] : hasNgo ? [
       'TOOL CALLING — NGO / NONPROFIT:\n' +
       'You have NGO tools for beneficiaries, donors, and volunteers. USE THEM. Do NOT describe what you can do — actually do it by calling tools.\n\n' +
       'IMPORTANT: You are the PUBLIC FACE of this organization. You talk to BENEFICIARIES, DONORS, and VOLUNTEERS — not staff.\n' +

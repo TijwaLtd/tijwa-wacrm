@@ -11,6 +11,7 @@ import { logAiUsage } from '@/lib/ai/usage'
 import { supabaseAdmin } from '@/lib/ai/admin-client'
 import { AiError } from '@/lib/ai/types'
 import { checkAiCredits, calculateCreditCost } from '@/lib/ai/credits'
+import { getEnabledCapabilityKeys } from '@/lib/business/account-capabilities'
 
 /**
  * POST /api/ai/draft  (agent+)
@@ -111,6 +112,7 @@ export async function POST(request: Request) {
       .eq('id', accountId)
       .maybeSingle()
     const businessType = account?.business_type || null
+    const capabilities = await getEnabledCapabilityKeys(supabase, accountId)
 
     // Ground the draft in the account's knowledge base (best-effort —
     // returns [] when there's no KB or retrieval fails).
@@ -129,6 +131,7 @@ export async function POST(request: Request) {
       mode: 'draft',
       knowledge,
       businessType,
+      capabilities,
     })
 
     const { text, handoff, usage } = await generateReply({

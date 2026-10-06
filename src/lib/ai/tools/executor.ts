@@ -18,121 +18,137 @@ import { propertyTools, propertyToolHandlers } from './property'
 import { ngoTools, ngoToolHandlers } from './ngo'
 
 // ============================================================
-// Tool Registry — business type → tools mapping
+// Tool Registry — capability-first, business-type fallback
 // ============================================================
 
 const toolRegistry: Record<string, RegisteredTool[]> = {}
 
-/** Get tools available for a given business type */
-export function getToolsForBusinessType(businessType: string | null): RegisteredTool[] {
-  const key = businessType || 'default'
+export type CapabilityInput = string[] | null | undefined
+
+/**
+ * Decide whether a domain toolset is active.
+ * - If capabilities are known (array): capability keys win (capability-driven).
+ * - If capabilities are unknown (undefined/null): fall back to business type.
+ * - No business type + unknown capabilities → inactive (never load everything).
+ */
+function domainActive(
+  businessType: string | null,
+  capabilities: CapabilityInput,
+  types: string[],
+  capabilityKeys: string[],
+): boolean {
+  if (capabilities) return capabilityKeys.some((k) => capabilities.includes(k))
+  if (!businessType) return false
+  return types.includes(businessType)
+}
+
+/** Get tools available for a given business type + enabled capabilities */
+export function getToolsForBusinessType(
+  businessType: string | null,
+  capabilities?: CapabilityInput,
+): RegisteredTool[] {
+  const capsKey = capabilities ? [...capabilities].sort().join(',') : 'unknown'
+  const key = `${businessType || 'default'}|${capsKey}`
   if (toolRegistry[key]) return toolRegistry[key]
 
   // Build registry on first call
   const tools: RegisteredTool[] = []
 
-  // Logistics tools for delivery/courier businesses
-  if (
-    !businessType ||
-    businessType === 'courier' ||
-    businessType === 'logistics_delivery'
-  ) {
-    for (const def of logisticsTools) {
-      const handler = logisticsToolHandlers[def.function.name]
+  const addDomain = (domainTools: typeof logisticsTools, domainHandlers: typeof logisticsToolHandlers) => {
+    for (const def of domainTools) {
+      const handler = domainHandlers[def.function.name]
       if (handler) {
         tools.push({ definition: def, handler })
       }
     }
+  }
+
+  // Logistics tools for delivery/courier businesses
+  if (
+    domainActive(
+      businessType,
+      capabilities,
+      ['courier', 'logistics_delivery', 'transportation'],
+      ['delivery'],
+    )
+  ) {
+    addDomain(logisticsTools, logisticsToolHandlers)
   }
 
   // Restaurant tools
   if (
-    !businessType ||
-    businessType === 'restaurant' ||
-    businessType === 'hotel_restaurant'
+    domainActive(
+      businessType,
+      capabilities,
+      ['restaurant', 'hotel_restaurant'],
+      ['menu', 'food_orders'],
+    )
   ) {
-    for (const def of restaurantTools) {
-      const handler = restaurantToolHandlers[def.function.name]
-      if (handler) {
-        tools.push({ definition: def, handler })
-      }
-    }
+    addDomain(restaurantTools, restaurantToolHandlers)
   }
 
   // Hotel tools
   if (
-    !businessType ||
-    businessType === 'hotel' ||
-    businessType === 'hotel_restaurant'
+    domainActive(
+      businessType,
+      capabilities,
+      ['hotel', 'hotel_restaurant'],
+      ['accommodation'],
+    )
   ) {
-    for (const def of hotelTools) {
-      const handler = hotelToolHandlers[def.function.name]
-      if (handler) {
-        tools.push({ definition: def, handler })
-      }
-    }
+    addDomain(hotelTools, hotelToolHandlers)
   }
 
   // Retailer / Wholesaler tools
   if (
-    !businessType ||
-    businessType === 'retailer' ||
-    businessType === 'wholesaler'
+    domainActive(
+      businessType,
+      capabilities,
+      ['retailer', 'wholesaler'],
+      ['products', 'product_catalog'],
+    )
   ) {
-    for (const def of retailerTools) {
-      const handler = retailerToolHandlers[def.function.name]
-      if (handler) {
-        tools.push({ definition: def, handler })
-      }
-    }
+    addDomain(retailerTools, retailerToolHandlers)
   }
 
   // Service business tools (salon, gym, clinic, cleaning, etc.)
   if (
-    !businessType ||
-    businessType === 'service_business' ||
-    businessType === 'professional_services' ||
-    businessType === 'cleaning_services' ||
-    businessType === 'maintenance' ||
-    businessType === 'beauty_wellness' ||
-    businessType === 'fitness' ||
-    businessType === 'automotive' ||
-    businessType === 'pet_services' ||
-    businessType === 'healthcare' ||
-    businessType === 'healthcare_clinic'
+    domainActive(
+      businessType,
+      capabilities,
+      [
+        'service_business', 'professional_services', 'cleaning_services',
+        'maintenance', 'beauty_wellness', 'fitness', 'automotive',
+        'pet_services', 'healthcare', 'healthcare_clinic',
+      ],
+      ['services', 'appointments'],
+    )
   ) {
-    for (const def of serviceTools) {
-      const handler = serviceToolHandlers[def.function.name]
-      if (handler) {
-        tools.push({ definition: def, handler })
-      }
-    }
+    addDomain(serviceTools, serviceToolHandlers)
   }
 
   // Property / Real Estate tools
   if (
-    !businessType ||
-    businessType === 'property_real_estate'
+    domainActive(
+      businessType,
+      capabilities,
+      ['property_real_estate'],
+      ['property_listings'],
+    )
   ) {
-    for (const def of propertyTools) {
-      const handler = propertyToolHandlers[def.function.name]
-      if (handler) {
-        tools.push({ definition: def, handler })
-      }
-    }
+    addDomain(propertyTools, propertyToolHandlers)
   }
 
   // NGO / Nonprofit tools
   if (
-    !businessType ||
-    businessType === 'ngo_nonprofit'
+    domainActive(
+      businessType,
+      capabilities,
+      ['ngo_nonprofit'],
+      ['programs', 'ngo_services'],
+    )
   ) {
-    for (const def of ngoTools) {
-      const handler = ngoToolHandlers[def.function.name]
-      if (handler) {
-        tools.push({ definition: def, handler })
-      }
-    }
+    addDomain(ngoTools, ngoToolHandlers)
   }
 
   // Always include search_offerings for any business type
@@ -149,16 +165,25 @@ export function getToolsForBusinessType(businessType: string | null): Registered
 }
 
 /** Get tool definitions in OpenAI format */
-export function getToolDefinitions(businessType: string | null): Array<{ type: 'function'; function: any }> {
-  return getToolsForBusinessType(businessType).map((t) => ({
+export function getToolDefinitions(
+  businessType: string | null,
+  capabilities?: CapabilityInput,
+): Array<{ type: 'function'; function: any }> {
+  return getToolsForBusinessType(businessType, capabilities).map((t) => ({
     type: 'function' as const,
     function: t.definition.function,
   }))
 }
 
 /** Get a tool handler by name */
-function getToolHandler(name: string, businessType: string | null): RegisteredTool['handler'] | null {
-  const tool = getToolsForBusinessType(businessType).find((t) => t.definition.function.name === name)
+function getToolHandler(
+  name: string,
+  businessType: string | null,
+  capabilities?: CapabilityInput,
+): RegisteredTool['handler'] | null {
+  const tool = getToolsForBusinessType(businessType, capabilities).find(
+    (t) => t.definition.function.name === name,
+  )
   return tool?.handler || null
 }
 
@@ -192,7 +217,7 @@ export async function executeToolCalls(
       continue
     }
 
-    const handler = getToolHandler(fn.name, ctx.businessType)
+    const handler = getToolHandler(fn.name, ctx.businessType, ctx.capabilities)
     if (!handler) {
       results.push({
         tool_call_id: id,
