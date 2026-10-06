@@ -93,6 +93,36 @@ export const retailerTools: ToolDefinition[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'manage_cart',
+      description:
+        "Read or modify the customer's shopping cart. Use this for 'add to cart', 'remove from cart', 'view/show my cart', and 'clear cart' requests. Reply to the customer with the returned summary.",
+      parameters: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            enum: ['get', 'add', 'remove', 'clear'],
+            description: 'get=read cart, add=add item, remove=remove item by name, clear=empty cart',
+          },
+          item: {
+            type: 'object',
+            properties: {
+              name: { type: 'string' },
+              quantity: { type: 'number' },
+              unit_price: { type: 'number' },
+              product_id: { type: 'string' },
+            },
+            description: 'Required for action=add (get price/product_id from search_products first)',
+          },
+          name: { type: 'string', description: 'Product name to remove (action=remove)' },
+        },
+        required: ['action'],
+      },
+    },
+  },
 ]
 
 // ============================================================
@@ -122,6 +152,9 @@ export interface ProductSearchResult {
   count: number
   has_more: boolean
   offset: number
+  /** Top-level product image — set when the search narrows to a single
+   *  result so the AI reply pipeline sends the photo with the message. */
+  image_url?: string | null
   buttons?: Array<{ id: string; title: string }>
   list_section?: {
     title: string
@@ -207,6 +240,11 @@ export async function searchProducts(
 
   if (has_more) {
     result.buttons = [{ id: `product_more_${nextOffset}`, title: 'See More →' }]
+  }
+
+  // Single-result searches share the product photo with the reply
+  if (resultItems.length === 1 && resultItems[0].image_url) {
+    result.image_url = resultItems[0].image_url
   }
 
   // Build WhatsApp list rows for clickable product list
@@ -360,6 +398,18 @@ const previewProductOrderHandler: ToolHandler = async (args, ctx) => {
     if (offering) {
       const media = (offering.media as any[]) || []
       offeringImageUrl = media.find((m: any) => m.is_primary)?.url || media[0]?.url || null
+    }
+  } else if (items[0]?.product_id) {
+    // Multi-item orders share the first product's photo
+    const { data: offering } = await db
+      .from('offerings')
+      .select('id, media:offering_media(url, is_primary)')
+      .eq('id', items[0].product_id)
+      .eq('account_id', ctx.accountId)
+      .maybeSingle()
+    if (offering) {
+      const media = (offering.media as Array<{ url: string; is_primary?: boolean }>) || []
+      offeringImageUrl = media.find((m) => m.is_primary)?.url || media[0]?.url || null
     }
   }
 
@@ -557,6 +607,43 @@ export function getCartButtons(hasItems: boolean): Array<{ id: string; title: st
 
 // ============================================================
 
+const manageCartHandler: ToolHandler = async (args, ctx) => {
+  const conversationId = ctx.conversationId
+  if (!conversationId) {
+    return { success: false, error: 'No conversation context' }
+  }
+  const action = (args.action as string) || 'get'
+
+  if (action === 'add') {
+    const item = args.item as { name?: string; quantity?: number; unit_price?: number; product_id?: string } | undefined
+    if (!item?.name) {
+      return { success: false, error: 'item.name is required for add' }
+    }
+    const cart = await addToCart(ctx.db, conversationId, {
+      name: item.name,
+      quantity: item.quantity || 1,
+      unit_price: item.unit_price || 0,
+      product_id: item.product_id || null,
+    })
+    return { success: true, cart, summary: formatCartSummary(cart) }
+  }
+
+  if (action === 'remove') {
+    const name = args.name as string | undefined
+    if (!name) return { success: false, error: 'name is required for remove' }
+    const cart = await removeFromCart(ctx.db, conversationId, name)
+    return { success: true, cart, summary: formatCartSummary(cart) }
+  }
+
+  if (action === 'clear') {
+    await clearCart(ctx.db, conversationId)
+    return { success: true, cart: [], summary: formatCartSummary([]) }
+  }
+
+  const cart = await getCart(ctx.db, conversationId)
+  return { success: true, cart, summary: formatCartSummary(cart) }
+}
+
 // ============================================================
 // Export Handlers
 // ============================================================
@@ -566,4 +653,5 @@ export const retailerToolHandlers: Partial<Record<string, ToolHandler>> = {
   get_product: getProductHandler,
   preview_product_order: previewProductOrderHandler,
   get_customer_product_orders: getCustomerProductOrdersHandler,
+  manage_cart: manageCartHandler,
 }

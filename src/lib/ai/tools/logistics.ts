@@ -529,7 +529,7 @@ const searchOfferingsHandler: ToolHandler = async (args, ctx) => {
 
   let q = db
     .from('offerings')
-    .select('id, name, type, price, currency, short_description, metadata, status')
+    .select('id, name, type, price, currency, short_description, metadata, status, media:offering_media(url, is_primary, sort_order)')
     .eq('account_id', ctx.accountId)
     .eq('status', 'active')
     .ilike('name', `%${query}%`)
@@ -544,17 +544,41 @@ const searchOfferingsHandler: ToolHandler = async (args, ctx) => {
     return { offerings: [], message: `No offerings found for "${query}"` }
   }
 
-  return {
-    offerings: offerings.map((o: any) => ({
+  type OfferingRow = {
+    id: string
+    name: string
+    type: string
+    price: number | null
+    currency: string | null
+    short_description: string | null
+    media: Array<{ url: string; is_primary?: boolean }> | null
+  }
+
+  const mapped = (offerings as OfferingRow[]).map((o) => {
+    const media = o.media || []
+    const primaryImage = media.find((m) => m.is_primary)?.url || media[0]?.url || null
+    return {
       id: o.id,
       name: o.name,
       type: o.type,
       price: o.price,
       currency: o.currency,
       description: o.short_description,
-    })),
-    count: offerings.length,
+      image_url: primaryImage,
+    }
+  })
+
+  const result: Record<string, unknown> = {
+    offerings: mapped,
+    count: mapped.length,
   }
+
+  // Single-result searches share the item photo with the reply
+  if (mapped.length === 1 && mapped[0].image_url) {
+    result.image_url = mapped[0].image_url
+  }
+
+  return result
 }
 
 // ============================================================

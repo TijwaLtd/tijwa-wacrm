@@ -62,4 +62,19 @@ describe('getToolsForBusinessType — capability-driven gating', () => {
     const second = toolNames('property_real_estate')
     expect(first).toEqual(second)
   })
+
+  it('retailer tools (incl. manage_cart) load via business-type fallback', () => {
+    const names = toolNames('retailer')
+    expect(names).toContain('search_products')
+    expect(names).toContain('get_product')
+    expect(names).toContain('preview_product_order')
+    expect(names).toContain('manage_cart')
+  })
+
+  it('retailer tools gated on products capability', () => {
+    expect(toolNames(null, ['products', 'orders'])).toContain('manage_cart')
+    expect(toolNames('retailer', ['products'])).toContain('manage_cart')
+    expect(toolNames('retailer', ['inquiries'])).not.toContain('manage_cart')
+    expect(toolNames(null, ['inquiries'])).not.toContain('search_products')
+  })
 })

@@ -1690,15 +1690,18 @@ async function handleProductListSelect(
   const productId = match[1]
   const price = parseInt(match[2], 10)
 
-  // Look up product name
+  // Look up product name + primary image
   const { data: product } = await db
     .from('offerings')
-    .select('name')
+    .select('name, media:offering_media(url, is_primary, sort_order)')
     .eq('id', productId)
     .eq('account_id', accountId)
     .maybeSingle()
 
   const productName = product?.name || 'Product'
+  const media = (product?.media as Array<{ url: string; is_primary?: boolean; sort_order?: number }>) || []
+  const productImage =
+    media.find((m) => m.is_primary)?.url || media[0]?.url || null
 
   // Add to cart
   const cart = await addToCart(db, conversationId, {
@@ -1707,6 +1710,22 @@ async function handleProductListSelect(
     unit_price: price,
     product_id: productId,
   })
+
+  // Share the product photo first, then cart buttons
+  if (productImage) {
+    try {
+      await engineSendMedia({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        kind: 'image',
+        link: productImage,
+      })
+    } catch (imgErr) {
+      console.error('[product_add] failed to send product image:', imgErr)
+    }
+  }
 
   // Send cart summary with buttons
   const summary = formatCartSummary(cart)
@@ -2353,6 +2372,34 @@ async function handleCartButton(
 
       // Clear cart after creating pending order
       await clearCart(db, conversationId)
+
+      // Share the first product's photo with the preview
+      const firstWithImage = cart.find((i) => i.product_id)
+      if (firstWithImage?.product_id) {
+        try {
+          const { data: offering } = await db
+            .from('offerings')
+            .select('media:offering_media(url, is_primary, sort_order)')
+            .eq('id', firstWithImage.product_id)
+            .eq('account_id', accountId)
+            .maybeSingle()
+          const previewMedia = (offering?.media as Array<{ url: string; is_primary?: boolean; sort_order?: number }>) || []
+          const previewImage =
+            previewMedia.find((m) => m.is_primary)?.url || previewMedia[0]?.url || null
+          if (previewImage) {
+            await engineSendMedia({
+              accountId,
+              userId: configOwnerUserId,
+              conversationId,
+              contactId,
+              kind: 'image',
+              link: previewImage,
+            })
+          }
+        } catch (imgErr) {
+          console.error('[handleCartButton] failed to send cart image:', imgErr)
+        }
+      }
 
       // Format items list
       const itemList = cart.map(i => `• ${i.quantity}× ${i.name} — KES ${i.unit_price * i.quantity}`).join('\n')

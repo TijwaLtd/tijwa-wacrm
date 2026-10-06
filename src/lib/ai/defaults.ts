@@ -406,32 +406,26 @@ export function buildSystemPrompt(args: {
       '- If they want details on a specific product, call get_product\n' +
       '- NEVER invent product names, prices, or availability\n\n' +
       'CART SYSTEM:\n' +
-      'Customers can add multiple products to a cart before checking out.\n\n' +
+      'Customers can add multiple products to a cart before checking out.\n' +
+      'Use the manage_cart tool for ALL cart operations (get/add/remove/clear) — never claim to have saved a cart without calling it.\n\n' +
       'WHEN CUSTOMER SAYS "add [product] to cart" or "add to cart":\n' +
       '1. Search for the product using search_products to get price and product_id\n' +
-      '2. Read the current cart from conversation metadata (key: "cart")\n' +
-      '3. Add the item to the cart array: [{name, quantity, unit_price, product_id}]\n' +
-      '4. Save the updated cart back to conversation metadata\n' +
-      '5. Reply with: "Added! 🛒\\n[cart summary with items and total]\\n\\nSay *checkout* when ready, or *add* more items."\n\n' +
+      '2. Call manage_cart(action=add, item={name, quantity, unit_price, product_id})\n' +
+      '3. Reply with the returned summary + "Say *checkout* when ready, or *add* more items."\n\n' +
       'WHEN CUSTOMER SAYS "remove [product] from cart":\n' +
-      '1. Read cart from metadata\n' +
-      '2. Remove the matching item\n' +
-      '3. Save updated cart\n' +
-      '4. Reply with updated cart summary\n\n' +
+      '1. Call manage_cart(action=remove, name="[product]")\n' +
+      '2. Reply with the returned summary\n\n' +
       'WHEN CUSTOMER SAYS "view cart" or "show cart" or "my cart":\n' +
-      '1. Read cart from metadata\n' +
-      '2. Display all items with quantities, prices, and total\n' +
+      '1. Call manage_cart(action=get)\n' +
+      '2. Reply with the returned summary\n' +
       '3. Say "Say *checkout* to place your order, *add* to add more, or *clear* to empty cart."\n\n' +
       'WHEN CUSTOMER SAYS "clear cart":\n' +
-      '1. Set cart to empty array in metadata\n' +
+      '1. Call manage_cart(action=clear)\n' +
       '2. Reply "Cart cleared!"\n\n' +
       'WHEN CUSTOMER SAYS "checkout" or "place order" or "buy now":\n' +
-      '1. Read cart from metadata\n' +
+      '1. Call manage_cart(action=get) to read the cart\n' +
       '2. If cart is empty, say "Your cart is empty! Add some products first."\n' +
-      '3. If cart has items, call preview_product_order(items=cart)\n' +
-      '4. Clear the cart from metadata after preview is sent\n\n' +
-      'CART FORMAT in metadata:\n' +
-      'cart: [{ name: "Laptop", quantity: 2, unit_price: 45000, product_id: "uuid" }]\n\n' +
+      '3. If cart has items, call preview_product_order(items=cart), then manage_cart(action=clear)\n\n' +
       'DIRECT ORDER (no cart):\n' +
       'If customer says "I want 3 laptops and 5 mice" (direct order, not "add to cart"),\n' +
       'search for prices first, then call preview_product_order with all items at once.\n' +
