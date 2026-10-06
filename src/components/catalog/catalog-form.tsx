@@ -84,6 +84,7 @@ const TYPE_META_FIELDS: Record<OfferingType, MetaField[]> = {
   ],
   property: [
     { key: 'property_type', label: 'Property Type', type: 'text', placeholder: 'e.g., Apartment, Office, Villa' },
+    { key: 'listing_type', label: 'Listing Type', type: 'text', placeholder: 'e.g., sale, rent, lease' },
     { key: 'bedrooms', label: 'Bedrooms', type: 'number', placeholder: '3' },
     { key: 'bathrooms', label: 'Bathrooms', type: 'number', placeholder: '2' },
     { key: 'area_sqft', label: 'Area (sqft)', type: 'number', placeholder: '1200' },
@@ -122,9 +123,11 @@ interface CatalogFormProps {
   onOpenChange: (open: boolean) => void;
   offering?: Offering | null;
   onSuccess: () => void;
+  /** Preselect offering type when creating (ignored when editing) */
+  defaultType?: OfferingType;
 }
 
-export function CatalogForm({ open, onOpenChange, offering, onSuccess }: CatalogFormProps) {
+export function CatalogForm({ open, onOpenChange, offering, onSuccess, defaultType }: CatalogFormProps) {
   const { activeAccountId, enabledCapabilities } = useAuth();
   const [saving, setSaving] = useState(false);
 
@@ -184,7 +187,11 @@ export function CatalogForm({ open, onOpenChange, offering, onSuccess }: Catalog
       setPendingImages([]);
     } else {
       setName('');
-      setType(allowedTypes[0] || 'product');
+      setType(
+        defaultType && allowedTypes.includes(defaultType)
+          ? defaultType
+          : allowedTypes[0] || 'product',
+      );
       setShortDescription('');
       setDescription('');
       setStatus('draft');
@@ -195,7 +202,7 @@ export function CatalogForm({ open, onOpenChange, offering, onSuccess }: Catalog
       setMetadata({});
       setPendingImages([]);
     }
-  }, [open, offering, allowedTypes]);
+  }, [open, offering, allowedTypes, defaultType]);
 
   // When type changes, reset metadata to defaults for that type
   useEffect(() => {

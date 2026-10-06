@@ -18,6 +18,8 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const accountId = searchParams.get("account_id");
   const status = searchParams.get("status") as BookingStatus | null;
+  const metaType = searchParams.get("meta_type");
+  const inquiryTypes = searchParams.get("inquiry_type"); // comma-separated
   const page = parseInt(searchParams.get("page") || "0");
   const limit = parseInt(searchParams.get("limit") || "25");
 
@@ -64,6 +66,17 @@ export async function GET(request: Request) {
   }
 
   if (status) query = query.eq("status", status);
+
+  // Metadata filters (e.g. property inquiries: metadata->>type=property_inquiry)
+  if (metaType) query = query.eq("metadata->>type", metaType);
+  if (inquiryTypes) {
+    const list = inquiryTypes.split(",").map((s) => s.trim()).filter(Boolean);
+    if (list.length === 1) {
+      query = query.eq("metadata->>inquiry_type", list[0]);
+    } else if (list.length > 1) {
+      query = query.filter("metadata->>inquiry_type", "in", `(${list.join(",")})`);
+    }
+  }
 
   const { data: bookings, error, count } = await query
     .order("created_at", { ascending: false })

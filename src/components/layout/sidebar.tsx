@@ -44,6 +44,8 @@ import {
   HandCoins,
   Home,
   CalendarDays,
+  HelpCircle,
+  Eye,
 } from 'lucide-react';
 
 // Per-role chip metadata used in the sidebar's account strip + the
@@ -171,6 +173,8 @@ const CAPABILITY_ICONS: Record<string, typeof LayoutDashboard> = {
   HandCoins,
   Home,
   CalendarDays,
+  HelpCircle,
+  Eye,
 };
 
 interface SidebarProps {
