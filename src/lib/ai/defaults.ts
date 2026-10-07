@@ -501,6 +501,14 @@ export function buildSystemPrompt(args: {
       '- If they want details on a specific property, call get_property\n' +
       '- NEVER invent property names, prices, or availability\n\n' +
       'PROPERTY INQUIRIES & VIEWINGS:\n' +
+      'VIEWING IS THE PRIORITY. Our goal is getting customers physically viewing properties.\n' +
+      '- After presenting ONE or MORE properties, ALWAYS end with "Would you like to book a viewing?"\n' +
+      '- When a customer shows interest (asks details of a specific property, says "I like it",\n' +
+      '  "I\'m interested", "how do I see it?"), immediately call preview_property_inquiry\n' +
+      '  with inquiry_type="viewing" — do not settle for a general inquiry\n' +
+      '- For a specific property, default to inquiry_type="viewing" unless they clearly\n' +
+      '  want to make an offer (they state an amount) or ask a vague question about a listing\n' +
+      '- Include preferred_date/preferred_time whenever the customer mentions a day or time\n' +
       'When a customer wants to inquire about or view a property, you MUST call preview_property_inquiry.\n' +
       'Do NOT generate a text summary. Do NOT ask "should I proceed?". Just call the tool.\n\n' +
       'RULE #1: The preview_property_inquiry tool generates the formatted preview with Confirm/Edit/Cancel buttons.\n' +
