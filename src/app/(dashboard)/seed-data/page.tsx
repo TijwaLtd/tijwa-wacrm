@@ -39,7 +39,11 @@ interface SeedResult {
   ok: boolean;
   business_type: string;
   categories_created: number;
+  categories_updated: number;
   offerings_created: number;
+  offerings_updated: number;
+  media_created: number;
+  media_updated: number;
   operating_hours_updated: boolean;
   errors: string[];
 }
@@ -94,7 +98,7 @@ export default function SeedDataPage() {
         await refreshCapabilities();
       }
       toast.success(
-        `Seeded ${data.offerings_created} offerings and ${data.categories_created} categories`,
+        `Seeded ${data.offerings_created} new, updated ${data.offerings_updated} offerings (${data.categories_created} new / ${data.categories_updated} categories)`,
       );
     } catch (err) {
       console.error('[SeedData] error:', err);
@@ -280,12 +284,17 @@ export default function SeedDataPage() {
               </h3>
             </div>
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <div className="flex items-center gap-3 rounded-lg border border-border p-3">
                 <Folder className="size-4 text-muted-foreground" />
                 <div>
                   <p className="text-lg font-semibold text-foreground">
                     {seedResult.categories_created}
+                    {(seedResult.categories_updated ?? 0) > 0 && (
+                      <span className="ml-1 text-xs font-normal text-muted-foreground">
+                        + {seedResult.categories_updated} updated
+                      </span>
+                    )}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     Categories created
@@ -297,9 +306,25 @@ export default function SeedDataPage() {
                 <div>
                   <p className="text-lg font-semibold text-foreground">
                     {seedResult.offerings_created}
+                    {(seedResult.offerings_updated ?? 0) > 0 && (
+                      <span className="ml-1 text-xs font-normal text-muted-foreground">
+                        + {seedResult.offerings_updated} updated
+                      </span>
+                    )}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     Offerings created
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 rounded-lg border border-border p-3">
+                <Package className="size-4 text-muted-foreground" />
+                <div>
+                  <p className="text-lg font-semibold text-foreground">
+                    {(seedResult.media_created ?? 0) + (seedResult.media_updated ?? 0)}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Images added / synced
                   </p>
                 </div>
               </div>

@@ -9,8 +9,8 @@
 //   - Sample offerings with images and metadata
 //   - Updates tenant_settings.operating_hours
 //
-// Admin+ only. Idempotent — skips existing categories/offerings
-// by slug.
+// Admin+ only. Idempotent — re-running UPDATES existing
+// categories/offerings in place (by slug) and syncs images.
 // ============================================================
 
 import { NextResponse } from "next/server";
@@ -75,8 +75,11 @@ export async function POST(request: Request) {
 
     const results = {
       categories_created: 0,
+      categories_updated: 0,
       offerings_created: 0,
+      offerings_updated: 0,
       media_created: 0,
+      media_updated: 0,
       operating_hours_updated: false,
       errors: [] as string[],
     };
@@ -95,6 +98,20 @@ export async function POST(request: Request) {
 
       if (existing) {
         categoryMap.set(cat.slug, existing.id);
+        // Re-seeding edits existing categories in place
+        const { error: updErr } = await ctx.serviceClient
+          .from("offering_categories")
+          .update({
+            name: cat.name,
+            description: cat.description,
+            sort_order: cat.sort_order,
+          })
+          .eq("id", existing.id);
+        if (updErr) {
+          results.errors.push(`Category "${cat.name}": ${updErr.message}`);
+        } else {
+          results.categories_updated++;
+        }
         continue;
       }
 
@@ -134,13 +151,57 @@ export async function POST(request: Request) {
         .maybeSingle();
 
       if (existing) {
-        // Already seeded — backfill a missing primary image if we have one
-        if (offering.image_url && existing.id) {
-          const { count } = await ctx.serviceClient
+        const categoryId = categoryMap.get(offering.category_slug) || null;
+
+        // Re-seeding edits the existing offering in place — price,
+        // descriptions, status, category and metadata all sync to the seed.
+        const { error: updErr } = await ctx.serviceClient
+          .from("offerings")
+          .update({
+            short_description: offering.short_description,
+            description: offering.description,
+            status: offering.status,
+            category_id: categoryId,
+            price: offering.price,
+            currency,
+            price_type: offering.price_type,
+            metadata: offering.metadata,
+          })
+          .eq("id", existing.id)
+          .eq("account_id", ctx.accountId);
+
+        if (updErr) {
+          results.errors.push(`Update "${offering.name}": ${updErr.message}`);
+          continue;
+        }
+        results.offerings_updated++;
+
+        // Sync the primary image with the seed image
+        if (offering.image_url) {
+          const { data: mediaRows } = await ctx.serviceClient
             .from("offering_media")
-            .select("id", { count: "exact", head: true })
-            .eq("offering_id", existing.id);
-          if ((count ?? 0) === 0) {
+            .select("id, url, is_primary")
+            .eq("offering_id", existing.id)
+            .order("sort_order");
+
+          const rows = mediaRows || [];
+          const match = rows.find((m) => m.url === offering.image_url);
+
+          if (match) {
+            // Seed image already present — make sure it's the primary
+            if (!match.is_primary) {
+              const { error: mediaError } = await ctx.serviceClient
+                .from("offering_media")
+                .update({ is_primary: true, sort_order: 0 })
+                .eq("id", match.id);
+              if (mediaError) {
+                results.errors.push(`Image for "${offering.name}": ${mediaError.message}`);
+              } else {
+                results.media_updated++;
+              }
+            }
+          } else if (rows.length === 0) {
+            // No image yet — insert the seed image
             const { error: mediaError } = await ctx.serviceClient.from("offering_media").insert({
               offering_id: existing.id,
               account_id: ctx.accountId,
@@ -153,6 +214,22 @@ export async function POST(request: Request) {
               results.errors.push(`Image for "${offering.name}": ${mediaError.message}`);
             } else {
               results.media_created++;
+            }
+          } else {
+            // Seed image changed — replace the primary row's URL in place
+            // (extra gallery photos are left alone)
+            const primaryRow = rows.find((m) => m.is_primary) || rows[0];
+            const { error: mediaError } = await ctx.serviceClient
+              .from("offering_media")
+              .update({
+                url: offering.image_url,
+                alt_text: offering.image_alt || offering.name,
+              })
+              .eq("id", primaryRow.id);
+            if (mediaError) {
+              results.errors.push(`Image for "${offering.name}": ${mediaError.message}`);
+            } else {
+              results.media_updated++;
             }
           }
         }
