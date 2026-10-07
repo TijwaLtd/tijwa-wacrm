@@ -485,7 +485,7 @@ export default function BillingPage() {
     : parseInt(customAmount) || 0;
 
   const isExpired =
-    subscription?.status && !['active', 'trial'].includes(subscription.status);
+    subscription?.status && subscription.status !== 'active';
   const activePlan = plans.find((p) => p.id === currentPlan) ?? plans[0];
   const isCancelling = subscription?.cancel_at_period_end ?? false;
   const daysLeft = daysUntil(subscription?.current_period_end);
@@ -644,11 +644,7 @@ export default function BillingPage() {
                   isExpired ? 'text-destructive' : 'text-green-600'
                 )}
               >
-                {isExpired
-                  ? 'Expired'
-                  : subscription?.status === 'trial'
-                    ? 'Trial'
-                    : 'Active'}
+                {isExpired ? 'Expired' : 'Active'}
               </p>
             </div>
           </div>

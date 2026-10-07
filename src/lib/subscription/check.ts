@@ -1,8 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { ForbiddenError } from '@/lib/auth/account'
 
-// Subscription statuses that allow the workspace to function.
-const ACTIVE_STATUSES = new Set(['active', 'trial'])
+// Subscription statuses that allow the workspace to function. There is no
+// trial tier — plans are packages (none/active/suspended/cancelled).
+const ACTIVE_STATUSES = new Set(['active'])
 
 export interface PlanLimits {
   max_contacts: number
@@ -25,8 +26,8 @@ const DEFAULT_LIMITS: PlanLimits = {
 }
 
 /**
- * Check if the account's subscription is active (active or trial).
- * Returns false for suspended, cancelled, or missing subscription.
+ * Check if the account's subscription is active.
+ * Returns false for suspended, cancelled, none, or missing subscription.
  */
 export async function isSubscriptionActive(
   serviceClient: SupabaseClient,

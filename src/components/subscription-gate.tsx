@@ -32,7 +32,8 @@ export function SubscriptionGate({ children }: SubscriptionGateProps) {
   const pathname = usePathname();
 
   const subscriptionStatus = activeWorkspace?.subscription_status;
-  const hasActivePlan = ["active", "trial"].includes(subscriptionStatus ?? "");
+  // No trial tier exists — plans are packages (none/active/suspended/cancelled).
+  const hasActivePlan = subscriptionStatus === "active";
   const isPublicRoute = PUBLIC_ROUTES.some(
     (r) => pathname === r || pathname.startsWith(`${r}/`),
   );

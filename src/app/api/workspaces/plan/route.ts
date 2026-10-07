@@ -32,8 +32,8 @@ export async function POST(request: Request) {
       .single();
 
     const oldPlan = currentSettings?.plan;
-    const wasExpired = currentSettings?.subscription_status &&
-      !['active', 'trial'].includes(currentSettings.subscription_status);
+    const wasExpired = !!currentSettings?.subscription_status &&
+      currentSettings.subscription_status !== 'active';
 
     // Calculate billing period (30 days from now)
     const now = new Date();

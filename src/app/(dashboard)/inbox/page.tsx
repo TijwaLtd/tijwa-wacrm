@@ -698,9 +698,9 @@ function InboxPageInner() {
   // it back to the list. On lg+ both panes render side-by-side as
   // before, unchanged.
   const hasActiveConv = !!activeConversation;
-  const subscriptionExpired =
-    activeWorkspace?.subscription_status &&
-    !['active', 'trial'].includes(activeWorkspace.subscription_status);
+  const subStatus = activeWorkspace?.subscription_status;
+  // No trial tier — anything but 'active' (none/suspended/cancelled) is expired.
+  const subscriptionExpired = !!subStatus && subStatus !== 'active';
 
   return (
     <div className="-m-4 flex h-full flex-col overflow-hidden sm:-m-6">
