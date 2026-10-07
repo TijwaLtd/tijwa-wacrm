@@ -9,7 +9,7 @@ interface MetricCardProps {
   icon: ComponentType<{ className?: string }>
   /**
    * Delta-mode secondary row: arrow + delta text. Omit when the metric
-   * doesn't have a sensible comparison (e.g. total pipeline value).
+   * doesn't have a sensible comparison.
    */
   delta?: {
     /** Positive / negative / zero drives arrow + color. */
@@ -23,28 +23,26 @@ interface MetricCardProps {
 
 export function MetricCard({ title, value, icon: Icon, delta, subtitle }: MetricCardProps) {
   return (
-    // p-4 on phones: cards sit 2-up in a half-width column there, so
-    // every px of inner width matters.
-    <div className="rounded-xl border border-border bg-card p-4 sm:p-5">
-      <div className="flex items-start justify-between gap-2">
-        <p className="min-w-0 text-sm font-medium leading-tight text-muted-foreground">
+    // Cards sit 3-up on every breakpoint, so phones get ~110px per
+    // card — p-3, an 11px label and no icon there (the icon returns
+    // at sm when there's room for it beside the title).
+    <div className="rounded-xl border border-border bg-card p-3 sm:p-4">
+      <div className="flex items-start justify-between gap-1.5">
+        <p className="min-w-0 text-[11px] leading-tight font-medium text-muted-foreground sm:text-sm">
           {title}
         </p>
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+        <div className="hidden h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground sm:flex sm:h-8 sm:w-8">
           <Icon className="h-4 w-4" />
         </div>
       </div>
-      {/* 22px on phones so currency values ("KES 125,400") fit a
-          half-width card; truncate + title keeps the exact value
-          reachable if it still doesn't. */}
       <p
-        className="mt-3 truncate text-[22px] leading-none font-bold tabular-nums text-foreground sm:text-[28px]"
+        className="mt-1.5 truncate text-[17px] leading-none font-bold tabular-nums text-foreground sm:mt-3 sm:text-2xl"
         title={value}
       >
         {value}
       </p>
       {delta ? <DeltaRow sign={delta.sign} label={delta.label} /> : subtitle ? (
-        <p className="mt-2 truncate text-sm text-muted-foreground" title={subtitle}>
+        <p className="mt-1 truncate text-[11px] text-muted-foreground sm:mt-2 sm:text-sm" title={subtitle}>
           {subtitle}
         </p>
       ) : null}
@@ -61,8 +59,8 @@ function DeltaRow({ sign, label }: { sign: number; label: string }) {
       : 'text-muted-foreground'
   const Arrow = sign > 0 ? ArrowUp : sign < 0 ? ArrowDown : Minus
   return (
-    <div className={cn('mt-2 flex min-w-0 items-center gap-1 text-xs sm:text-sm', tone)}>
-      <Arrow className="h-4 w-4 shrink-0" aria-hidden />
+    <div className={cn('mt-1.5 flex min-w-0 items-center gap-1 text-[10px] sm:mt-2 sm:text-xs', tone)}>
+      <Arrow className="h-3 w-3 shrink-0 sm:h-3.5 sm:w-3.5" aria-hidden />
       <span className="truncate tabular-nums">{label}</span>
     </div>
   )

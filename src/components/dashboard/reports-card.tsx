@@ -65,37 +65,37 @@ export function ReportsCard() {
 
   return (
     <section className="rounded-xl border border-border bg-card">
-      <header className="flex items-center justify-between border-b border-border px-5 py-4">
-        <div>
-          <h2 className="text-sm font-semibold text-foreground">{t("title")}</h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">
+      <header className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
+        <div className="min-w-0">
+          <h2 className="truncate text-sm font-semibold text-foreground">{t("title")}</h2>
+          <p className="mt-0.5 truncate text-xs text-muted-foreground">
             {t("description")}
           </p>
         </div>
         <FileClock className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
       </header>
 
-      <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
         {loading || !counts ? (
-          <div className="grid grid-cols-2 gap-3 sm:max-w-md">
-            <Skeleton className="h-16 w-full" />
-            <Skeleton className="h-16 w-full" />
+          <div className="grid grid-cols-2 gap-2 sm:max-w-md sm:gap-3">
+            <Skeleton className="h-14 w-full" />
+            <Skeleton className="h-14 w-full" />
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-3 sm:max-w-md">
-            <div className="rounded-lg bg-muted/50 px-4 py-3">
-              <p className="text-xl font-bold tabular-nums text-foreground">
+          <div className="grid grid-cols-2 gap-2 sm:max-w-md sm:gap-3">
+            <div className="rounded-lg bg-muted/50 px-3 py-2">
+              <p className="text-lg font-bold tabular-nums text-foreground sm:text-xl">
                 {counts.d7.toLocaleString()}
               </p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
+              <p className="mt-0.5 text-[11px] text-muted-foreground sm:text-xs">
                 {t("last7Days")}
               </p>
             </div>
-            <div className="rounded-lg bg-muted/50 px-4 py-3">
-              <p className="text-xl font-bold tabular-nums text-foreground">
+            <div className="rounded-lg bg-muted/50 px-3 py-2">
+              <p className="text-lg font-bold tabular-nums text-foreground sm:text-xl">
                 {counts.d30.toLocaleString()}
               </p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
+              <p className="mt-0.5 text-[11px] text-muted-foreground sm:text-xs">
                 {t("last30Days")}
               </p>
             </div>
@@ -105,7 +105,7 @@ export function ReportsCard() {
         <Link
           href="/audit"
           className={cn(
-            buttonVariants({ variant: "outline" }),
+            buttonVariants({ variant: "outline", size: "sm" }),
             "w-full justify-center sm:w-auto",
           )}
         >
