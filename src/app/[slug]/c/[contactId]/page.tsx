@@ -44,7 +44,12 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
+
+/** Local email check (kept local — customer.ts pulls in the admin
+ *  client and must never enter the browser bundle). */
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 type PageParams = { slug: string; contactId: string };
 
@@ -78,6 +83,8 @@ export default function CustomerDataPage() {
   const [phone, setPhone] = useState('');
   const [profileDone, setProfileDone] = useState(false);
   const [consentAccepted, setConsentAccepted] = useState(false);
+  // Last-saved values — used to enable Save only when something changed.
+  const [saved, setSaved] = useState({ name: '', email: '', phone: '' });
 
   const [saving, setSaving] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -105,6 +112,11 @@ export default function CustomerDataPage() {
         setName(data.contact.name ?? '');
         setEmail(data.contact.email ?? '');
         setPhone(data.contact.phone ?? '');
+        setSaved({
+          name: data.contact.name ?? '',
+          email: data.contact.email ?? '',
+          phone: data.contact.phone ?? '',
+        });
         setProfileDone(data.contact.profile_completed);
         setConsentAccepted(data.contact.consent_accepted);
       } catch {
@@ -118,13 +130,18 @@ export default function CustomerDataPage() {
     };
   }, [slug, contactId, base]);
 
+  const trimmedEmail = email.trim();
+  const emailInvalid = trimmedEmail !== '' && !EMAIL_RE.test(trimmedEmail);
+  const dirty = name !== saved.name || email !== saved.email || phone !== saved.phone;
+
   const save = async () => {
+    if (!name.trim() || emailInvalid) return;
     setSaving(true);
     try {
       const res = await fetch(base, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, phone }),
+        body: JSON.stringify({ name, email: trimmedEmail, phone }),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) {
@@ -132,6 +149,7 @@ export default function CustomerDataPage() {
         return;
       }
       setProfileDone(!!data?.profile_completed);
+      setSaved({ name, email: trimmedEmail, phone });
       toast.success('Details saved');
     } catch {
       toast.error('Could not save your details');
@@ -236,25 +254,41 @@ export default function CustomerDataPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Your details</CardTitle>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <CardTitle>Your details</CardTitle>
+              {consentAccepted ? (
+                <Badge className="border-emerald-300 bg-emerald-100 text-emerald-700 hover:bg-emerald-100">
+                  Terms accepted
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="border-amber-300 text-amber-600">
+                  Terms not accepted yet
+                </Badge>
+              )}
+            </div>
             <CardDescription>
-              We use these to confirm orders and bookings. Completing this helps us serve you
-              faster.
+              We use these to confirm orders and bookings. Name and email are required before you
+              can place an order.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="name">Full name</Label>
+              <Label htmlFor="name">
+                Full name <span className="text-destructive">*</span>
+              </Label>
               <Input
                 id="name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Jane Wanjiku"
                 autoComplete="name"
+                aria-required="true"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="email">Email address</Label>
+              <Label htmlFor="email">
+                Email address <span className="text-destructive">*</span>
+              </Label>
               <Input
                 id="email"
                 type="email"
@@ -262,7 +296,14 @@ export default function CustomerDataPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="jane@example.com"
                 autoComplete="email"
+                aria-invalid={emailInvalid || undefined}
+                aria-required="true"
               />
+              {emailInvalid && (
+                <p className="text-xs text-destructive">
+                  That doesn&apos;t look like a valid email address — or leave it empty for now.
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="phone">WhatsApp number</Label>
@@ -273,13 +314,25 @@ export default function CustomerDataPage() {
                 placeholder="+254 700 000 000"
                 autoComplete="tel"
               />
+              <p className="text-xs text-muted-foreground">
+                Prefilled from this conversation — edit only if it&apos;s wrong.
+              </p>
             </div>
-            <Button onClick={save} disabled={saving || !name.trim()}>
+            <Button
+              onClick={save}
+              disabled={saving || !name.trim() || !dirty || emailInvalid}
+            >
               {saving ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Save className="mr-2 size-4" />}
               Save details
             </Button>
-            {profileDone && (
-              <p className="text-xs text-emerald-600">✓ Profile complete — order confirmations are on.</p>
+            {profileDone ? (
+              <p className="text-xs text-emerald-600">
+                Profile complete — order confirmations are on.
+              </p>
+            ) : (
+              <p className="text-xs text-amber-600">
+                Profile incomplete — add an email address before you place an order.
+              </p>
             )}
             {!consentAccepted && (
               <p className="text-xs text-muted-foreground">

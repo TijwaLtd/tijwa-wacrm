@@ -400,7 +400,13 @@ async function sendInteractiveViaMeta(
           body: input.bodyText,
           header: input.headerText,
           footer: input.footerText,
-          buttons: input.buttons,
+          // Persist only reply-type buttons: the inbox preview type
+          // (interactive.ts) models tappable id+title buttons, and URL
+          // buttons never tap back. Their URL is in the body text, so
+          // the thread still shows the link.
+          buttons: input.buttons
+            .filter((b): b is { id: string; title: string } => !b.url && typeof b.id === 'string')
+            .map((b) => ({ id: b.id, title: b.title })),
         }
       : {
           kind: 'list',

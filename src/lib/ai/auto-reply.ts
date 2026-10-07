@@ -164,6 +164,41 @@ async function sendConsentMessage(
   }
 }
 
+/**
+ * Send a message linking to the customer's personal data page with a
+ * tappable CTA URL button ("Open my page"). Meta also auto-hyperlinks
+ * the URL in the body text, and the plain-text fallback below relies
+ * on that if the interactive send fails. URL buttons never produce a
+ * webhook tap, so no dispatch handling is needed for them.
+ */
+async function sendProfileLinkMessage(
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  userId: string,
+  link: string,
+  bodyText: string,
+): Promise<void> {
+  const text = clampBody(bodyText)
+  try {
+    await engineSendInteractiveButtons({
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      bodyText: text,
+      buttons: [{ title: 'Open my page', url: link }],
+    })
+  } catch (err) {
+    console.error('[ai auto-reply] profile link button failed, sending plain text:', err)
+    try {
+      await engineSendText({ accountId, userId, conversationId, contactId, text, aiGenerated: false })
+    } catch (textErr) {
+      console.error('[ai auto-reply] profile link text fallback failed:', textErr)
+    }
+  }
+}
+
 /** Record the customer's Accept/Decline tap + audit + reply. */
 async function handleConsentTap(
   db: ReturnType<typeof supabaseAdmin>,
@@ -250,16 +285,14 @@ async function ensureCheckoutReady(
     if (ctx) {
       const link = contactFormUrl(ctx.slug, contactId)
       try {
-        await engineSendText({
+        await sendProfileLinkMessage(
           accountId,
-          userId,
           conversationId,
           contactId,
-          text: clampBody(
-            `Almost there — to confirm this I just need your name and email for the confirmation. Add them here in one step: ${link} — then tap Confirm again. (Your details stay with ${ctx.slug} and you can delete them anytime from that page.)`,
-          ),
-          aiGenerated: false,
-        })
+          userId,
+          link,
+          `Almost there — to confirm this I just need your name and email for the confirmation. Add them here in one step (then tap Confirm again): ${link} — your details stay with ${ctx.slug} and you can delete them anytime from that page.`,
+        )
         await db
           .from('contacts')
           .update({ last_profile_nudge_at: new Date().toISOString() })
@@ -330,16 +363,14 @@ async function maybeNudgeProfile(
   const link = contactFormUrl(ctx.slug, contactId)
 
   try {
-    await engineSendText({
+    await sendProfileLinkMessage(
       accountId,
-      userId,
       conversationId,
       contactId,
-      text: clampBody(
-        `One quick thing — if you'd like order confirmations by email, save your name and email here (you can edit or delete them anytime): ${link}`,
-      ),
-      aiGenerated: false,
-    })
+      userId,
+      link,
+      `One quick thing — if you'd like order confirmations by email, save your name and email here (you can edit or delete them anytime): ${link}`,
+    )
     await db
       .from('contacts')
       .update({ last_profile_nudge_at: new Date().toISOString() })

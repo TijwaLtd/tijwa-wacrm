@@ -70,6 +70,61 @@ describe("sendInteractiveButtons — validation", () => {
     ).rejects.toThrow(/missing id/);
   });
 
+  it("rejects a URL button that is not https", async () => {
+    await expect(
+      sendInteractiveButtons({
+        ...BASE_ARGS,
+        buttons: [{ title: "Open", url: "http://example.com/page" }],
+      }),
+    ).rejects.toThrow(/must use https/);
+  });
+
+  it("rejects more than one URL button (Meta's standard API cap)", async () => {
+    await expect(
+      sendInteractiveButtons({
+        ...BASE_ARGS,
+        buttons: [
+          { title: "One", url: "https://example.com/1" },
+          { title: "Two", url: "https://example.com/2" },
+        ],
+      }),
+    ).rejects.toThrow(/At most 1 URL button/);
+  });
+
+  it("allows a single URL button alongside reply buttons", async () => {
+    // Mixed types: valid per Meta's Direct Send; if the standard API
+    // ever rejects it, the sender falls back to plain text.
+    let captured: { body: unknown } | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        captured = { body: JSON.parse(String(init.body)) };
+        return new Response(JSON.stringify({ messages: [{ id: "wamid.MIX" }] }), {
+          status: 200,
+        });
+      }),
+    );
+
+    await sendInteractiveButtons({
+      ...BASE_ARGS,
+      buttons: [
+        { id: "consent_accept", title: "Accept" },
+        { id: "consent_decline", title: "Decline" },
+        { title: "Terms", url: "https://example.com/legal/terms" },
+      ],
+    });
+
+    expect(captured).not.toBeNull();
+    const body = captured!.body as {
+      interactive: { action: { buttons: unknown[] } };
+    };
+    expect(body.interactive.action.buttons).toEqual([
+      { type: "reply", reply: { id: "consent_accept", title: "Accept" } },
+      { type: "reply", reply: { id: "consent_decline", title: "Decline" } },
+      { type: "url", url: { title: "Terms", url: "https://example.com/legal/terms" } },
+    ]);
+  });
+
   it("rejects an empty body text", async () => {
     await expect(
       sendInteractiveButtons({

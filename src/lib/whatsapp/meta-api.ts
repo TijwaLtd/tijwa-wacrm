@@ -752,10 +752,20 @@ export const INTERACTIVE_LIMITS = {
 } as const
 
 export interface InteractiveButton {
-  /** Stable id sent back in the webhook when tapped (≤ 256 chars). */
-  id: string
+  /**
+   * Stable id sent back in the webhook when tapped (≤ 256 chars).
+   * Required for reply-type buttons; omitted for URL buttons (they
+   * open the browser and never produce a webhook tap).
+   */
+  id?: string
   /** Visible label (≤ 20 chars per Meta). */
   title: string
+  /**
+   * https URL — when set, the button becomes a CTA URL button
+   * (`type: "url"`) that opens the link instead of replying.
+   * At most 1 per message (Meta's standard API limit).
+   */
+  url?: string
 }
 
 export interface SendInteractiveButtonsArgs {
@@ -775,9 +785,14 @@ export interface SendInteractiveButtonsArgs {
 }
 
 /**
- * Send an interactive message with up to 3 inline reply buttons. The
- * customer taps one and Meta delivers a webhook with
- * `messages[0].interactive.button_reply.id` set to the matching button.id.
+ * Send an interactive message with up to 3 inline buttons.
+ *
+ * Reply buttons (`id` + `title`) tap → Meta delivers a webhook with
+ * `messages[0].interactive.button_reply.id` set to the matching id.
+ * A URL button (`url` + `title`) opens the link in the browser and
+ * never produces a webhook tap — Meta's standard API allows at most
+ * 1 per message, and mixing URL+reply types is not reliably supported,
+ * so URL buttons are only used on their own.
  *
  * Validation throws BEFORE the network call so misconfigured flows
  * fail at save time, not during a live conversation.
@@ -797,7 +812,25 @@ export async function sendInteractiveButtons(
     )
   }
   const seenButtonIds = new Set<string>()
+  let urlButtonCount = 0
   for (const btn of buttons) {
+    if (!btn.title) throw new Error('Interactive button missing title.')
+    if (btn.title.length > INTERACTIVE_LIMITS.buttonTitleMaxLength) {
+      throw new Error(
+        `Interactive button title "${btn.title}" exceeds ${INTERACTIVE_LIMITS.buttonTitleMaxLength} chars.`
+      )
+    }
+    if (btn.url) {
+      // CTA URL button — no id (never taps back), https only.
+      if (!btn.url.startsWith('https://')) {
+        throw new Error(`URL button "${btn.title}" must use https:// (got "${btn.url}").`)
+      }
+      urlButtonCount++
+      if (urlButtonCount > 1) {
+        throw new Error('At most 1 URL button per interactive message (Meta limit).')
+      }
+      continue
+    }
     if (!btn.id) throw new Error('Interactive button missing id.')
     // Duplicate button ids make the tapped-button webhook ambiguous —
     // Meta rejects them, and the pre-flight validator (interactive.ts)
@@ -806,22 +839,17 @@ export async function sendInteractiveButtons(
       throw new Error(`Interactive message has duplicate button id "${btn.id}".`)
     }
     seenButtonIds.add(btn.id)
-    if (!btn.title) throw new Error(`Interactive button "${btn.id}" missing title.`)
-    if (btn.title.length > INTERACTIVE_LIMITS.buttonTitleMaxLength) {
-      throw new Error(
-        `Interactive button title "${btn.title}" exceeds ${INTERACTIVE_LIMITS.buttonTitleMaxLength} chars.`
-      )
-    }
   }
 
   const interactive: Record<string, unknown> = {
     type: 'button',
     body: { text: bodyText },
     action: {
-      buttons: buttons.map((b) => ({
-        type: 'reply',
-        reply: { id: b.id, title: b.title },
-      })),
+      buttons: buttons.map((b) =>
+        b.url
+          ? { type: 'url', url: { title: b.title, url: b.url } }
+          : { type: 'reply', reply: { id: b.id, title: b.title } },
+      ),
     },
   }
   if (headerText) interactive.header = { type: 'text', text: headerText }

@@ -43,6 +43,20 @@ export async function proxy(request: NextRequest) {
     return response
   }
 
+  // ── PUBLIC PATHS (no auth, ever) ─────────────────────────────
+  // Tenant-facing pages/APIs addressed by capability URL, not by a
+  // login session:
+  //   /[slug]/c/<contactId>  customer profile & data-rights page
+  //   /[slug]/legal/*        Terms / Privacy for that tenant
+  //   /api/public/*          profile + data APIs those pages call
+  // Returned AFTER getUser() so refresh-cookie rotation still lands
+  // on the response, and BEFORE every auth/membership redirect below.
+  const pathname = request.nextUrl.pathname
+  const isPublicPath =
+    pathname.startsWith('/api/public/') ||
+    /^\/[^/]+\/(c|legal)(\/|$)/.test(pathname)
+  if (isPublicPath) return supabaseResponse
+
   // Auth pages - redirect to dashboard if already logged in.
   // Exception: when an invite token is in the query string we
   // send the already-signed-in user to /join/<token> instead so
