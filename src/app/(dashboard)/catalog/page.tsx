@@ -169,7 +169,7 @@ export default function CatalogPage() {
       header: 'Price',
       cell: (offering) => (
         <span className="text-sm font-semibold text-foreground font-mono">
-          {formatPrice(offering.price, offering.currency, offering.price_type)}
+          {formatPrice(offering.price, offering.currency, offering.price_type, offering.metadata.unit as string | null)}
         </span>
       ),
     },
@@ -223,7 +223,7 @@ export default function CatalogPage() {
         </span>
       );
     },
-    amount: (offering) => formatPrice(offering.price, offering.currency, offering.price_type),
+    amount: (offering) => formatPrice(offering.price, offering.currency, offering.price_type, offering.metadata.unit as string | null),
     detailFields: (offering) => [
       { label: 'Type', value: OFFERING_TYPES[offering.type]?.label || offering.type },
       { label: 'Price Type', value: offering.price_type },

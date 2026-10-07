@@ -76,6 +76,7 @@ export async function POST(request: Request) {
     const results = {
       categories_created: 0,
       offerings_created: 0,
+      media_created: 0,
       operating_hours_updated: false,
       errors: [] as string[],
     };
@@ -132,11 +133,35 @@ export async function POST(request: Request) {
         .eq("slug", slug)
         .maybeSingle();
 
-      if (existing) continue;
+      if (existing) {
+        // Already seeded — backfill a missing primary image if we have one
+        if (offering.image_url && existing.id) {
+          const { count } = await ctx.serviceClient
+            .from("offering_media")
+            .select("id", { count: "exact", head: true })
+            .eq("offering_id", existing.id);
+          if ((count ?? 0) === 0) {
+            const { error: mediaError } = await ctx.serviceClient.from("offering_media").insert({
+              offering_id: existing.id,
+              account_id: ctx.accountId,
+              url: offering.image_url,
+              alt_text: offering.image_alt || offering.name,
+              sort_order: 0,
+              is_primary: true,
+            });
+            if (mediaError) {
+              results.errors.push(`Image for "${offering.name}": ${mediaError.message}`);
+            } else {
+              results.media_created++;
+            }
+          }
+        }
+        continue;
+      }
 
       const categoryId = categoryMap.get(offering.category_slug) || null;
 
-      const { error } = await ctx.serviceClient.from("offerings").insert({
+      const { data: created, error } = await ctx.serviceClient.from("offerings").insert({
         account_id: ctx.accountId,
         type: offering.type,
         name: offering.name,
@@ -149,12 +174,30 @@ export async function POST(request: Request) {
         currency,
         price_type: offering.price_type,
         metadata: offering.metadata,
-      });
+      }).select("id").single();
 
       if (error) {
         results.errors.push(`Offering "${offering.name}": ${error.message}`);
-      } else {
-        results.offerings_created++;
+        continue;
+      }
+
+      results.offerings_created++;
+
+      // Attach the primary image (offering_media row with the public URL)
+      if (offering.image_url && created?.id) {
+        const { error: mediaError } = await ctx.serviceClient.from("offering_media").insert({
+          offering_id: created.id,
+          account_id: ctx.accountId,
+          url: offering.image_url,
+          alt_text: offering.image_alt || offering.name,
+          sort_order: 0,
+          is_primary: true,
+        });
+        if (mediaError) {
+          results.errors.push(`Image for "${offering.name}": ${mediaError.message}`);
+        } else {
+          results.media_created++;
+        }
       }
     }
 

@@ -404,7 +404,10 @@ export function buildSystemPrompt(args: {
       '- When customer says yes/more/next, call search_products again with offset increased by 10\n' +
       '- If has_more is false, say "That\'s all we have" or similar\n' +
       '- If they want details on a specific product, call get_product\n' +
-      '- NEVER invent product names, prices, or availability\n\n' +
+      '- NEVER invent product names, prices, or availability\n' +
+      '- If a product has pricing_unit "meter" (or the description mentions per metre/per meter),\n' +
+      '  quote prices PER METRE and mention gauge/finish variations from the description\n' +
+      '  (e.g. "KES 300–400/m depending on gauge"). Ranges are normal for building materials.\n\n' +
       'CART SYSTEM:\n' +
       'Customers can add multiple products to a cart before checking out.\n' +
       'Use the manage_cart tool for ALL cart operations (get/add/remove/clear) — never claim to have saved a cart without calling it.\n\n' +

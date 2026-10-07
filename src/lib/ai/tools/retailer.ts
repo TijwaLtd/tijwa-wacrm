@@ -147,6 +147,7 @@ export interface ProductSearchResult {
     currency: string
     category: string | null
     stock_status: string | null
+    pricing_unit?: string | null
     image_url: string | null
   }>
   count: number
@@ -227,6 +228,7 @@ export async function searchProducts(
       currency: item.currency || 'KES',
       category: meta.category || null,
       stock_status: (meta.stock_status as string) || 'in_stock',
+      pricing_unit: (meta.pricing_unit as string) || (meta.unit as string) || null,
       image_url: primaryImage,
     }
   })
@@ -346,6 +348,8 @@ const getProductHandler: ToolHandler = async (args, ctx) => {
     brand: meta.brand || null,
     weight: meta.weight || null,
     dimensions: meta.dimensions || null,
+    pricing_unit: (meta.pricing_unit as string) || (meta.unit as string) || null,
+    price_max: (meta.price_max as number) || null,
     image_url: primaryImage,
     image_urls: allImages,
   }

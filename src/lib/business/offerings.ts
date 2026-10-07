@@ -271,15 +271,17 @@ export function getOfferingStatusInfo(status: OfferingStatus) {
 export function formatPrice(
   price: number | null,
   currency: string | null,
-  priceType: PriceType
+  priceType: PriceType,
+  unit?: string | null
 ): string {
   if (priceType === 'free') return 'Free';
   if (priceType === 'contact_for_price') return 'Contact for Price';
+  const suffix = unit ? ` / ${unit}` : '';
   if (priceType === 'starting_from' && price !== null) {
-    return `From ${currency || ''} ${price.toFixed(2)}`;
+    return `From ${currency || ''} ${price.toFixed(2)}${suffix}`;
   }
   if (price !== null) {
-    return `${currency || ''} ${price.toFixed(2)}`;
+    return `${currency || ''} ${price.toFixed(2)}${suffix}`;
   }
   return 'Price not set';
 }
