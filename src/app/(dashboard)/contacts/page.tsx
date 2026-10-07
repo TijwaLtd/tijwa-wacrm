@@ -499,7 +499,10 @@ export default function ContactsPage() {
               {showWorkspaceSelector && (
                 <>
                   <DropdownMenuItem
-                    onClick={() => setWorkspaceFilter(null)}
+                    onClick={() => {
+                      setWorkspaceFilter(null);
+                      setPage(0);
+                    }}
                     className={cn(
                       'text-sm',
                       workspaceFilter === null && 'bg-muted text-primary'
@@ -606,12 +609,13 @@ export default function ContactsPage() {
               render={
                 <Button
                   variant="outline"
+                  aria-label={t('filterByTags')}
                   className="border-border text-muted-foreground hover:bg-muted h-11 shrink-0 px-4 text-base"
                 />
               }
             >
               <Filter className="size-4" />
-              {t('filterByTags')}
+              <span className="hidden sm:inline">{t('filterByTags')}</span>
               {selectedTagIds.length > 0 && (
                 <span className="bg-primary text-primary-foreground ml-1 inline-flex items-center justify-center rounded-full px-1.5 text-[10px] font-semibold">
                   {selectedTagIds.length}
@@ -824,7 +828,7 @@ export default function ContactsPage() {
                           t('unnamed')
                         )}
                       </span>
-                      {contact.account_id && (
+                      {showWorkspaceSelector && contact.account_id && (
                         <WorkspaceBadge
                           accountId={contact.account_id}
                           size="sm"
@@ -853,7 +857,7 @@ export default function ContactsPage() {
                             return next;
                           });
                         }}
-                        className="text-muted-foreground hover:text-primary flex cursor-pointer items-center justify-center p-1 transition-colors"
+                        className="text-muted-foreground hover:text-primary flex cursor-pointer items-center justify-center p-1.5 transition-colors"
                         title={
                           revealedPhones.has(contact.id)
                             ? 'Hide number'
@@ -1081,9 +1085,17 @@ export default function ContactsPage() {
                         )}
                       </div>
                       <div className="min-w-0">
-                        <p className="text-foreground truncate text-sm font-medium">
-                          {displayName}
-                        </p>
+                        <div className="flex min-w-0 items-center gap-1.5">
+                          <p className="text-foreground truncate text-sm font-medium">
+                            {displayName}
+                          </p>
+                          {showWorkspaceSelector && contact.account_id && (
+                            <WorkspaceBadge
+                              accountId={contact.account_id}
+                              size="sm"
+                            />
+                          )}
+                        </div>
                         {contact.company && (
                           <p className="text-muted-foreground truncate text-xs">
                             {contact.company}
@@ -1161,7 +1173,7 @@ export default function ContactsPage() {
                           return next;
                         });
                       }}
-                      className="text-muted-foreground hover:text-primary flex items-center justify-center p-1 transition-colors"
+                      className="text-muted-foreground hover:text-primary flex items-center justify-center p-1.5 transition-colors"
                     >
                       {revealedPhones.has(contact.id) ? (
                         <EyeOff className="size-3" />
@@ -1206,7 +1218,7 @@ export default function ContactsPage() {
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
           <p className="text-muted-foreground text-xs">
             {t('showingPagination', {
               start: page * PAGE_SIZE + 1,

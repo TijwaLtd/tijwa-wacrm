@@ -220,7 +220,7 @@ export function ContactForm({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-popover border-border text-popover-foreground sm:max-w-md">
+      <DialogContent className="bg-popover border-border text-popover-foreground max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="text-popover-foreground">
             {isEdit ? t('editTitle') : t('addTitle')}
@@ -242,7 +242,7 @@ export function ContactForm({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder={t('namePlaceholder')}
-              className="bg-muted border-border text-foreground placeholder:text-muted-foreground"
+              className="bg-muted border-border text-foreground placeholder:text-muted-foreground h-10"
             />
           </div>
 
@@ -259,7 +259,7 @@ export function ContactForm({
               }}
               onBlur={checkDuplicate}
               placeholder={t('phonePlaceholder')}
-              className="bg-muted border-border text-foreground placeholder:text-muted-foreground"
+              className="bg-muted border-border text-foreground placeholder:text-muted-foreground h-10"
             />
             {dupMatch ? (
               <div
@@ -304,7 +304,7 @@ export function ContactForm({
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder={t('emailPlaceholder')}
-              className="bg-muted border-border text-foreground placeholder:text-muted-foreground"
+              className="bg-muted border-border text-foreground placeholder:text-muted-foreground h-10"
             />
           </div>
 
@@ -317,7 +317,7 @@ export function ContactForm({
               value={company}
               onChange={(e) => setCompany(e.target.value)}
               placeholder={t('companyPlaceholder')}
-              className="bg-muted border-border text-foreground placeholder:text-muted-foreground"
+              className="bg-muted border-border text-foreground placeholder:text-muted-foreground h-10"
             />
           </div>
 

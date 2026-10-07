@@ -455,7 +455,7 @@ export function ContactDetailView({
                               auditLog(AuditEventType.CONTACT_PHONE_REVEALED, { contactId: contact.id });
                             }
                           }}
-                          className="flex items-center justify-center p-1 hover:text-primary transition-colors cursor-pointer"
+                          className="flex items-center justify-center p-1.5 hover:text-primary transition-colors cursor-pointer"
                           title={showPhone ? "Hide number" : "Reveal number"}
                         >
                           {showPhone ? <EyeOff className="size-3" /> : <Eye className="size-3" />}
@@ -464,20 +464,20 @@ export function ContactDetailView({
                     </div>
                     {!isPlaceholderPhone(contact.phone) && (
                       <>
-                        <button
-                          onClick={handleCallClick}
-                          className="flex items-center gap-1 hover:text-primary transition-colors cursor-pointer"
-                        >
-                          <PhoneCall className="size-3" />
-                          Call
-                        </button>
-                        <button
-                          onClick={handleWhatsAppClick}
-                          className="flex items-center gap-1 hover:text-primary transition-colors cursor-pointer"
-                        >
-                          <MessageCircle className="size-3" />
-                          WhatsApp
-                        </button>
+                          <button
+                            onClick={handleCallClick}
+                            className="flex items-center gap-1 py-1 hover:text-primary transition-colors cursor-pointer"
+                          >
+                            <PhoneCall className="size-3" />
+                            Call
+                          </button>
+                          <button
+                            onClick={handleWhatsAppClick}
+                            className="flex items-center gap-1 py-1 hover:text-primary transition-colors cursor-pointer"
+                          >
+                            <MessageCircle className="size-3" />
+                            WhatsApp
+                          </button>
                       </>
                     )}
                     {contact.email && (
@@ -514,7 +514,7 @@ export function ContactDetailView({
 
             {/* Tabs */}
             <Tabs defaultValue="details" className="flex-1 flex flex-col min-h-0">
-              <TabsList className="bg-muted/50 border-b border-border mx-4 mt-3">
+              <TabsList className="bg-muted/50 border-b border-border mx-4 mt-3 max-w-full overflow-x-auto">
                 <TabsTrigger
                   value="details"
                   className="data-active:bg-muted data-active:text-primary text-muted-foreground"
