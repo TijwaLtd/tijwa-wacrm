@@ -10,12 +10,10 @@ import {
 } from 'lucide-react'
 
 import {
-  loadActivity,
   loadConversationsSeries,
   loadMetrics,
 } from '@/lib/dashboard/queries'
 import type {
-  ActivityItem,
   ConversationsSeriesPoint,
   MetricsBundle,
 } from '@/lib/dashboard/types'
@@ -24,7 +22,6 @@ import { MetricCard } from '@/components/dashboard/metric-card'
 import { SkeletonCard } from '@/components/dashboard/skeleton'
 import { QuickActions } from '@/components/dashboard/quick-actions'
 import { ConversationsChart } from '@/components/dashboard/conversations-chart'
-import { ActivityFeed } from '@/components/dashboard/activity-feed'
 import { ReportsCard } from '@/components/dashboard/reports-card'
 
 import { useTranslations } from 'next-intl'
@@ -48,9 +45,6 @@ export default function DashboardPage() {
   })
   const [seriesLoading, setSeriesLoading] = useState(true)
 
-  const [activity, setActivity] = useState<ActivityItem[] | null>(null)
-  const [activityLoading, setActivityLoading] = useState(true)
-
   const loadAll = useCallback(() => {
     if (!accountId) return
     const db = createClient()
@@ -67,14 +61,6 @@ export default function DashboardPage() {
       .then((s) => setSeries((prev) => ({ ...prev, 30: s })))
       .catch((err) => console.error('[dashboard] series failed:', err))
       .finally(() => setSeriesLoading(false))
-
-    // Fetch up to 50 so the biggest page-size option in the feed
-    // (50 rows) is already in memory — switching sizes then becomes
-    // a pure client-side slice with no extra round trip.
-    void loadActivity(db, accountId, 50)
-      .then((a) => setActivity(a))
-      .catch((err) => console.error('[dashboard] activity failed:', err))
-      .finally(() => setActivityLoading(false))
   }, [accountId])
 
   useEffect(() => {
@@ -176,9 +162,6 @@ export default function DashboardPage() {
       {/* Reports — audit-log summary (admin+; renders null otherwise).
           Replaces the sidebar's REPORTS section. */}
       <ReportsCard />
-
-      {/* Activity feed */}
-      <ActivityFeed items={activity} loading={activityLoading} />
     </div>
   )
 }

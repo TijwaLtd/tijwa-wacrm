@@ -96,18 +96,6 @@
       "newBroadcast": "New Broadcast",
       "newAutomation": "New Automation"
     },
-    "activityFeed": {
-      "title": "Recent Activity",
-      "viewAll": "View all →",
-      "noActivity": "No activity yet",
-      "noActivityHint": "Activity from messages, deals, broadcasts, and automations will appear here.",
-      "showingOf": "Showing {visible} of {totalLoaded}{plus}",
-      "show": "Show",
-      "timeS": "{sec}s ago",
-      "timeM": "{min}m ago",
-      "timeH": "{hr}h ago",
-      "timeD": "{day}d ago"
-    },
     "conversationsChart": {
       "title": "Conversations Over Time",
       "description": "Daily message volume by direction",
