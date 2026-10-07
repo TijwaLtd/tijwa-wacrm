@@ -16,20 +16,88 @@ export async function GET() {
     // Try to get existing subscription
     const { data: sub, error } = await serviceClient
       .from("subscriptions")
-      .select("plan, status, current_period_start, current_period_end, cancel_at_period_end")
+      .select("plan, status, current_period_start, current_period_end, cancel_at_period_end, created_at")
       .eq("account_id", accountId)
       .maybeSingle();
 
     if (sub) {
-      return NextResponse.json({
-        subscription: {
-          plan: sub.plan,
-          status: sub.status,
-          current_period_start: sub.current_period_start,
-          current_period_end: sub.current_period_end,
-          cancel_at_period_end: sub.cancel_at_period_end,
-        },
-      });
+      const { data: settings } = await serviceClient
+        .from("tenant_settings")
+        .select("plan, subscription_status")
+        .eq("account_id", accountId)
+        .maybeSingle();
+
+      // Repair legacy rows: migrations 041/046/047/072/078 inserted
+      // subscriptions with only (account_id, plan, status) — periods stayed
+      // NULL — and pre-095 the plan CHECK made /api/workspaces/plan's
+      // subscriptions update fail silently, so rows also kept a stale plan.
+      // tenant_settings is the source of truth for the plan (no Stripe
+      // webhooks in this deployment); the last plan_changed event anchors
+      // the billing period so "Current period started" / "Next billing
+      // date" are truthful instead of rendering "—".
+      const stalePlan = !!(settings?.plan && sub.plan !== settings.plan);
+      const missingPeriods = !sub.current_period_start || !sub.current_period_end;
+
+      if (!missingPeriods && !stalePlan) {
+        return NextResponse.json({
+          subscription: {
+            plan: sub.plan,
+            status: sub.status,
+            current_period_start: sub.current_period_start,
+            current_period_end: sub.current_period_end,
+            cancel_at_period_end: sub.cancel_at_period_end,
+          },
+        });
+      }
+
+      // Period anchor: the most recent plan change, else row creation.
+      const { data: lastChange } = await serviceClient
+        .from("billing_history")
+        .select("created_at")
+        .eq("account_id", accountId)
+        .eq("event_type", "plan_changed")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const start =
+        sub.current_period_start ??
+        lastChange?.created_at ??
+        sub.created_at ??
+        new Date().toISOString();
+      const end =
+        sub.current_period_end ??
+        new Date(new Date(start).getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+      const { data: repaired, error: repairErr } = await serviceClient
+        .from("subscriptions")
+        .update({
+          current_period_start: start,
+          current_period_end: end,
+          ...(settings?.plan && settings.plan !== sub.plan
+            ? { plan: settings.plan }
+            : {}),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("account_id", accountId)
+        .select("plan, status, current_period_start, current_period_end, cancel_at_period_end")
+        .maybeSingle();
+
+      if (repairErr) {
+        // Never fail the billing page over the repair — serve the
+        // computed values even if the write-back didn't land.
+        console.error("[subscription/manage] legacy row repair failed:", repairErr);
+      }
+
+      const row = repaired ?? {
+        plan: settings?.plan ?? sub.plan,
+        status: sub.status,
+        current_period_start: start,
+        current_period_end: end,
+        cancel_at_period_end: sub.cancel_at_period_end,
+      };
+
+      return NextResponse.json({ subscription: row });
     }
 
     // No subscription row — upsert from tenant_settings (race-safe)

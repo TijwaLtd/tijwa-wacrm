@@ -381,6 +381,8 @@ export default function BillingPage() {
               ...prev,
               plan: planId,
               status: 'active',
+              current_period_start:
+                data.current_period_start ?? prev.current_period_start,
               current_period_end:
                 data.current_period_end ?? prev.current_period_end,
               cancel_at_period_end: false,

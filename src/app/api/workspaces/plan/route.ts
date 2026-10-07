@@ -63,7 +63,7 @@ export async function POST(request: Request) {
       .maybeSingle();
 
     if (existingSub) {
-      await serviceClient
+      const { error: subErr } = await serviceClient
         .from("subscriptions")
         .update({
           plan,
@@ -74,14 +74,31 @@ export async function POST(request: Request) {
           updated_at: now.toISOString(),
         })
         .eq("id", existingSub.id);
+      // Was silently ignored — pre-095 this update failed atomically on
+      // subscriptions_plan_check for 'business'/'growth', which is how rows
+      // ended up with a stale plan and NULL billing periods.
+      if (subErr) {
+        console.error("[workspaces/plan] subscriptions update failed:", subErr);
+        return NextResponse.json(
+          { error: "Failed to update subscription record" },
+          { status: 500 },
+        );
+      }
     } else {
-      await serviceClient.from("subscriptions").insert({
+      const { error: subErr } = await serviceClient.from("subscriptions").insert({
         account_id: accountId,
         plan,
         status: 'active',
         current_period_start: now.toISOString(),
         current_period_end: periodEnd.toISOString(),
       });
+      if (subErr) {
+        console.error("[workspaces/plan] subscriptions insert failed:", subErr);
+        return NextResponse.json(
+          { error: "Failed to create subscription record" },
+          { status: 500 },
+        );
+      }
     }
 
     // Add plan allocation credits (don't wipe purchased credits).
@@ -190,6 +207,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       ok: true,
       plan,
+      current_period_start: now.toISOString(),
       current_period_end: periodEnd.toISOString(),
     });
   } catch (err) {
