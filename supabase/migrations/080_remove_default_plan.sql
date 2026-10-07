@@ -7,6 +7,10 @@
 
 -- 1. Remove subscriptions insert from create_workspace
 --    (subscription is only created when user picks a plan at /billing)
+-- Drop first: CREATE OR REPLACE cannot rename input parameters, and
+-- hand-applied versions of this function may have a different param order.
+DROP FUNCTION IF EXISTS create_workspace(TEXT, TEXT, UUID, TEXT, TEXT);
+DROP FUNCTION IF EXISTS create_workspace(TEXT, TEXT, UUID, TEXT);
 CREATE OR REPLACE FUNCTION create_workspace(
   p_name TEXT,
   p_subdomain TEXT,

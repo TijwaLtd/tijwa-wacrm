@@ -11,6 +11,10 @@
 -- Fix: allow callers to exclude the account being renamed.
 -- ============================================================
 
+-- Drop the old single-arg overload so callers that pass only
+-- p_subdomain are not ambiguous between the two signatures.
+DROP FUNCTION IF EXISTS is_subdomain_available(TEXT);
+
 CREATE OR REPLACE FUNCTION is_subdomain_available(
   p_subdomain TEXT,
   p_except_account_id UUID DEFAULT NULL
