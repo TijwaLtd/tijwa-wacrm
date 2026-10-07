@@ -15,6 +15,9 @@ import { AiError, type ChatMessage } from './types'
 import { getToolsForBusinessType, executeToolCalls, hasToolCalls, ToolContext } from './tools'
 import { parseOrderButtonId, parseFoodOrderButtonId, parseReservationButtonId, parseBookingButtonId, parsePropertyInquiryButtonId, parseProductOrderButtonId, parseMenuMoreButtonId, parseRoomMoreButtonId, parseProductMoreButtonId, parseServiceMoreButtonId, parsePropertyMoreButtonId, parseNgoProgramMoreButtonId, parseNgoCourseMoreButtonId, parseCartButtonId, parseOfferingMoreButtonId } from './tools'
 import { clampListSection, clampBody, listCtaFor, type ListSection } from './tools/list-format'
+import { AuditService } from '@/lib/audit/service'
+import { AuditEventType } from '@/lib/audit/events'
+import { contactFormUrl, legalUrls, CONSENT_VERSION } from '@/lib/public/customer'
 import { searchMenuItems } from './tools/restaurant'
 import { searchRooms } from './tools/hotel'
 import { searchProducts, getCart, addToCart, clearCart, formatCartSummary, getCartButtons } from './tools/retailer'
@@ -81,6 +84,269 @@ async function sendDefaultMessage(
     })
   } catch (err) {
     console.error(`[ai auto-reply] failed to send default message (${reason}):`, err)
+  }
+}
+
+// ============================================================
+// Customer consent + profile (public data-rights feature)
+//
+// Consent: Accept/Decline offered once after the first AI reply
+// (silence = NOT accepted, never blocks chat) and re-required at
+// checkout (order / booking confirm). Profile (name + email) is
+// required at checkout only, with a rate-limited nudge.
+// ============================================================
+
+const PROFILE_NUDGE_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000
+
+interface PublicContext {
+  slug: string
+  ownerUserId: string
+}
+
+async function loadPublicContext(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+): Promise<PublicContext | null> {
+  const { data } = await db
+    .from('accounts')
+    .select('subdomain, owner_user_id')
+    .eq('id', accountId)
+    .maybeSingle()
+  if (!data?.subdomain || !data.owner_user_id) return null
+  return { slug: data.subdomain, ownerUserId: data.owner_user_id }
+}
+
+/**
+ * Send the Accept/Decline consent message (Terms + Privacy URLs,
+ * AI disclosure) and record that we asked (consent_asked_at).
+ * Ask-once semantics — the general hook never re-asks; only the
+ * checkout gate sends this again when consent is still missing.
+ */
+async function sendConsentMessage(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  userId: string,
+  opts: { checkout?: boolean } = {},
+): Promise<boolean> {
+  const ctx = await loadPublicContext(db, accountId)
+  if (!ctx) return false
+  const urls = legalUrls(ctx.slug)
+
+  const body = clampBody(
+    opts.checkout
+      ? `One quick step before I confirm this: please accept our Terms of Service (${urls.terms}) and Privacy Policy (${urls.privacy}). Our AI assists replies here — a human can take over anytime. Tap Accept to continue, or Decline to go back.`
+      : `Before we continue, please review our Terms of Service (${urls.terms}) and Privacy Policy (${urls.privacy}). Our AI assists replies here — a human can take over anytime. Tap Accept to agree, or Decline to keep browsing (we'll ask again if you place an order).`,
+  )
+
+  try {
+    await engineSendInteractiveButtons({
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      bodyText: body,
+      buttons: [
+        { id: 'consent_accept', title: 'Accept' },
+        { id: 'consent_decline', title: 'Decline' },
+      ],
+    })
+    await db
+      .from('contacts')
+      .update({ consent_asked_at: new Date().toISOString() })
+      .eq('account_id', accountId)
+      .eq('id', contactId)
+    return true
+  } catch (err) {
+    console.error('[ai auto-reply] failed to send consent message:', err)
+    return false
+  }
+}
+
+/** Record the customer's Accept/Decline tap + audit + reply. */
+async function handleConsentTap(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  userId: string,
+  interactiveReplyId: string,
+): Promise<void> {
+  const ctx = await loadPublicContext(db, accountId)
+  const now = new Date().toISOString()
+  const accepted = interactiveReplyId === 'consent_accept'
+
+  await db
+    .from('contacts')
+    .update(
+      accepted
+        ? {
+            consent_tos_version: CONSENT_VERSION,
+            consent_tos_accepted_at: now,
+            consent_tos_declined_at: null,
+            consent_asked_at: now,
+          }
+        : { consent_tos_declined_at: now, consent_asked_at: now },
+    )
+    .eq('account_id', accountId)
+    .eq('id', contactId)
+
+  try {
+    await AuditService.record({
+      eventType: accepted ? AuditEventType.CONSENT_ACCEPTED : AuditEventType.CONSENT_DECLINED,
+      accountId,
+      actorUserId: ctx?.ownerUserId || userId,
+      contactId,
+      conversationId,
+      metadata: { initiator: 'contact', version: accepted ? CONSENT_VERSION : null },
+    })
+  } catch (err) {
+    console.error('[ai auto-reply] consent audit error:', err)
+  }
+
+  const urls = ctx ? legalUrls(ctx.slug) : null
+  const text = accepted
+    ? `Thanks — you've accepted our Terms of Service and Privacy Policy. If you were confirming an order or booking, tap Confirm again and we're set. Anything else I can help with?`
+    : `No problem — nothing has been accepted. You can keep browsing and asking questions; we'll ask again before an order or booking. You can read our Terms (${urls?.terms || 'in this chat'}) and Privacy Policy (${urls?.privacy || 'in this chat'}) anytime.`
+
+  try {
+    await engineSendText({ accountId, userId, conversationId, contactId, text, aiGenerated: false })
+  } catch (err) {
+    console.error('[ai auto-reply] consent tap reply failed:', err)
+  }
+}
+
+type CheckoutGate = 'ok' | 'consent' | 'profile'
+
+/**
+ * Gate for order/booking confirm buttons:
+ *   1. Terms must be accepted (re-asked here with checkout wording)
+ *   2. Profile needs name + email (points at the public data page)
+ * Returns 'ok' when the confirm may proceed.
+ */
+async function ensureCheckoutReady(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  userId: string,
+): Promise<CheckoutGate> {
+  const { data: contact } = await db
+    .from('contacts')
+    .select('name, email, consent_tos_version')
+    .eq('account_id', accountId)
+    .eq('id', contactId)
+    .maybeSingle()
+  if (!contact) return 'ok'
+
+  if (!contact.consent_tos_version) {
+    await sendConsentMessage(db, accountId, conversationId, contactId, userId, { checkout: true })
+    return 'consent'
+  }
+
+  if (!contact.name || !contact.email) {
+    const ctx = await loadPublicContext(db, accountId)
+    if (ctx) {
+      const link = contactFormUrl(ctx.slug, contactId)
+      try {
+        await engineSendText({
+          accountId,
+          userId,
+          conversationId,
+          contactId,
+          text: clampBody(
+            `Almost there — to confirm this I just need your name and email for the confirmation. Add them here in one step: ${link} — then tap Confirm again. (Your details stay with ${ctx.slug} and you can delete them anytime from that page.)`,
+          ),
+          aiGenerated: false,
+        })
+        await db
+          .from('contacts')
+          .update({ last_profile_nudge_at: new Date().toISOString() })
+          .eq('account_id', accountId)
+          .eq('id', contactId)
+      } catch (err) {
+        console.error('[ai auto-reply] checkout profile ask failed:', err)
+      }
+      return 'profile'
+    }
+  }
+
+  return 'ok'
+}
+
+/**
+ * Post-reply hook: offer Terms/Privacy consent once per contact,
+ * AFTER the main AI reply (silence = never accepted; never blocks
+ * the conversation). `lastUserText` lets "skip" opt out of profile nudges.
+ */
+async function maybeRequestConsent(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  userId: string,
+): Promise<boolean> {
+  const { data: contact } = await db
+    .from('contacts')
+    .select('consent_tos_version, consent_asked_at')
+    .eq('account_id', accountId)
+    .eq('id', contactId)
+    .maybeSingle()
+  if (!contact) return false
+  if (contact.consent_tos_version || contact.consent_asked_at) return false
+
+  return sendConsentMessage(db, accountId, conversationId, contactId, userId)
+}
+
+/** Post-reply hook: rate-limited (7 days) profile-completion nudge. */
+async function maybeNudgeProfile(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  userId: string,
+  consentSentThisTurn: boolean,
+): Promise<void> {
+  // Don't stack two extra messages in one turn — consent wins.
+  if (consentSentThisTurn) return
+
+  const { data: contact } = await db
+    .from('contacts')
+    .select('name, email, last_profile_nudge_at')
+    .eq('account_id', accountId)
+    .eq('id', contactId)
+    .maybeSingle()
+  if (!contact) return
+  if (contact.name && contact.email) return
+
+  if (contact.last_profile_nudge_at) {
+    const last = Date.parse(contact.last_profile_nudge_at)
+    if (Number.isFinite(last) && Date.now() - last < PROFILE_NUDGE_INTERVAL_MS) return
+  }
+
+  const ctx = await loadPublicContext(db, accountId)
+  if (!ctx) return
+  const link = contactFormUrl(ctx.slug, contactId)
+
+  try {
+    await engineSendText({
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      text: clampBody(
+        `One quick thing — if you'd like order confirmations by email, save your name and email here (you can edit or delete them anytime): ${link}`,
+      ),
+      aiGenerated: false,
+    })
+    await db
+      .from('contacts')
+      .update({ last_profile_nudge_at: new Date().toISOString() })
+      .eq('account_id', accountId)
+      .eq('id', contactId)
+  } catch (err) {
+    console.error('[ai auto-reply] profile nudge failed:', err)
   }
 }
 
@@ -162,6 +428,8 @@ async function handleOrderButton(
 
   switch (btnAction) {
     case 'confirm': {
+      const gate = await ensureCheckoutReady(db, accountId, conversationId, contactId, configOwnerUserId)
+      if (gate !== 'ok') return
       // ── CREATE REAL ORDER ──────────────────────────────────
       // Get the offering for the order
       const offeringId = pending.offering_id
@@ -441,6 +709,8 @@ async function handleFoodOrderButton(
 
   switch (btnAction) {
     case 'confirm': {
+      const gate = await ensureCheckoutReady(db, accountId, conversationId, contactId, configOwnerUserId)
+      if (gate !== 'ok') return
       // Generate order number
       const { data: orderNum } = await db.rpc('next_order_number', { p_account_id: accountId })
       if (!orderNum) {
@@ -629,6 +899,8 @@ async function handleReservationButton(
 
   switch (btnAction) {
     case 'confirm': {
+      const gate = await ensureCheckoutReady(db, accountId, conversationId, contactId, configOwnerUserId)
+      if (gate !== 'ok') return
       // Generate booking number
       const { data: bookingNum } = await db.rpc('next_booking_number', { p_account_id: accountId })
       const bookingNumber = bookingNum || `RES-${Date.now()}`
@@ -774,6 +1046,8 @@ async function handleBookingButton(
 
   switch (btnAction) {
     case 'confirm': {
+      const gate = await ensureCheckoutReady(db, accountId, conversationId, contactId, configOwnerUserId)
+      if (gate !== 'ok') return
       // Generate booking number
       const { data: bookingNum } = await db.rpc('next_booking_number', { p_account_id: accountId })
       const bookingNumber = bookingNum || `BK-${Date.now()}`
@@ -1077,6 +1351,8 @@ async function handleProductOrderButton(
 
   switch (btnAction) {
     case 'confirm': {
+      const gate = await ensureCheckoutReady(db, accountId, conversationId, contactId, configOwnerUserId)
+      if (gate !== 'ok') return
       // Generate order number
       const { data: orderNum } = await db.rpc('next_order_number', { p_account_id: accountId })
       if (!orderNum) {
@@ -1503,6 +1779,8 @@ async function handlePropertyInquiryButton(
 
   switch (btnAction) {
     case 'confirm': {
+      const gate = await ensureCheckoutReady(db, accountId, conversationId, contactId, configOwnerUserId)
+      if (gate !== 'ok') return
       const { data: bookingNum } = await db.rpc('next_booking_number', { p_account_id: accountId })
       const bookingNumber = bookingNum || `INQ-${Date.now()}`
 
@@ -2708,6 +2986,13 @@ export async function dispatchInboundToAiReply(
   try {
     const db = supabaseAdmin()
 
+    // ── CONSENT TAPS ──────────────────────────────────────────
+    // Accept/Decline needs no AI config — handle before anything else.
+    if (interactiveReplyId === 'consent_accept' || interactiveReplyId === 'consent_decline') {
+      await handleConsentTap(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId)
+      return
+    }
+
     const config = await loadAiConfig()
     console.log('[dispatchInboundToAiReply] config:', config ? `provider=${config.provider}, autoReplyEnabled=${config.autoReplyEnabled}` : 'NULL')
 
@@ -3450,6 +3735,7 @@ export async function dispatchInboundToAiReply(
     }
 
     // Send interactive list if tool returned list_section (clickable catalogue list)
+    let primarySent = false
     if (finalListSection && finalListSection.rows.length > 0) {
       // Meta rejects lists whose rows exceed 24/72 chars or >10 rows —
       // clamp defensively, then pick CTA wording from the row id prefix.
@@ -3479,37 +3765,50 @@ export async function dispatchInboundToAiReply(
               buttons: finalButtons.map((b) => ({ id: b.id, title: b.title })),
             })
           }
-          return
+          primarySent = true
         } catch (listErr) {
           console.error('[ai auto-reply] failed to send list, falling back to text:', listErr)
         }
       }
-      await engineSendText({
-        accountId,
-        userId: configOwnerUserId,
-        conversationId,
-        contactId,
-        text: reply.text || 'Here are the results:',
-        aiGenerated: true,
-      })
-      return
-    }
-
-    // Send interactive buttons if available, otherwise plain text
-    if (finalButtons && finalButtons.length > 0 && reply.text) {
-      try {
-        await engineSendInteractiveButtons({
+      if (!primarySent) {
+        await engineSendText({
           accountId,
           userId: configOwnerUserId,
           conversationId,
           contactId,
-          bodyText: reply.text,
-          headerText: finalHeader,
-          footerText: finalFooter,
-          buttons: finalButtons.map((b) => ({ id: b.id, title: b.title })),
+          text: reply.text || 'Here are the results:',
+          aiGenerated: true,
         })
-      } catch (btnErr) {
-        console.error('[ai auto-reply] failed to send interactive buttons, falling back to text:', btnErr)
+        primarySent = true
+      }
+    }
+
+    // Send interactive buttons if available, otherwise plain text
+    if (!primarySent) {
+      if (finalButtons && finalButtons.length > 0 && reply.text) {
+        try {
+          await engineSendInteractiveButtons({
+            accountId,
+            userId: configOwnerUserId,
+            conversationId,
+            contactId,
+            bodyText: reply.text,
+            headerText: finalHeader,
+            footerText: finalFooter,
+            buttons: finalButtons.map((b) => ({ id: b.id, title: b.title })),
+          })
+        } catch (btnErr) {
+          console.error('[ai auto-reply] failed to send interactive buttons, falling back to text:', btnErr)
+          await engineSendText({
+            accountId,
+            userId: configOwnerUserId,
+            conversationId,
+            contactId,
+            text: reply.text,
+            aiGenerated: true,
+          })
+        }
+      } else {
         await engineSendText({
           accountId,
           userId: configOwnerUserId,
@@ -3519,15 +3818,17 @@ export async function dispatchInboundToAiReply(
           aiGenerated: true,
         })
       }
-    } else {
-      await engineSendText({
-        accountId,
-        userId: configOwnerUserId,
-        conversationId,
-        contactId,
-        text: reply.text,
-        aiGenerated: true,
-      })
+    }
+
+    // ── POST-REPLY HOOKS (consent ask + profile nudge) ───────
+    // Deliberately AFTER the main reply, never mid-answer and
+    // never blocking — silence on the consent message means NOT
+    // accepted (checkout re-asks when needed).
+    try {
+      const consentSent = await maybeRequestConsent(db, accountId, conversationId, contactId, configOwnerUserId)
+      await maybeNudgeProfile(db, accountId, conversationId, contactId, configOwnerUserId, consentSent)
+    } catch (hookErr) {
+      console.error('[ai auto-reply] post-reply hooks failed:', hookErr)
     }
   } catch (err) {
     console.error('[ai auto-reply] dispatch failed:', err)

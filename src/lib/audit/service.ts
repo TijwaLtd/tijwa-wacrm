@@ -7,10 +7,20 @@ import { createClient } from '@supabase/supabase-js';
 import type { AuditEventTypeValue, AuditCategoryValue } from './events';
 import { EVENT_CATEGORY_MAP } from './events';
 
-const SERVICE_CLIENT = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
+// Lazy client: creating this at module load breaks any test/import
+// environment without Supabase env vars (e.g. unit tests importing
+// modules that merely reference the audit service).
+function makeClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  );
+}
+let serviceClient: ReturnType<typeof makeClient> | null = null;
+function getServiceClient(): ReturnType<typeof makeClient> {
+  if (!serviceClient) serviceClient = makeClient();
+  return serviceClient;
+}
 
 export interface AuditRecordParams {
   eventType: AuditEventTypeValue;
@@ -46,7 +56,7 @@ export class AuditService {
       return;
     }
 
-    const { error } = await SERVICE_CLIENT.from('audit_events').insert({
+    const { error } = await getServiceClient().from('audit_events').insert({
       account_id: accountId,
       actor_user_id: actorUserId,
       contact_id: contactId ?? null,
