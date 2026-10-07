@@ -8,6 +8,14 @@ import { NextRequest } from "next/server";
 //                      i.e. the freshly *rotated* auth token. The whole point
 //                      of the test is that these must survive onto whatever
 //                      response the middleware returns — including redirects.
+// `mockMemberships` — what get_user_accounts returns. The active account's
+// plan status drives the owner-only /billing redirect, so tests override it
+// per scenario. Default = the normal signed-in state: active-plan owner.
+let mockMemberships: Array<{
+  account_id: string;
+  role: string;
+  subscription_status?: string | null;
+}> = [{ account_id: "acct-1", role: "owner", subscription_status: "active" }];
 let mockUser: { id: string } | null = null;
 let refreshedCookies: Array<{
   name: string;
@@ -33,7 +41,7 @@ vi.mock("@supabase/ssr", () => ({
       },
     },
     rpc: async () => ({
-      data: [{ account_id: "acct-1", role: "owner" }],
+      data: mockMemberships,
       error: null,
     }),
   }),
@@ -47,6 +55,7 @@ beforeEach(() => {
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "anon-key";
   mockUser = null;
   refreshedCookies = [];
+  mockMemberships = [{ account_id: "acct-1", role: "owner", subscription_status: "active" }];
 });
 
 afterEach(() => vi.clearAllMocks());
@@ -113,5 +122,59 @@ describe("proxy — refreshed auth cookies survive redirects", () => {
     // No redirect — the normal NextResponse.next() already carries cookies.
     expect(res.headers.get("location")).toBeNull();
     expect(res.cookies.get(ROTATED.name)?.value).toBe(ROTATED.value);
+  });
+});
+
+describe("proxy — owner without an active plan is sent to /billing", () => {
+  const requestTo = (path: string) => {
+    const req = new NextRequest(`https://app.test${path}`);
+    req.cookies.set("wacrm_active_account", "acct-1");
+    return req;
+  };
+
+  it("redirects a suspended owner off a protected page, keeping rotated cookies", async () => {
+    mockUser = { id: "user-1" };
+    refreshedCookies = [ROTATED];
+    mockMemberships = [
+      { account_id: "acct-1", role: "owner", subscription_status: "suspended" },
+    ];
+
+    const res = await proxy(requestTo("/dashboard"));
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toContain("/billing");
+    // Same #288 invariant as the other redirects: rotation must ride along.
+    expect(res.cookies.get(ROTATED.name)?.value).toBe(ROTATED.value);
+  });
+
+  it("treats a missing plan status as no active plan", async () => {
+    mockUser = { id: "user-1" };
+    mockMemberships = [{ account_id: "acct-1", role: "owner" }];
+
+    const res = await proxy(requestTo("/dashboard"));
+
+    expect(res.headers.get("location")).toContain("/billing");
+  });
+
+  it("keeps /settings reachable for a suspended owner (gate public route)", async () => {
+    mockUser = { id: "user-1" };
+    mockMemberships = [
+      { account_id: "acct-1", role: "owner", subscription_status: "suspended" },
+    ];
+
+    const res = await proxy(requestTo("/settings"));
+
+    expect(res.headers.get("location")).toBeNull();
+  });
+
+  it("does not redirect non-owners (the billing page would bounce them back)", async () => {
+    mockUser = { id: "user-1" };
+    mockMemberships = [
+      { account_id: "acct-1", role: "driver", subscription_status: "suspended" },
+    ];
+
+    const res = await proxy(requestTo("/dashboard"));
+
+    expect(res.headers.get("location")).toBeNull();
   });
 });

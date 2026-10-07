@@ -140,6 +140,29 @@ export async function proxy(request: NextRequest) {
       const active = activeAccount
         ? memberships.find((m: { account_id: string }) => m.account_id === activeAccount)
         : null
+
+      // Second layer under the client SubscriptionGate: owners without an
+      // active plan never even receive dashboard HTML — proxy sends them
+      // straight to /billing. Same rules as the gate so the two can't
+      // disagree and loop: owner-only (non-owners would ping-pong with the
+      // billing page's own redirect) and /settings exempt (gate treats
+      // /billing, /settings, /ai-test as public; /billing and /ai-test are
+      // not in membershipProtectedPaths, so only /settings needs checking
+      // here). The gate stays as the client-side backstop for mid-session
+      // status changes; the real enforcement is requireActiveSubscription
+      // on the APIs.
+      if (
+        active &&
+        String(active.role) === 'owner' &&
+        (active.subscription_status ?? 'none') !== 'active' &&
+        !request.nextUrl.pathname.startsWith('/settings')
+      ) {
+        const url = request.nextUrl.clone()
+        url.pathname = '/billing'
+        url.search = ''
+        return withRefreshedCookies(NextResponse.redirect(url))
+      }
+
       if (active) {
         request.headers.set('x-wacrm-account-id', active.account_id)
         request.headers.set(
