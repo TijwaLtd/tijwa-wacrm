@@ -126,6 +126,7 @@ export async function PATCH(
       const newSubdomain = updates.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
       const { data: available } = await supabase.rpc("is_subdomain_available", {
         p_subdomain: newSubdomain,
+        p_except_account_id: id,
       });
 
       if (available) {

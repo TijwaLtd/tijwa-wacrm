@@ -173,7 +173,8 @@ export async function GET(
       .single()
 
     if (accountError || !account) {
-      console.error('[webhook] No account found for slug:', slug, accountError?.message)
+      // PGRST116 from .single() = no account row for this slug
+      console.error('[webhook] No account found for slug:', slug, 'code:', accountError?.code ?? 'no-data', 'msg:', accountError?.message)
       return NextResponse.json(
         { error: 'Verification failed' },
         { status: 403 },
@@ -311,7 +312,8 @@ export async function POST(
     .single()
 
   if (accountError || !account) {
-    console.error('[webhook] No account found for slug:', slug, accountError?.message)
+    // PGRST116 from .single() = no account row for this slug
+    console.error('[webhook] No account found for slug:', slug, 'code:', accountError?.code ?? 'no-data', 'msg:', accountError?.message)
     return NextResponse.json({ status: 'received' }, { status: 200 })
   }
 

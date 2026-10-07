@@ -281,13 +281,16 @@ export async function PATCH(request: Request) {
     if (typeof updates.name === "string" && membership.role === "owner") {
       const newSubdomain = updates.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
-      // Auto-generate unique subdomain if the raw one is taken
+      // Auto-generate unique subdomain if the raw one is taken.
+      // Exclude this account — otherwise re-saving the same name
+      // collides with itself and renames to a broken "-1" slug.
       let attempt = 0;
       let subdomainUpdated = false;
       while (!subdomainUpdated && attempt < 10) {
         const checkSubdomain = attempt === 0 ? newSubdomain : `${newSubdomain}-${attempt}`;
         const { data: available } = await supabase.rpc("is_subdomain_available", {
           p_subdomain: checkSubdomain,
+          p_except_account_id: accountId,
         });
 
         if (available) {
