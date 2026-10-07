@@ -39,22 +39,24 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
   if (!user) return null;
 
   return (
-    <div className="flex h-[100dvh] overflow-hidden bg-background">
+    // Desktop: a soft canvas with the sidebar and content panel floating
+    // as rounded "islands". Mobile stays edge-to-edge (no gap/padding).
+    <div className="flex h-[100dvh] overflow-hidden bg-muted/40 lg:gap-3 lg:p-3">
       {/* Reports this tab's online/away presence once we know a user is
           signed in. Headless — renders nothing. */}
       <PresenceHeartbeat />
       <Sidebar open={sidebarOpen} onClose={closeSidebar} />
-      <div className="flex flex-1 flex-col overflow-hidden">
-        {!headerHidden && <Header />}
+      <div className="border-border/70 bg-card flex flex-1 flex-col overflow-hidden shadow-sm lg:rounded-2xl lg:border">
+        {!headerHidden && <Header onMenuClick={() => setSidebarOpen(true)} />}
         {/* Thinner horizontal padding on mobile so cards have room to breathe. */}
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6">
+        <main className="flex-1 overflow-y-auto p-4 [scrollbar-width:thin] sm:p-6 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border/70">
           {/* Above every page: writes are being rejected and here's why.
               Renders nothing unless the account/role failed to resolve. */}
           <AccountAccessAlert />
           <SubscriptionGate>{children}</SubscriptionGate>
         </main>
-        {/* Mobile bottom tab bar (Home, Inbox) — hidden on desktop where the
-            sidebar carries primary navigation. */}
+        {/* Mobile bottom tab bar — hidden on desktop where the sidebar
+            carries primary navigation. */}
         {!bottomNavHidden && <MobileBottomNav />}
       </div>
     </div>

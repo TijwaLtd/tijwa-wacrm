@@ -867,6 +867,7 @@
     "inbox": "인박스",
     "notifications": "알림",
     "contacts": "연락처",
+    "team": "팀",
     "pipelines": "파이프라인",
     "broadcasts": "브로드캐스트",
     "automations": "자동화",
@@ -893,6 +894,7 @@
     },
     "conversationList": {
       "searchPlaceholder": "대화 검색...",
+      "moreActions": "추가 작업",
       "filterAll": "전체",
       "filterUnread": "읽지 않음",
       "filterOpen": "열림",
@@ -1358,6 +1360,16 @@
     "members": {
       "title": "팀원",
       "description": "이 계정에 접근 권한이 있는 사람들입니다. 역할에 따라 각 팀원이 할 수 있는 작업이 결정됩니다.",
+      "tableColumns": {
+        "member": "멤버",
+        "email": "이메일",
+        "joined": "가입일",
+        "role": "역할",
+        "actions": "작업",
+        "status": "상태"
+      },
+      "businessInfo": "업무 정보",
+      "noMembersTitle": "아직 팀원이 없습니다",
       "inviteMember": "멤버 초대",
       "online": "온라인",
       "away": "자리비움",
@@ -1987,6 +1999,7 @@
     "inbox": "인박스",
     "notifications": "알림",
     "contacts": "연락처",
+    "team": "팀",
     "knowledge": "지식 베이스",
     "billing": "결제",
     "pipelines": "파이프라인",
@@ -2012,6 +2025,7 @@
     "roleWaiter": "웨이터",
     "roleCleaner": "청소원",
     "roleViewer": "뷰어",
+    "openMenu": "메뉴 열기",
     "closeMenu": "메뉴 닫기",
     "defaultUser": "사용자",
     "defaultAvatar": "아바타",

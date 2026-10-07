@@ -14,12 +14,11 @@ import {
   Sparkles,
   Tags,
   User,
-  UsersRound,
   Zap,
   Briefcase,
   type LucideIcon,
 } from 'lucide-react';
-import { hasMinRole, type AccountRole } from '@/lib/auth/roles';
+import type { AccountRole } from '@/lib/auth/roles';
 
 export type { AccountRole } from '@/lib/auth/roles';
 export { hasMinRole } from '@/lib/auth/roles';
@@ -47,7 +46,7 @@ export const SETTINGS_SECTIONS = [
   'departments',
   'skills',
   'schedule',
-  'members',
+  // Team members lives on its own page now (/team) — not a settings section.
   'workspace',
   'business',
   'payment-methods',
@@ -83,7 +82,6 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   departments: { id: 'departments', label: 'Departments', icon: Building2, group: 'workspace', minRole: 'admin' },
   skills: { id: 'skills', label: 'Agent skills', icon: Tags, group: 'workspace', minRole: 'admin' },
   schedule: { id: 'schedule', label: 'Working hours', icon: Calendar, group: 'workspace', minRole: 'admin' },
-  members: { id: 'members', label: 'Team members', icon: UsersRound, group: 'workspace', minRole: 'admin' },
   workspace: { id: 'workspace', label: 'Workspace', icon: Building2, group: 'workspace', minRole: 'owner' },
   business: { id: 'business', label: 'Business type', icon: Briefcase, group: 'workspace', minRole: 'owner' },
   'payment-methods': { id: 'payment-methods', label: 'Payment methods', icon: CreditCard, group: 'workspace', minRole: 'owner' },

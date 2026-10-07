@@ -57,12 +57,12 @@ export async function proxy(request: NextRequest) {
     /^\/[^/]+\/(c|legal)(\/|$)/.test(pathname)
   if (isPublicPath) return supabaseResponse
 
-  // Auth pages - redirect to dashboard if already logged in.
+  // Auth pages - redirect to home (chats) if already logged in.
   // Exception: when an invite token is in the query string we
   // send the already-signed-in user to /join/<token> instead so
   // they can accept the invitation in one click. Without this,
   // a forwarded invite link to someone who's already signed in
-  // would silently drop them on /dashboard.
+  // would silently drop them on /inbox.
   if (user && (
     request.nextUrl.pathname === '/login' ||
     request.nextUrl.pathname === '/signup' ||
@@ -78,7 +78,7 @@ export async function proxy(request: NextRequest) {
       url.pathname = `/join/${encodeURIComponent(inviteToken)}`
       url.search = ''
     } else {
-      url.pathname = '/dashboard'
+      url.pathname = '/inbox'
       url.search = ''
     }
     return withRefreshedCookies(NextResponse.redirect(url))
@@ -181,7 +181,7 @@ export async function proxy(request: NextRequest) {
     }
   }
 
-  // If user has memberships and tries to access /onboarding directly, redirect to dashboard
+  // If user has memberships and tries to access /onboarding directly, redirect to home
   if (user && request.nextUrl.pathname === '/onboarding') {
     // Use get_user_accounts RPC to bypass RLS
     const { data: userAccounts } = await supabase.rpc('get_user_accounts', {
@@ -190,7 +190,7 @@ export async function proxy(request: NextRequest) {
 
     if (userAccounts && userAccounts.length > 0) {
       const url = request.nextUrl.clone()
-      url.pathname = '/dashboard'
+      url.pathname = '/inbox'
       url.search = ''
       return withRefreshedCookies(NextResponse.redirect(url))
     }

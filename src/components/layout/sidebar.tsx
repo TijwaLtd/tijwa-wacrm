@@ -15,7 +15,6 @@ import {
   LayoutDashboard,
   LogOut,
   MessageSquare,
-  Radio,
   Settings,
   Shield,
   User,
@@ -23,7 +22,6 @@ import {
   Users,
   UsersRound,
   X,
-  Zap,
   Package,
   Warehouse,
   ShoppingCart,
@@ -41,6 +39,7 @@ import {
   HandCoins,
   Home,
   CalendarDays,
+  ChevronsUpDown,
   HelpCircle,
   Eye,
 } from 'lucide-react';
@@ -133,16 +132,18 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { href: '/dashboard', labelKey: 'dashboard', icon: LayoutDashboard },
   { href: '/inbox', labelKey: 'inbox', icon: MessageSquare },
   { href: '/contacts', labelKey: 'contacts', icon: Users },
+  { href: '/team', labelKey: 'team', icon: UsersRound, minRole: 'admin' },
   { href: '/knowledge', labelKey: 'knowledge', icon: BookOpen },
   // { href: '/pipelines', labelKey: 'pipelines', icon: GitBranch }, // TODO: enable when pipelines are supported
-  { href: '/broadcasts', labelKey: 'broadcasts', icon: Radio, minRole: 'admin' },
-  { href: '/automations', labelKey: 'automations', icon: Zap, minRole: 'admin' },
+  // Broadcasts + Automations are reachable from the Chats list header's
+  // "more" dropdown (admin-only) — kept out of the sidebar.
 ];
 
+// Dashboard lives with the secondary items — Chats is the default home.
 const bottomNavItems = [
+  { href: '/dashboard', labelKey: 'dashboard', icon: LayoutDashboard },
   { href: '/billing', labelKey: 'billing', icon: CreditCard, minRole: 'owner' as AccountRole },
   { href: '/settings', labelKey: 'settings', icon: Settings },
 ];
@@ -188,6 +189,12 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
   const capabilityNavItems = capabilities
     .filter((cap) => cap.is_enabled && cap.navigation)
     .map((cap) => ({ ...cap.navigation!, _key: cap.key }));
+  // Catalog/operations capability entries render in one flat list, so
+  // pre-order them catalog-first to keep the previous reading order.
+  const flatCapabilityItems = [
+    ...capabilityNavItems.filter((i) => i.section === 'catalog'),
+    ...capabilityNavItems.filter((i) => i.section === 'operations'),
+  ];
   // Only surface the account-name strip when it actually carries
   // information. A solo user's personal account is named after them
   // (the 017 signup trigger seeds it from `full_name`), so showing it
@@ -243,24 +250,26 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
       <aside
         className={cn(
           // Mobile: fixed drawer that slides in from the left.
-          'border-border bg-card fixed inset-y-0 left-0 z-40 flex h-full w-64 flex-col border-r',
+          'border-border/70 bg-card fixed inset-y-0 left-0 z-40 flex h-full w-64 flex-col overflow-hidden border-r',
           'transition-transform duration-200 ease-out will-change-transform',
           open ? 'translate-x-0' : '-translate-x-full',
-          // Desktop: static, always visible — reset all the mobile framing.
-          'lg:static lg:z-0 lg:w-60 lg:translate-x-0 lg:transition-none'
+          // Desktop: static floating island next to the content panel —
+          // reset the mobile drawer framing, add the radius/border.
+          'lg:static lg:z-0 lg:w-60 lg:translate-x-0 lg:transition-none lg:rounded-2xl lg:border lg:shadow-sm'
         )}
         aria-label="Primary"
       >
         {/* Logo row. On mobile we put a close button here; on desktop the
             close button is hidden since the sidebar is always-visible. */}
         <div className="border-border flex h-14 shrink-0 items-center justify-between gap-2 border-b px-4">
-          <Link href="/dashboard" className="flex items-center gap-2">
+          <Link href="/inbox" className="flex items-center gap-2">
             <Image
               src="/logo.png"
-              alt="Tijwa"
-              width={32}
-              height={32}
-              className="h-24 w-40 rounded-lg object-cover"
+              alt="Tijwa CRM"
+              width={515}
+              height={143}
+              className="h-6 w-auto select-none"
+              priority
             />
           </Link>
           <button
@@ -274,162 +283,107 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
         </div>
 
         {/* Workspace switcher - mobile only */}
-        <div className="border-border border-b px-3 py-2 lg:hidden">
+        <div className="border-border/70 border-b px-3 py-2.5 lg:hidden">
           <MobileWorkspaceSwitcher onClose={onClose} />
         </div>
 
-        {/* Main navigation */}
-        <nav className="flex-1 overflow-y-auto px-3 py-4">
+        {/* Main navigation — one flat list: no section headers, no
+            dividers between groups. Role-filtered, capability entries
+            inlined in reading order. */}
+        <nav className="flex-1 overflow-y-auto px-3 py-3 [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border/70">
           <ul className="flex flex-col gap-1">
-            {navItems
+            {[
+              ...navItems.map((item) => ({
+                key: item.href,
+                href: item.href,
+                icon: item.icon,
+                label: t(item.labelKey as string),
+                beta: item.beta,
+                minRole: item.minRole,
+              })),
+              ...flatCapabilityItems.map((item) => ({
+                key: `_cap_${item._key}`,
+                href: item.route,
+                icon: CAPABILITY_ICONS[item.icon] || Package,
+                label: item.label,
+                beta: undefined,
+                minRole: undefined,
+              })),
+              ...bottomNavItems.map((item) => ({
+                key: item.href,
+                href: item.href,
+                icon: item.icon,
+                label: t(item.labelKey as string),
+                beta: undefined,
+                minRole: item.minRole,
+              })),
+            ]
               .filter((item) => !item.minRole || (accountRole && hasMinRole(accountRole, item.minRole)))
               .map((item) => {
-              const isActive =
-                pathname === item.href ||
-                (item.href !== '/dashboard' && pathname.startsWith(item.href));
+                const isActive =
+                  pathname === item.href ||
+                  (item.href !== '/dashboard' && pathname.startsWith(item.href));
+                const showUnread =
+                  item.href === '/inbox' && totalUnread > 0 && !isActive;
+                const Icon = item.icon;
 
-              const showUnreadDot =
-                item.href === '/inbox' && totalUnread > 0 && !isActive;
-
-              return (
-                <li key={item.href}>
-                  <Link
-                    href={item.href}
-                    className={cn(
-                      // Taller on mobile so fingers can hit the row reliably (≥44px).
-                      'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors lg:py-2',
-                      isActive
-                        ? 'bg-primary/10 text-primary'
-                        : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                    )}
-                  >
-                    <item.icon className="h-4 w-4" />
-                    <span className="flex-1">{t(item.labelKey as string)}</span>
-                    {item.beta && (
+                return (
+                  <li key={item.key}>
+                    <Link
+                      href={item.href}
+                      aria-current={isActive ? 'page' : undefined}
+                      className={cn(
+                        'group flex items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-[13px] font-medium transition-all duration-150 lg:py-1.5',
+                        isActive
+                          ? 'bg-primary/10 text-primary'
+                          : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+                      )}
+                    >
                       <span
-                        aria-label={t('beta')}
-                        className="rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold tracking-wider text-amber-300 uppercase"
+                        className={cn(
+                          'flex size-7 shrink-0 items-center justify-center rounded-lg transition-all duration-150',
+                          isActive
+                            ? 'bg-gradient-to-br from-primary to-primary/70 text-primary-foreground shadow-sm shadow-primary/30'
+                            : 'group-hover:scale-105'
+                        )}
                       >
-                        {t('beta')}
+                        <Icon className="size-4" />
                       </span>
-                    )}
-                    {showUnreadDot && (
                       <span
-                        aria-label={t('unreadConversations', {
-                          count: totalUnread,
-                        })}
-                        className="relative flex h-2 w-2"
+                        className={cn(
+                          'flex-1 truncate',
+                          isActive && 'font-semibold'
+                        )}
                       >
-                        <span className="bg-primary absolute inline-flex h-full w-full animate-ping rounded-full opacity-75" />
-                        <span className="bg-primary relative inline-flex h-2 w-2 rounded-full" />
+                        {item.label}
                       </span>
-                    )}
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-
-          {/* Capability-based navigation */}
-          {capabilityNavItems.length > 0 && (
-            <>
-              <div className="border-border my-4 border-t" />
-              <div className="px-3 py-1.5">
-                <div className="text-muted-foreground flex items-center gap-2 text-[10px] font-semibold tracking-wider uppercase">
-                  <Package className="h-3 w-3" />
-                  {t('catalog')}
-                </div>
-              </div>
-              <ul className="flex flex-col gap-1">
-                {capabilityNavItems
-                  .filter(item => item.section === 'catalog')
-                  .map((item) => {
-                    const isActive = pathname.startsWith(item.route);
-                    const Icon = CAPABILITY_ICONS[item.icon] || Package;
-                    return (
-                      <li key={item._key}>
-                        <Link
-                          href={item.route}
-                          className={cn(
-                            'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors lg:py-2',
-                            isActive
-                              ? 'bg-primary/10 text-primary'
-                              : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                          )}
+                      {showUnread && (
+                        <span
+                          aria-label={t('unreadConversations', {
+                            count: totalUnread,
+                          })}
+                          className="bg-primary text-primary-foreground min-w-5 rounded-full px-1.5 py-0.5 text-center text-[10px] leading-none font-semibold tabular-nums"
                         >
-                          <Icon className="h-4 w-4" />
-                          <span className="flex-1">{item.label}</span>
-                        </Link>
-                      </li>
-                    );
-                  })}
-              </ul>
-              {capabilityNavItems.some(item => item.section === 'operations') && (
-                <>
-                  <div className="px-3 py-1.5 mt-4">
-                    <div className="text-muted-foreground flex items-center gap-2 text-[10px] font-semibold tracking-wider uppercase">
-                      <Zap className="h-3 w-3" />
-                      {t('operations')}
-                    </div>
-                  </div>
-                  <ul className="flex flex-col gap-1">
-                    {capabilityNavItems
-                      .filter(item => item.section === 'operations')
-                      .map((item) => {
-                        const isActive = pathname.startsWith(item.route);
-                        const Icon = CAPABILITY_ICONS[item.icon] || Zap;
-                        return (
-                          <li key={item._key}>
-                            <Link
-                              href={item.route}
-                              className={cn(
-                                'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors lg:py-2',
-                                isActive
-                                  ? 'bg-primary/10 text-primary'
-                                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                              )}
-                            >
-                              <Icon className="h-4 w-4" />
-                              <span className="flex-1">{item.label}</span>
-                            </Link>
-                          </li>
-                        );
-                      })}
-                  </ul>
-                </>
-              )}
-            </>
-          )}
-
-          <div className="border-border my-4 border-t" />
-
-          <ul className="flex flex-col gap-1">
-            {bottomNavItems
-              .filter((item) => !item.minRole || (accountRole && hasMinRole(accountRole, item.minRole)))
-              .map((item) => {
-              const isActive = pathname.startsWith(item.href);
-              return (
-                <li key={item.href}>
-                  <Link
-                    href={item.href}
-                    className={cn(
-                      'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors lg:py-2',
-                      isActive
-                        ? 'bg-primary/10 text-primary'
-                        : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                    )}
-                  >
-                    <item.icon className="h-4 w-4" />
-                    {t(item.labelKey as string)}
-                  </Link>
-                </li>
-              );
-            })}
+                          {totalUnread > 99 ? '99+' : totalUnread}
+                        </span>
+                      )}
+                      {item.beta && (
+                        <span
+                          aria-label={t('beta')}
+                          className="rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold tracking-wider text-amber-300 uppercase"
+                        >
+                          {t('beta')}
+                        </span>
+                      )}
+                    </Link>
+                  </li>
+                );
+              })}
           </ul>
         </nav>
 
         {/* User section */}
-        <div className="border-border shrink-0 border-t p-3">
+        <div className="border-border/70 shrink-0 border-t p-3">
           {/* Account name display — surfaced only when the account
               name differs from the user's own name (see
               `showAccountStrip`). For a default solo account the two
@@ -466,8 +420,8 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
             </div>
           ) : null}
           <DropdownMenu>
-            <DropdownMenuTrigger className="hover:bg-muted/60 focus:bg-muted/60 data-popup-open:bg-muted/60 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors focus:outline-none">
-              <Avatar className="size-8 shrink-0">
+            <DropdownMenuTrigger className="hover:bg-muted/60 focus:bg-muted/60 data-popup-open:bg-muted/60 flex w-full items-center gap-3 rounded-xl border border-border/60 bg-muted/30 px-2.5 py-2 text-left transition-colors focus:outline-none">
+              <Avatar className="size-9 shrink-0 ring-2 ring-primary/20">
                 {profile?.avatar_url ? (
                   <AvatarImage
                     src={profile.avatar_url}
@@ -481,13 +435,14 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                 </AvatarFallback>
               </Avatar>
               <div className="min-w-0 flex-1">
-                <p className="text-foreground truncate text-sm font-medium">
+                <p className="text-foreground truncate text-[13px] font-medium">
                   {profile?.full_name ?? t('defaultUser')}
                 </p>
                 <p className="text-muted-foreground truncate text-xs">
                   {profile?.email ?? ''}
                 </p>
               </div>
+              <ChevronsUpDown className="text-muted-foreground size-4 shrink-0" />
             </DropdownMenuTrigger>
             <DropdownMenuContent
               align="end"

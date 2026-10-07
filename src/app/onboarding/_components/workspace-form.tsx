@@ -229,7 +229,7 @@ export function WorkspaceForm({ mode, onModeSwitch }: WorkspaceFormProps) {
         document.cookie = `wacrm_active_account=${data.accountId}; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax`;
       }
 
-      window.location.href = '/dashboard';
+      window.location.href = '/inbox';
     } catch (err) {
       setError(err instanceof Error ? err.message : t('joinError'));
     } finally {

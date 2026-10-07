@@ -85,10 +85,10 @@ function LoginPageInner() {
       return;
     }
 
-    // For normal login, go to dashboard - middleware will redirect to
+    // For normal login, go to chats - middleware will redirect to
     // /onboarding if user has no workspaces, or /select-workspace if
     // they have workspaces but no active cookie set
-    window.location.href = "/dashboard";
+    window.location.href = "/inbox";
   };
 
   return (

@@ -55,14 +55,14 @@ export function WorkspaceSelector({ onSelect }: WorkspaceSelectorProps) {
       // Set cookie and navigate in same tick
       document.cookie = `wacrm_active_account=${ws.account_id}; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax`;
       // Use replace to avoid history stack issues
-      window.location.replace('/dashboard');
+      window.location.replace('/inbox');
     }
   }, [authLoading, loading, workspaces]);
 
   const handleSelect = async (accountId: string) => {
     await switchWorkspace(accountId);
     onSelect?.(accountId);
-    window.location.replace('/dashboard');
+    window.location.replace('/inbox');
   };
 
   const handleCreateNew = () => {

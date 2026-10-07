@@ -26,6 +26,7 @@ import {
   Users,
   MessageSquare,
   Radio,
+  Zap,
   MoreVertical,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
@@ -74,6 +75,7 @@ interface ConversationListProps {
   onModeChange?: (mode: 'whatsapp' | 'team') => void;
   onNewConversation?: () => void;
   onBroadcastsClick?: () => void;
+  onAutomationsClick?: () => void;
 }
 
 const STATUS_COLORS: Record<ConversationStatus, string> = {
@@ -95,12 +97,15 @@ export function ConversationList({
   onModeChange,
   onNewConversation,
   onBroadcastsClick,
+  onAutomationsClick,
 }: ConversationListProps) {
   const t = useTranslations('Inbox.conversationList');
   const { accountRole, profile } = useAuth();
 
   // Non-admin users only see conversations assigned to them (or unassigned)
   const canSeeAllConversations = accountRole ? hasMinRole(accountRole, 'manager') : false;
+  // Broadcasts + Automations are admin-only (same gate the sidebar used).
+  const canManageAdmin = accountRole ? hasMinRole(accountRole, 'admin') : false;
   const userId = profile?.id;
 
   const filterByAssignment = useCallback((convs: Conversation[]): Conversation[] => {
@@ -479,16 +484,29 @@ export function ConversationList({
               <Plus className="h-5 w-5 sm:h-4 sm:w-4" />
             </button>
           )}
-          {onBroadcastsClick && (
+          {/* Admin more menu — Broadcasts + Automations live here now
+              instead of the sidebar. */}
+          {canManageAdmin && (onBroadcastsClick || onAutomationsClick) && (
             <DropdownMenu>
-              <DropdownMenuTrigger className="text-muted-foreground hover:bg-muted hover:text-foreground flex h-10 w-10 items-center justify-center rounded-md sm:h-8 sm:w-8">
+              <DropdownMenuTrigger
+                className="text-muted-foreground hover:bg-muted hover:text-foreground flex h-10 w-10 items-center justify-center rounded-md sm:h-8 sm:w-8"
+                aria-label={t('moreActions')}
+              >
                 <MoreVertical className="h-5 w-5 sm:h-4 sm:w-4" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={onBroadcastsClick}>
-                  <Radio className="mr-2 h-4 w-4" />
-                  Broadcasts
-                </DropdownMenuItem>
+                {onBroadcastsClick && (
+                  <DropdownMenuItem onClick={onBroadcastsClick}>
+                    <Radio className="mr-2 h-4 w-4" />
+                    Broadcasts
+                  </DropdownMenuItem>
+                )}
+                {onAutomationsClick && (
+                  <DropdownMenuItem onClick={onAutomationsClick}>
+                    <Zap className="mr-2 h-4 w-4" />
+                    Automations
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           )}

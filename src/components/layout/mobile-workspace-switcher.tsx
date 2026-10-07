@@ -66,7 +66,7 @@ export function MobileWorkspaceSwitcher({ onClose }: MobileWorkspaceSwitcherProp
       await switchWorkspace(accountId);
       setShowDialog(false);
       onClose?.();
-      router.push('/dashboard');
+      router.push('/inbox');
     } finally {
       setLoading(false);
     }

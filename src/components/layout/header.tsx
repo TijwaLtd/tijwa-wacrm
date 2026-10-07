@@ -1,23 +1,15 @@
 'use client';
 
 import Link from 'next/link';
-import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { useUnreadNotifications } from '@/hooks/use-unread-notifications';
 import {
-  BookOpen,
-  CreditCard,
-  GitBranch,
   LogOut,
-  MoreHorizontal,
-  Radio,
+  Menu,
   Settings as SettingsIcon,
   User,
-  Users,
-  Zap,
   Bell,
-  MoreVertical,
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
@@ -37,6 +29,7 @@ const pageTitles: Record<string, string> = {
   '/inbox': 'inbox',
   '/notifications': 'notifications',
   '/contacts': 'contacts',
+  '/team': 'team',
   // '/pipelines': 'pipelines', // TODO: enable when pipelines are supported
   '/broadcasts': 'broadcasts',
   '/automations': 'automations',
@@ -51,25 +44,15 @@ function getPageTitleKey(pathname: string): string {
   return match ? match[1] : 'dashboard';
 }
 
-// Secondary destinations surfaced behind the "more" (…) menu on mobile. The
-// bottom tab bar already promotes Home + Inbox, so everything else lives here
-// to keep the phone header uncluttered. Desktop ignores this (the sidebar
-// carries full navigation) via the `lg:hidden` on the trigger.
-const moreNavItems = [
-  { href: '/contacts', labelKey: 'contacts', icon: Users },
-  { href: '/knowledge', labelKey: 'knowledge', icon: BookOpen },
-  // { href: '/pipelines', labelKey: 'pipelines', icon: GitBranch }, // TODO: enable when pipelines are supported
-  { href: '/automations', labelKey: 'automations', icon: Zap },
-  { href: '/billing', labelKey: 'billing', icon: CreditCard },
-];
-
 interface HeaderProps {
-  // No props currently — kept for call-site stability.
+  /** Mobile only — opens the sidebar drawer (hidden on lg+, where the
+   *  sidebar is always visible). */
+  onMenuClick?: () => void;
 }
 
 import { useTranslations } from 'next-intl';
 
-export function Header({}: HeaderProps) {
+export function Header({ onMenuClick }: HeaderProps) {
   const t = useTranslations('Header');
   const tSidebar = useTranslations('Sidebar');
   const pathname = usePathname();
@@ -87,36 +70,39 @@ export function Header({}: HeaderProps) {
   const myRow = user?.id ? getRow(user.id) : undefined;
 
   return (
-    <header className="border-border bg-background flex h-14 shrink-0 items-center justify-between gap-3 border-b px-4 lg:px-6">
+    <header className="border-border/60 flex h-14 shrink-0 items-center justify-between gap-3 border-b px-4 lg:px-6">
       <div className="flex min-w-0 items-center gap-2">
-        {/* Brand mark — mobile only; desktop shows the workspace switcher. */}
-        {/* <Link href="/dashboard" className="flex items-center gap-2">
-          <Image
-            src="/logo.png"
-            alt="Tijwa"
-            width={32}
-            height={32}
-            className="h-14 w-20 rounded-lg object-cover"
-          />
-        </Link> */}
+        {/* Hamburger — mobile only. Opens the sidebar drawer (which used
+            to have no trigger at all). Desktop ignores it since the
+            sidebar is always visible. */}
+        {onMenuClick && (
+          <button
+            type="button"
+            onClick={onMenuClick}
+            aria-label={tSidebar('openMenu')}
+            className="text-muted-foreground hover:bg-muted hover:text-foreground flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors lg:hidden"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+        )}
 
         {/* Workspace switcher - desktop */}
         <div className="hidden lg:block">
           <WorkspaceSwitcher />
         </div>
 
-        <h1 className="text-foreground truncate text-base font-semibold sm:text-lg">
+        <h1 className="text-foreground truncate text-[15px] font-semibold tracking-tight">
           {t(titleKey as string)}
         </h1>
       </div>
 
       <div className="flex items-center gap-1 sm:gap-2">
-        <ModeToggle />
+        <ModeToggle className="h-9 w-9 rounded-lg" />
 
         {/* Notifications bell */}
         <Link
           href="/notifications"
-          className="text-muted-foreground hover:bg-muted hover:text-foreground relative flex h-9 w-9 items-center justify-center rounded-md transition-colors"
+          className="text-muted-foreground hover:bg-muted hover:text-foreground relative flex h-9 w-9 items-center justify-center rounded-lg transition-colors"
           aria-label={t('notifications')}
         >
           <Bell className="h-5 w-5" />
@@ -129,7 +115,7 @@ export function Header({}: HeaderProps) {
 
         <DropdownMenu>
           <DropdownMenuTrigger
-            className="hover:bg-muted/70 focus:bg-muted/70 data-popup-open:bg-muted/70 flex items-center gap-2 rounded-md px-1 py-1 transition-colors focus:outline-none sm:gap-3 sm:pr-3 sm:pl-1"
+            className="hover:bg-muted/70 focus:bg-muted/70 data-popup-open:bg-muted/70 flex items-center gap-2 rounded-lg px-1.5 py-1.5 transition-colors focus:outline-none sm:gap-2.5 sm:pr-2.5 sm:pl-1.5"
             aria-label={t('openAccountMenu')}
           >
             <div className="relative">
@@ -201,36 +187,6 @@ export function Header({}: HeaderProps) {
               <LogOut className="size-4" />
               {t('menuSignOut')}
             </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        {/* "More" (…) — mobile only. Holds the secondary destinations that
-            aren't promoted to the bottom tab bar. Desktop uses the sidebar. */}
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            aria-label={t('more')}
-            className="text-muted-foreground hover:bg-muted hover:text-foreground flex h-9 w-9 items-center justify-center rounded-md transition-colors lg:hidden"
-          >
-            <MoreVertical className="h-5 w-5" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="end"
-            sideOffset={6}
-            className="bg-popover text-popover-foreground ring-border border-full min-w-56 gap-2 rounded-lg border p-2 shadow-lg"
-          >
-            {moreNavItems.map((item) => (
-              <DropdownMenuItem
-                key={item.href}
-                render={
-                  <Link
-                    href={item.href}
-                    className="text-popover-foreground focus:bg-accent focus:text-accent-foreground rounded-2xl py-4"
-                  />
-                }
-              >
-                <item.icon className="size-4" />
-                {tSidebar(item.labelKey as string)}
-              </DropdownMenuItem>
-            ))}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

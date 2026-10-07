@@ -65,7 +65,7 @@ export function WorkspaceSwitcher() {
         await switchWorkspace(accountId);
       }
       router.refresh();
-      router.push('/dashboard');
+      router.push('/inbox');
     } finally {
       setLoading(false);
     }
@@ -82,7 +82,7 @@ export function WorkspaceSwitcher() {
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted focus:bg-muted focus:outline-none">
+      <DropdownMenuTrigger className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted focus:bg-muted data-popup-open:bg-muted focus:outline-none">
         <Building2 className="h-4 w-4" />
         <span className="max-w-[150px] truncate">{currentName}</span>
         {totalUnread > 0 && (

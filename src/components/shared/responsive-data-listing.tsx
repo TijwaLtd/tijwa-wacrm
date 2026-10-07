@@ -60,6 +60,8 @@ export interface ListingAction {
 export interface ResponsiveDataListingProps<T> {
   title: string;
   description?: string;
+  /** Optional full-width content rendered under the header (e.g. a live summary strip). */
+  headerExtra?: React.ReactNode;
   items: T[];
   columns: ColumnDef<T>[];
   cardMapper: CardMapper<T>;
@@ -88,6 +90,7 @@ export interface ResponsiveDataListingProps<T> {
 export function ResponsiveDataListing<T>({
   title,
   description,
+  headerExtra,
   items,
   columns,
   cardMapper,
@@ -157,6 +160,9 @@ export function ResponsiveDataListing<T>({
           )}
         </div>
       </div>
+
+      {/* Optional slot under the header — live summaries, banners, etc. */}
+      {headerExtra && <div>{headerExtra}</div>}
 
       {/* Search & Filters Controls */}
       <div className="space-y-3">

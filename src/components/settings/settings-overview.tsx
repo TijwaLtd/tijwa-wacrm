@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState, type ReactNode } from 'react';
-import { ChevronRight, Loader2 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { ChevronRight, Loader2, UsersRound } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { createClient } from '@/lib/supabase/client';
@@ -38,6 +39,7 @@ export function SettingsOverview({
 }) {
   const { user, profile, accountId, accountRole, defaultCurrency, canManageMembers } =
     useAuth();
+  const router = useRouter();
   const { mode, theme } = useTheme();
   const t = useTranslations('Settings.overview');
   const tRoles = useTranslations('Settings.roles');
@@ -152,9 +154,12 @@ export function SettingsOverview({
   const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
   // Per-tile loading + subtitle. `null` counts render as a graceful
-  // fallback so a single failed query never blanks a tile.
+  // fallback so a single failed query never blanks a tile. The team
+  // tile links out to /team (team management left settings) instead of
+  // selecting an in-page section.
   const tiles: {
-    section: SettingsSection;
+    section: SettingsSection | 'members';
+    href?: string;
     loading: boolean;
     subtitle: ReactNode;
   }[] = [
@@ -175,6 +180,7 @@ export function SettingsOverview({
     },
     {
       section: 'members',
+      href: '/team',
       loading: countsLoading,
       subtitle:
         counts?.members == null
@@ -251,14 +257,14 @@ export function SettingsOverview({
 
       {/* Status tiles */}
       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {tiles.map(({ section, loading, subtitle }) => {
-          const meta = SECTION_META[section];
-          const Icon = meta.icon;
+        {tiles.map(({ section, href, loading, subtitle }) => {
+          const meta = SECTION_META[section as SettingsSection];
+          const Icon = meta?.icon ?? UsersRound;
           return (
             <button
               key={section}
               type="button"
-              onClick={() => onSelect(section)}
+              onClick={() => (href ? router.push(href) : onSelect(section as SettingsSection))}
               className={cn(
                 'group flex items-start gap-3.5 rounded-xl border border-border bg-card p-4 text-left transition-colors',
                 'hover:border-primary-soft-2 hover:bg-card-2',

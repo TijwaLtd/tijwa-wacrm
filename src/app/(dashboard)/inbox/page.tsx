@@ -793,6 +793,7 @@ function InboxPageInner() {
             onModeChange={handleModeChange}
             onNewConversation={() => setNewConvDialogOpen(true)}
             onBroadcastsClick={() => router.push('/broadcasts')}
+            onAutomationsClick={() => router.push('/automations')}
           />
 
           {/* Floating Action Button for new conversation on mobile */}

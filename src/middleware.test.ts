@@ -75,9 +75,9 @@ describe("proxy — refreshed auth cookies survive redirects", () => {
       new NextRequest("https://app.test/login"),
     );
 
-    // Redirect to /dashboard…
+    // Redirect to /inbox (default home)…
     expect(res.status).toBe(307);
-    expect(res.headers.get("location")).toContain("/dashboard");
+    expect(res.headers.get("location")).toContain("/inbox");
     // …and the rotated cookie MUST ride along, otherwise the browser keeps
     // replaying the now-consumed refresh token and the session wedges until
     // the user manually clears cookies.

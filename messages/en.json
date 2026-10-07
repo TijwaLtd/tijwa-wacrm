@@ -20,6 +20,7 @@
     "inbox": "Chats",
     "notifications": "Notifications",
     "contacts": "Contacts",
+    "team": "Team",
     "knowledge": "Knowledge",
     "billing": "Billing",
     "pipelines": "Pipelines",
@@ -45,6 +46,7 @@
     "roleWaiter": "Waiter",
     "roleCleaner": "Cleaner",
     "roleViewer": "Viewer",
+    "openMenu": "Open menu",
     "closeMenu": "Close menu",
     "defaultUser": "User",
     "defaultAvatar": "Avatar",
@@ -60,6 +62,7 @@
     "inbox": "Inbox",
     "notifications": "Notifications",
     "contacts": "Contacts",
+    "team": "Team",
     "pipelines": "Pipelines",
     "broadcasts": "Broadcasts",
     "automations": "Automations",
@@ -132,6 +135,7 @@
     },
     "conversationList": {
       "searchPlaceholder": "Search conversations...",
+      "moreActions": "More actions",
       "filterAll": "All",
       "filterUnread": "Unread",
       "filterOpen": "Open",
@@ -1284,6 +1288,16 @@
     "members": {
       "title": "Team members",
       "description": "People with access to this account. Roles control what each teammate can do.",
+      "tableColumns": {
+        "member": "Member",
+        "email": "Email",
+        "joined": "Joined",
+        "role": "Role",
+        "actions": "Actions",
+        "status": "Status"
+      },
+      "businessInfo": "Business metadata",
+      "noMembersTitle": "No team members yet",
       "inviteMember": "Invite member",
       "online": "online",
       "away": "away",

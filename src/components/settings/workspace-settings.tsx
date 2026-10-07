@@ -160,7 +160,7 @@ export function WorkspaceSettings() {
       const otherWorkspace = workspaces.find(w => w.account_id !== activeWorkspace.account_id);
       if (otherWorkspace) {
         await switchWorkspace(otherWorkspace.account_id);
-        router.push('/dashboard');
+        router.push('/inbox');
       } else {
         router.push('/onboarding');
       }
@@ -197,7 +197,7 @@ export function WorkspaceSettings() {
       const otherWorkspace = workspaces.find(w => w.account_id !== activeWorkspace.account_id);
       if (otherWorkspace) {
         await switchWorkspace(otherWorkspace.account_id);
-        router.push('/dashboard');
+        router.push('/inbox');
       } else {
         router.push('/onboarding');
       }

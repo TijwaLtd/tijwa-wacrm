@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useMemo, type ReactNode } from 'react';
+import { Suspense, useEffect, useMemo, type ReactNode } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 
@@ -21,7 +21,6 @@ import { AutoAssignSettings } from '@/components/settings/auto-assign-settings';
 import { DepartmentSettings } from '@/components/settings/department-settings';
 import { SkillSettings } from '@/components/settings/skill-settings';
 import { ScheduleSettings } from '@/components/settings/schedule-settings';
-import { MembersTab } from '@/components/settings/members-tab';
 import { ApiKeysSettings } from '@/components/settings/api-keys-settings';
 import { WorkspaceSettings } from '@/components/settings/workspace-settings';
 import { BusinessSettings } from '@/components/settings/business-settings';
@@ -61,7 +60,15 @@ function SettingsPageInner() {
   // section — deep-linkable, and it keeps the existing links in the
   // app sidebar/header working. Legacy tab values (tags, custom-fields)
   // resolve onto their new home; unknown/empty → the Overview landing.
-  const requestedSection = resolveSection(searchParams.get('tab'));
+  const rawTab = searchParams.get('tab');
+
+  // Team members moved out of settings to its own page — old
+  // `?tab=members` deep links keep working via redirect.
+  useEffect(() => {
+    if (rawTab === 'members') router.replace('/team');
+  }, [rawTab, router]);
+
+  const requestedSection = resolveSection(rawTab);
 
   // If the user doesn't have permission for this section, redirect to overview
   const sectionMeta = SECTION_META[requestedSection];
@@ -101,7 +108,6 @@ function SettingsPageInner() {
     departments: <DepartmentSettings />,
     skills: <SkillSettings />,
     schedule: <ScheduleSettings />,
-    members: <MembersTab />,
     workspace: <WorkspaceSettings />,
     business: <BusinessSettings />,
     'payment-methods': <PaymentMethodsSettings />,
