@@ -221,6 +221,17 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "account_id is required" }, { status: 400 });
   }
 
+  // The slug (accounts.subdomain) is assigned once at creation and is
+  // permanent — webhook URLs, public customer/legal pages and the branded
+  // subdomain all depend on it (DB trigger: 097_slug_immutable.sql).
+  // Reject explicit attempts so misuse fails loudly instead of silently.
+  if (body && ("subdomain" in body || "slug" in body)) {
+    return NextResponse.json(
+      { error: "Workspace slug is permanent and cannot be changed" },
+      { status: 400 }
+    );
+  }
+
   // Verify caller has admin+ role (use serviceClient to avoid RLS recursion)
   const { data: membership } = await serviceClient
     .from("account_memberships")
@@ -277,34 +288,8 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "Failed to update workspace" }, { status: 500 });
     }
 
-    // If name changed, update subdomain if it was auto-generated
-    if (typeof updates.name === "string" && membership.role === "owner") {
-      const newSubdomain = updates.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-
-      // Auto-generate unique subdomain if the raw one is taken.
-      // Exclude this account — otherwise re-saving the same name
-      // collides with itself and renames to a broken "-1" slug.
-      let attempt = 0;
-      let subdomainUpdated = false;
-      while (!subdomainUpdated && attempt < 10) {
-        const checkSubdomain = attempt === 0 ? newSubdomain : `${newSubdomain}-${attempt}`;
-        const { data: available } = await supabase.rpc("is_subdomain_available", {
-          p_subdomain: checkSubdomain,
-          p_except_account_id: accountId,
-        });
-
-        if (available) {
-          await supabase
-            .from("accounts")
-            .update({ subdomain: checkSubdomain })
-            .eq("id", accountId);
-          subdomainUpdated = true;
-        }
-        attempt++;
-      }
-
-      // If all attempts failed, skip subdomain update (keep old one)
-    }
+    // Renaming deliberately does NOT touch the slug (accounts.subdomain):
+    // it is assigned at creation and is immutable (097_slug_immutable.sql).
   }
 
   // Update tenant_settings if there are changes

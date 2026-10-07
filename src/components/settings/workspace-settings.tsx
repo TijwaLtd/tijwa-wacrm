@@ -56,6 +56,8 @@ export function WorkspaceSettings() {
   } = useAuth();
 
   const [name, setName] = useState(activeWorkspace?.account_name ?? '');
+  // Slug: set once at creation, immutable — displayed read-only.
+  const [subdomain, setSubdomain] = useState<string | null>(activeWorkspace?.subdomain ?? null);
   const [logoUrl, setLogoUrl] = useState('');
   const [accentColor, setAccentColor] = useState('#7c3aed');
   const [businessType, setBusinessType] = useState<string>('');
@@ -86,6 +88,7 @@ export function WorkspaceSettings() {
           const ws = data?.workspace;
           if (!cancelled && ws) {
             setName(ws.name ?? '');
+            setSubdomain(ws.subdomain ?? null);
             setLogoUrl(ws.tenant_settings?.logo_url ?? '');
             setAccentColor(ws.tenant_settings?.accent_color ?? '#7c3aed');
             setBusinessType(ws.business_type ?? '');
@@ -240,14 +243,12 @@ export function WorkspaceSettings() {
             />
           </div>
 
-          {/* Subdomain info */}
-          {activeWorkspace.account_id && (
+          {/* Subdomain info — read-only: assigned at creation, immutable */}
+          {subdomain && (
             <div className="space-y-1">
               <Label>{t('subdomain')}</Label>
               <p className="text-sm text-muted-foreground">
-                {t('subdomainInfo', {
-                  subdomain: name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-                })}
+                {t('subdomainInfo', { subdomain })}
               </p>
             </div>
           )}

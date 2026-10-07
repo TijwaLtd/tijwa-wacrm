@@ -2050,7 +2050,7 @@
     "workspaceName": "Workspace name",
     "workspaceNamePlaceholder": "My Business",
     "subdomain": "Subdomain",
-    "subdomainInfo": "Your workspace is available at {subdomain}.wacrm.com",
+    "subdomainInfo": "Your workspace is available at {subdomain}.wacrm.com — this address is permanent and can't be changed.",
     "logoUrl": "Logo URL",
     "logoUrlPlaceholder": "https://example.com/logo.png",
     "accentColor": "Accent color",

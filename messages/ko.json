@@ -2026,7 +2026,7 @@
     "workspaceName": "워크스페이스 이름",
     "workspaceNamePlaceholder": "내 비즈니스",
     "subdomain": "서브도메인",
-    "subdomainInfo": "워크스페이스는 {subdomain}.wacrm.com에서 이용 가능합니다",
+    "subdomainInfo": "워크스페이스는 {subdomain}.wacrm.com에서 이용 가능합니다 — 이 주소는 설정 후 변경할 수 없습니다",
     "logoUrl": "로고 URL",
     "logoUrlPlaceholder": "https://example.com/logo.png",
     "accentColor": "강조색",

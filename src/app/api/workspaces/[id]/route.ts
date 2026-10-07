@@ -93,6 +93,17 @@ export async function PATCH(
   const body = await request.json().catch(() => null);
   const updates: Record<string, unknown> = {};
 
+  // The slug (accounts.subdomain) is assigned once at creation and is
+  // permanent — webhook URLs, public customer/legal pages and the branded
+  // subdomain all depend on it (DB trigger: 097_slug_immutable.sql).
+  // Reject explicit attempts so misuse fails loudly instead of silently.
+  if (body && ("subdomain" in body || "slug" in body)) {
+    return NextResponse.json(
+      { error: "Workspace slug is permanent and cannot be changed" },
+      { status: 400 }
+    );
+  }
+
   // Update business type (and recommended capabilities)
   if (typeof body?.business_type === "string" && body.business_type) {
     const serviceClient = createServiceClient(
@@ -121,21 +132,8 @@ export async function PATCH(
       return NextResponse.json({ error: "Failed to update workspace" }, { status: 500 });
     }
 
-    // Update subdomain if name changed and user is owner
-    if (typeof updates.name === "string" && membership.role === "owner") {
-      const newSubdomain = updates.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-      const { data: available } = await supabase.rpc("is_subdomain_available", {
-        p_subdomain: newSubdomain,
-        p_except_account_id: id,
-      });
-
-      if (available) {
-        await supabase
-          .from("accounts")
-          .update({ subdomain: newSubdomain })
-          .eq("id", id);
-      }
-    }
+    // Renaming deliberately does NOT touch the slug (accounts.subdomain):
+    // it is assigned at creation and is immutable (097_slug_immutable.sql).
   }
 
   // Update tenant_settings
