@@ -4,12 +4,14 @@ import React, { useState } from 'react';
 import { Search, Loader2, Plus, SlidersHorizontal, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { GatedButton } from '@/components/ui/gated-button';
 import { InfiniteScrollSentinel } from './infinite-scroll-sentinel';
 import { ResponsiveMobileCard, type CardDetailField, type CardAction } from './responsive-mobile-card';
 import { cn } from '@/lib/utils';
 
 export interface ColumnDef<T> {
-  header: string;
+  header: React.ReactNode;
   cell: (item: T) => React.ReactNode;
   className?: string;
   headerClassName?: string;
@@ -38,8 +40,21 @@ export interface FilterConfig {
   key: string;
   label: string;
   options: FilterSelectOption[];
-  value: string;
-  onChange: (value: string) => void;
+  value?: string;
+  onChange?: (value: string) => void;
+  /** Multi-select filter: renders a checkbox group instead of a <select>. */
+  multi?: boolean;
+  values?: string[];
+  onValuesChange?: (values: string[]) => void;
+}
+
+export interface ListingAction {
+  label: string;
+  icon?: React.ComponentType<{ className?: string }>;
+  onClick: () => void;
+  variant?: 'outline' | 'ghost' | 'secondary';
+  canAct?: boolean;
+  gateReason?: string;
 }
 
 export interface ResponsiveDataListingProps<T> {
@@ -54,17 +69,9 @@ export interface ResponsiveDataListingProps<T> {
   onSearchSubmit?: () => void;
   searchPlaceholder?: string;
   filters?: FilterConfig[];
-  primaryAction?: {
-    label: string;
-    icon?: React.ComponentType<{ className?: string }>;
-    onClick: () => void;
-  };
-  secondaryActions?: Array<{
-    label: string;
-    icon?: React.ComponentType<{ className?: string }>;
-    onClick: () => void;
-    variant?: 'outline' | 'ghost' | 'secondary';
-  }>;
+  primaryAction?: ListingAction;
+  secondaryActions?: ListingAction[];
+  bulkBar?: React.ReactNode;
   emptyState?: {
     icon?: React.ComponentType<{ className?: string }>;
     title: string;
@@ -92,6 +99,7 @@ export function ResponsiveDataListing<T>({
   filters = [],
   primaryAction,
   secondaryActions = [],
+  bulkBar,
   emptyState,
   hasMore = false,
   isLoadingMore = false,
@@ -100,7 +108,10 @@ export function ResponsiveDataListing<T>({
 }: ResponsiveDataListingProps<T>) {
   const [filtersOpen, setFiltersOpen] = useState(false);
 
-  const activeFiltersCount = filters.filter((f) => f.value !== '').length;
+  const activeFiltersCount = filters.reduce(
+    (n, f) => n + (f.multi ? f.values?.length || 0 : f.value ? 1 : 0),
+    0
+  );
 
   return (
     <div className="space-y-5">
@@ -115,27 +126,34 @@ export function ResponsiveDataListing<T>({
           {secondaryActions.map((sec, idx) => {
             const Icon = sec.icon;
             return (
-              <Button
+              <GatedButton
                 key={idx}
                 variant={sec.variant || 'outline'}
+                canAct={sec.canAct}
+                gateReason={sec.gateReason}
                 onClick={sec.onClick}
                 className="border-border gap-2 text-xs sm:text-sm h-9"
               >
                 {Icon && <Icon className="h-4 w-4" />}
                 <span>{sec.label}</span>
-              </Button>
+              </GatedButton>
             );
           })}
 
           {primaryAction && (
-            <Button onClick={primaryAction.onClick} className="gap-2 text-xs sm:text-sm h-9 shadow-xs">
+            <GatedButton
+              canAct={primaryAction.canAct}
+              gateReason={primaryAction.gateReason}
+              onClick={primaryAction.onClick}
+              className="gap-2 text-xs sm:text-sm h-9 shadow-xs"
+            >
               {primaryAction.icon ? (
                 <primaryAction.icon className="h-4 w-4" />
               ) : (
                 <Plus className="h-4 w-4" />
               )}
               <span>{primaryAction.label}</span>
-            </Button>
+            </GatedButton>
           )}
         </div>
       </div>
@@ -156,7 +174,7 @@ export function ResponsiveDataListing<T>({
                     onSearchSubmit();
                   }
                 }}
-                className="border-border bg-card pl-9 pr-8 h-10 text-sm shadow-xs focus-visible:ring-1"
+                className="border-border bg-card pl-9 pr-8 h-10 shadow-xs focus-visible:ring-1"
               />
               {searchQuery && (
                 <button
@@ -201,28 +219,78 @@ export function ResponsiveDataListing<T>({
         {/* Filter Options Drawer / Dropdowns */}
         {filters.length > 0 && filtersOpen && (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 p-3.5 rounded-xl border border-border/80 bg-card shadow-xs animate-in fade-in slide-in-from-top-2 duration-150">
-            {filters.map((filter) => (
-              <div key={filter.key} className="space-y-1">
-                <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block">
-                  {filter.label}
-                </label>
-                <select
-                  value={filter.value}
-                  onChange={(e) => filter.onChange(e.target.value)}
-                  className="w-full border-border bg-background text-foreground rounded-lg px-3 py-2 text-xs sm:text-sm focus:ring-1 focus:ring-primary focus:outline-none"
-                >
-                  <option value="">All {filter.label}s</option>
-                  {filter.options.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ))}
+            {filters.map((filter) =>
+              filter.multi ? (
+                <div key={filter.key} className="space-y-1 sm:col-span-1">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block">
+                      {filter.label}
+                    </label>
+                    {(filter.values?.length ?? 0) > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => filter.onValuesChange?.([])}
+                        className="text-[11px] text-muted-foreground hover:text-foreground"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                  <div className="max-h-40 overflow-y-auto rounded-lg border border-border/60 bg-background/50 p-1">
+                    {filter.options.length === 0 ? (
+                      <p className="px-2 py-2 text-xs text-muted-foreground">No options</p>
+                    ) : (
+                      filter.options.map((opt) => {
+                        const isSelected = filter.values?.includes(opt.value) ?? false;
+                        return (
+                          <label
+                            key={opt.value}
+                            className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/60"
+                          >
+                            <Checkbox
+                              checked={isSelected}
+                              onCheckedChange={() => {
+                                const current = filter.values ?? [];
+                                filter.onValuesChange?.(
+                                  isSelected
+                                    ? current.filter((v) => v !== opt.value)
+                                    : [...current, opt.value]
+                                );
+                              }}
+                            />
+                            <span className="truncate text-xs text-foreground">{opt.label}</span>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div key={filter.key} className="space-y-1">
+                  <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block">
+                    {filter.label}
+                  </label>
+                  <select
+                    value={filter.value ?? ''}
+                    onChange={(e) => filter.onChange?.(e.target.value)}
+                    className="w-full border-border bg-background text-foreground rounded-lg px-3 py-2 text-xs sm:text-sm focus:ring-1 focus:ring-primary focus:outline-none"
+                  >
+                    <option value="">All {filter.label}s</option>
+                    {filter.options.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )
+            )}
           </div>
         )}
       </div>
+
+      {/* Bulk action bar slot (selection UI supplied by the page) */}
+      {bulkBar && <div className="pt-1">{bulkBar}</div>}
 
       {/* Main Content Area */}
       {loading ? (

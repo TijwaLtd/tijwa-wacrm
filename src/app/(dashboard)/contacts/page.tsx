@@ -5,15 +5,6 @@ import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import type { Contact, Tag, ContactTag } from '@/types';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   DropdownMenu,
@@ -31,17 +22,11 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover';
-import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import {
-  Search,
   Plus,
   Upload,
   MoreHorizontal,
@@ -49,11 +34,7 @@ import {
   Trash2,
   Loader2,
   Users,
-  ChevronLeft,
-  ChevronRight,
   SlidersHorizontal,
-  Filter,
-  X,
   Eye,
   EyeOff,
 } from 'lucide-react';
@@ -66,9 +47,18 @@ import { GatedButton } from '@/components/ui/gated-button';
 import { useTranslations } from 'next-intl';
 import { useAuth } from '@/hooks/use-auth';
 import { WorkspaceBadge } from '@/components/shared/workspace-badge';
-import { Building2, ChevronDown } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { maskPhoneNumber, displayContactPhone, displayContactName, isPlaceholderPhone } from '@/lib/audit/masking';
+import {
+  ResponsiveDataListing,
+  type ColumnDef,
+  type CardMapper,
+  type FilterConfig,
+} from '@/components/shared/responsive-data-listing';
+import type { CardAction } from '@/components/shared/responsive-mobile-card';
+import {
+  displayContactPhone,
+  displayContactName,
+  isPlaceholderPhone,
+} from '@/lib/audit/masking';
 import { getContactsByTenant } from '@/lib/db';
 
 const PAGE_SIZE = 25;
@@ -86,6 +76,7 @@ export default function ContactsPage() {
 
   const [contacts, setContacts] = useState<ContactWithTags[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
@@ -137,162 +128,173 @@ export default function ContactsPage() {
     }
   }, [supabase]);
 
-  const fetchContacts = useCallback(async () => {
-    const seq = ++fetchSeq.current;
-    setLoading(true);
-    // The visible rows are about to change — drop any selection that
-    // referred to the old page/search results so the bulk bar can't
-    // act on rows the user can no longer see.
-    setSelected(new Set());
-
-    const from = page * PAGE_SIZE;
-    const to = from + PAGE_SIZE - 1;
-    const term = search.trim();
-
-    let contactRows: Contact[] = [];
-    let count = 0;
-
-    if (workspaceFilter === null) {
-      // All workspaces mode - use RPC
-      const { data, error } = await supabase.rpc('get_user_contacts', {
-        p_user_id: (await supabase.auth.getUser()).data.user?.id,
-      });
-      if (seq !== fetchSeq.current) return;
-      if (error) {
-        console.error(
-          '[contacts] get_user_contacts RPC failed:',
-          JSON.stringify(error),
-          error.message,
-          error.code,
-          error.details,
-          error.hint
-        );
-        toast.error(t('toastFailedLoad'));
-        setLoading(false);
-        return;
-      }
-      let allContacts = (data ?? []) as Contact[];
-      // Apply search filter client-side
-      if (term) {
-        const lower = term.toLowerCase();
-        allContacts = allContacts.filter(
-          (c) =>
-            c.name?.toLowerCase().includes(lower) ||
-            c.phone?.toLowerCase().includes(lower) ||
-            c.email?.toLowerCase().includes(lower)
-        );
-      }
-      count = allContacts.length;
-      contactRows = allContacts.slice(from, to + 1);
-    } else if (selectedTagIds.length > 0) {
-      // Tag filter active — resolve it server-side (join + distinct +
-      // windowed total count + pagination) so a tag covering many
-      // contacts can't silently truncate the result or overflow an IN
-      // clause. See migration 025_filter_contacts_by_tags.
-      const { data, error } = await supabase.rpc('filter_contacts_by_tags', {
-        p_tag_ids: selectedTagIds,
-        p_search: term || null,
-        p_limit: PAGE_SIZE,
-        p_offset: from,
-      });
-      if (seq !== fetchSeq.current) return; // superseded by a newer fetch
-      if (error) {
-        toast.error(t('toastFailedLoad'));
-        setLoading(false);
-        return;
-      }
-      const rows = (data ?? []) as { contact: Contact; total_count: number }[];
-      contactRows = rows.map((r) => r.contact);
-      count = rows.length > 0 ? Number(rows[0].total_count) : 0;
-    } else {
-      let query = supabase
-        .from('contacts')
-        .select('*', { count: 'exact' })
-        .eq('account_id', workspaceFilter)
-        .order('created_at', { ascending: false })
-        .range(from, to);
-
-      if (term) {
-        const like = `%${term}%`;
-        query = query.or(
-          `name.ilike.${like},phone.ilike.${like},email.ilike.${like}`
-        );
+  const fetchContacts = useCallback(
+    async (isLoadMore = false) => {
+      const seq = ++fetchSeq.current;
+      if (isLoadMore) setIsLoadingMore(true);
+      else {
+        setLoading(true);
+        // The visible rows are about to change — drop any selection that
+        // referred to the old page/search results so the bulk bar can't
+        // act on rows the user can no longer see.
+        setSelected(new Set());
       }
 
-      const { data, count: exactCount, error } = await query;
-      if (seq !== fetchSeq.current) return; // superseded by a newer fetch
+      const from = isLoadMore ? (page + 1) * PAGE_SIZE : 0;
+      const to = from + PAGE_SIZE - 1;
+      const term = search.trim();
 
-      if (error) {
-        // Fallback to IndexedDB when offline
-        console.warn(
-          '[contacts] Supabase query failed, falling back to IndexedDB:',
-          error.message
-        );
-        try {
-          const offlineContacts = await getContactsByTenant(workspaceFilter);
-          let filtered = offlineContacts;
-          if (term) {
-            const lower = term.toLowerCase();
-            filtered = filtered.filter(
-              (c) =>
-                c.name?.toLowerCase().includes(lower) ||
-                c.phone?.toLowerCase().includes(lower) ||
-                c.email?.toLowerCase().includes(lower)
-            );
-          }
-          count = filtered.length;
-          contactRows = filtered.slice(from, to + 1);
-          if (contactRows.length === 0) {
-            setContacts([]);
-            setTotalCount(0);
-            setLoading(false);
-            return;
-          }
-        } catch (dbError) {
-          console.error('[contacts] IndexedDB fallback also failed:', dbError);
+      let contactRows: Contact[] = [];
+      let count = 0;
+
+      if (workspaceFilter === null) {
+        // All workspaces mode - use RPC
+        const { data, error } = await supabase.rpc('get_user_contacts', {
+          p_user_id: (await supabase.auth.getUser()).data.user?.id,
+        });
+        if (seq !== fetchSeq.current) return;
+        if (error) {
+          console.error(
+            '[contacts] get_user_contacts RPC failed:',
+            JSON.stringify(error),
+            error.message,
+            error.code,
+            error.details,
+            error.hint
+          );
           toast.error(t('toastFailedLoad'));
           setLoading(false);
+          setIsLoadingMore(false);
           return;
         }
+        let allContacts = (data ?? []) as Contact[];
+        // Apply search filter client-side
+        if (term) {
+          const lower = term.toLowerCase();
+          allContacts = allContacts.filter(
+            (c) =>
+              c.name?.toLowerCase().includes(lower) ||
+              c.phone?.toLowerCase().includes(lower) ||
+              c.email?.toLowerCase().includes(lower)
+          );
+        }
+        count = allContacts.length;
+        contactRows = allContacts.slice(from, to + 1);
+      } else if (selectedTagIds.length > 0) {
+        // Tag filter active — resolve it server-side (join + distinct +
+        // windowed total count + offset pagination) so a tag covering
+        // many contacts can't silently truncate the result or overflow
+        // an IN clause. See migration 025_filter_contacts_by_tags.
+        const { data, error } = await supabase.rpc('filter_contacts_by_tags', {
+          p_tag_ids: selectedTagIds,
+          p_search: term || null,
+          p_limit: PAGE_SIZE,
+          p_offset: from,
+        });
+        if (seq !== fetchSeq.current) return; // superseded by a newer fetch
+        if (error) {
+          toast.error(t('toastFailedLoad'));
+          setLoading(false);
+          setIsLoadingMore(false);
+          return;
+        }
+        const rows = (data ?? []) as { contact: Contact; total_count: number }[];
+        contactRows = rows.map((r) => r.contact);
+        count = rows.length > 0 ? Number(rows[0].total_count) : 0;
       } else {
-        contactRows = data ?? [];
-        count = exactCount ?? 0;
+        let query = supabase
+          .from('contacts')
+          .select('*', { count: 'exact' })
+          .eq('account_id', workspaceFilter)
+          .order('created_at', { ascending: false })
+          .range(from, to);
+
+        if (term) {
+          const like = `%${term}%`;
+          query = query.or(
+            `name.ilike.${like},phone.ilike.${like},email.ilike.${like}`
+          );
+        }
+
+        const { data, count: exactCount, error } = await query;
+        if (seq !== fetchSeq.current) return; // superseded by a newer fetch
+
+        if (error) {
+          // Fallback to IndexedDB when offline
+          console.warn(
+            '[contacts] Supabase query failed, falling back to IndexedDB:',
+            error.message
+          );
+          try {
+            const offlineContacts = await getContactsByTenant(workspaceFilter);
+            let filtered = offlineContacts;
+            if (term) {
+              const lower = term.toLowerCase();
+              filtered = filtered.filter(
+                (c) =>
+                  c.name?.toLowerCase().includes(lower) ||
+                  c.phone?.toLowerCase().includes(lower) ||
+                  c.email?.toLowerCase().includes(lower)
+              );
+            }
+            count = filtered.length;
+            contactRows = filtered.slice(from, to + 1);
+          } catch (dbError) {
+            console.error('[contacts] IndexedDB fallback also failed:', dbError);
+            toast.error(t('toastFailedLoad'));
+            setLoading(false);
+            setIsLoadingMore(false);
+            return;
+          }
+        } else {
+          contactRows = data ?? [];
+          count = exactCount ?? 0;
+        }
       }
-      count = exactCount ?? 0;
-    }
 
-    setTotalCount(count);
+      if (seq !== fetchSeq.current) return;
+      setTotalCount(count);
 
-    if (contactRows.length === 0) {
-      setContacts([]);
+      if (contactRows.length === 0) {
+        if (!isLoadMore) setContacts([]);
+        setLoading(false);
+        setIsLoadingMore(false);
+        return;
+      }
+
+      // Fetch tags for these contacts
+      const contactIds = contactRows.map((c) => c.id);
+      const { data: contactTags } = await supabase
+        .from('contact_tags')
+        .select('contact_id, tag_id')
+        .in('contact_id', contactIds);
+      if (seq !== fetchSeq.current) return; // superseded by a newer fetch
+
+      const tagsByContact: Record<string, string[]> = {};
+      contactTags?.forEach((ct) => {
+        if (!tagsByContact[ct.contact_id]) tagsByContact[ct.contact_id] = [];
+        tagsByContact[ct.contact_id].push(ct.tag_id);
+      });
+
+      const enriched: ContactWithTags[] = contactRows.map((c) => ({
+        ...c,
+        tags: (tagsByContact[c.id] ?? [])
+          .map((tid) => tagsMap[tid])
+          .filter(Boolean),
+      }));
+
+      if (isLoadMore) {
+        setContacts((prev) => [...prev, ...enriched]);
+        setPage(page + 1);
+      } else {
+        setContacts(enriched);
+        setPage(0);
+      }
       setLoading(false);
-      return;
-    }
-
-    // Fetch tags for these contacts
-    const contactIds = contactRows.map((c) => c.id);
-    const { data: contactTags } = await supabase
-      .from('contact_tags')
-      .select('contact_id, tag_id')
-      .in('contact_id', contactIds);
-    if (seq !== fetchSeq.current) return; // superseded by a newer fetch
-
-    const tagsByContact: Record<string, string[]> = {};
-    contactTags?.forEach((ct) => {
-      if (!tagsByContact[ct.contact_id]) tagsByContact[ct.contact_id] = [];
-      tagsByContact[ct.contact_id].push(ct.tag_id);
-    });
-
-    const enriched: ContactWithTags[] = contactRows.map((c) => ({
-      ...c,
-      tags: (tagsByContact[c.id] ?? [])
-        .map((tid) => tagsMap[tid])
-        .filter(Boolean),
-    }));
-
-    setContacts(enriched);
-    setLoading(false);
-  }, [supabase, page, search, selectedTagIds, tagsMap, t, workspaceFilter]);
+      setIsLoadingMore(false);
+    },
+    [supabase, page, search, selectedTagIds, tagsMap, t, workspaceFilter]
+  );
 
   // Load-once-on-mount-ish data fetches. Each setter inside runs
   // inside an async promise completion (Supabase await), not
@@ -303,10 +305,14 @@ export default function ContactsPage() {
     fetchTags();
   }, [fetchTags]);
 
+  // Fresh fetches only — `page` is deliberately not a dependency: it is
+  // incremented by load-more appends, and refetching on that change would
+  // replace the appended list with page 0 (mirrors the orders page).
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    fetchContacts();
-  }, [fetchContacts]);
+    fetchContacts(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, selectedTagIds, workspaceFilter, tagsMap]);
 
   function openAddForm() {
     setEditContact(null);
@@ -399,858 +405,451 @@ export default function ContactsPage() {
     setBulkDeleteOpen(false);
   }
 
-  const totalPages = Math.ceil(totalCount / PAGE_SIZE);
-  const hasNext = page < totalPages - 1;
-  const hasPrev = page > 0;
-
-  // Tag filter helpers. Every change resets to page 0 — the result set
-  // shrinks/grows so page N may no longer be valid (mirrors the search box).
+  // Tag filter helpers. Every change triggers a fresh fetch (effect dep
+  // above) so results always restart from the first window.
   const allTags = Object.values(tagsMap).sort((a, b) =>
     a.name.localeCompare(b.name)
   );
   const hasActiveFilters =
-    search.trim().length > 0 || selectedTagIds.length > 0;
+    search.trim().length > 0 ||
+    selectedTagIds.length > 0 ||
+    workspaceFilter !== null;
 
-  function toggleTagFilter(tagId: string) {
-    setSelectedTagIds((prev) =>
-      prev.includes(tagId)
-        ? prev.filter((id) => id !== tagId)
-        : [...prev, tagId]
-    );
-    setPage(0);
-  }
+  const columns: ColumnDef<ContactWithTags>[] = [
+    {
+      header: (
+        <Checkbox
+          checked={allOnPageSelected}
+          indeterminate={!allOnPageSelected && someOnPageSelected}
+          onCheckedChange={toggleSelectAll}
+          disabled={contacts.length === 0}
+          aria-label="Select all contacts"
+        />
+      ),
+      className: 'w-10',
+      headerClassName: 'w-10',
+      cell: (contact) => (
+        <Checkbox
+          checked={selected.has(contact.id)}
+          onCheckedChange={() => toggleSelect(contact.id)}
+          aria-label={`Select ${contact.name || contact.phone}`}
+        />
+      ),
+    },
+    {
+      header: t('tableColumns.name'),
+      cell: (contact) => (
+        <div
+          className="flex cursor-pointer items-center gap-1.5"
+          onClick={() => openDetail(contact.id)}
+        >
+          <span className="truncate font-medium text-foreground transition-colors hover:text-primary">
+            {displayContactName(contact.name, contact.phone, t('unnamed'))}
+          </span>
+          {showWorkspaceSelector && contact.account_id && (
+            <WorkspaceBadge accountId={contact.account_id} size="sm" />
+          )}
+        </div>
+      ),
+    },
+    {
+      header: t('tableColumns.phone'),
+      cell: (contact) => (
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-xs text-muted-foreground">
+            {displayContactPhone(
+              contact.phone,
+              revealedPhones.has(contact.id)
+            )}
+          </span>
+          {!isPlaceholderPhone(contact.phone) && (
+            <button
+              onClick={() => {
+                setRevealedPhones((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(contact.id)) {
+                    next.delete(contact.id);
+                  } else {
+                    next.add(contact.id);
+                  }
+                  return next;
+                });
+              }}
+              className="flex cursor-pointer items-center justify-center p-1.5 text-muted-foreground transition-colors hover:text-primary"
+              title={
+                revealedPhones.has(contact.id)
+                  ? 'Hide number'
+                  : 'Reveal number'
+              }
+            >
+              {revealedPhones.has(contact.id) ? (
+                <EyeOff className="size-3" />
+              ) : (
+                <Eye className="size-3" />
+              )}
+            </button>
+          )}
+        </div>
+      ),
+    },
+    {
+      header: t('tableColumns.email'),
+      className: 'hidden md:table-cell',
+      headerClassName: 'hidden md:table-cell',
+      cell: (contact) => (
+        <span className="text-sm text-muted-foreground">
+          {contact.email || '-'}
+        </span>
+      ),
+    },
+    {
+      header: t('tableColumns.company'),
+      className: 'hidden lg:table-cell',
+      headerClassName: 'hidden lg:table-cell',
+      cell: (contact) => (
+        <span className="text-sm text-muted-foreground">
+          {contact.company || '-'}
+        </span>
+      ),
+    },
+    {
+      header: t('tableColumns.tags'),
+      className: 'hidden md:table-cell',
+      headerClassName: 'hidden md:table-cell',
+      cell: (contact) => (
+        <div className="flex flex-wrap gap-1">
+          {contact.tags && contact.tags.length > 0 ? (
+            contact.tags.slice(0, 3).map((tag) => (
+              <span
+                key={tag.id}
+                className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium"
+                style={{
+                  backgroundColor: tag.color + '20',
+                  color: tag.color,
+                }}
+              >
+                {tag.name}
+              </span>
+            ))
+          ) : (
+            <span className="text-xs text-muted-foreground">-</span>
+          )}
+          {contact.tags && contact.tags.length > 3 && (
+            <span className="text-[10px] text-muted-foreground">
+              +{contact.tags.length - 3}
+            </span>
+          )}
+        </div>
+      ),
+    },
+    {
+      header: t('tableColumns.createdAt'),
+      className: 'hidden lg:table-cell',
+      headerClassName: 'hidden lg:table-cell',
+      cell: (contact) => (
+        <span className="text-xs text-muted-foreground">
+          {new Date(contact.created_at).toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+          })}
+        </span>
+      ),
+    },
+    {
+      header: '',
+      className: 'w-12',
+      headerClassName: 'w-12',
+      cell: (contact) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="text-muted-foreground hover:text-foreground"
+              />
+            }
+          >
+            <MoreHorizontal className="size-4" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="bg-popover border-border">
+            <DropdownMenuItem
+              onClick={() => openDetail(contact.id)}
+              className="text-popover-foreground focus:bg-muted focus:text-foreground"
+            >
+              <Eye className="size-4" />
+              {t('viewAction')}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator className="bg-border" />
+            {contact.account_id && contact.account_id !== accountId ? (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <DropdownMenuItem
+                      disabled
+                      className="text-popover-foreground focus:bg-muted focus:text-foreground opacity-50"
+                    />
+                  }
+                >
+                  <Pencil className="size-4" />
+                  {t('editAction')}
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t('crossWorkspaceEditHint')}
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              <DropdownMenuItem
+                onClick={() => {
+                  void openEditForm(contact);
+                }}
+                className="text-popover-foreground focus:bg-muted focus:text-foreground"
+              >
+                <Pencil className="size-4" />
+                {t('editAction')}
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuSeparator className="bg-border" />
+            {contact.account_id && contact.account_id !== accountId ? (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <DropdownMenuItem
+                      disabled
+                      variant="destructive"
+                      className="opacity-50"
+                    />
+                  }
+                >
+                  <Trash2 className="size-4" />
+                  {t('deleteAction')}
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t('crossWorkspaceDeleteHint')}
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={() => confirmDelete(contact)}
+              >
+                <Trash2 className="size-4" />
+                {t('deleteAction')}
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    },
+  ];
 
-  function clearTagFilters() {
-    setSelectedTagIds([]);
-    setPage(0);
-  }
+  // Mobile card — deliberately minimal: avatar, name, phone. Everything
+  // else (email, company, tags, actions) lives behind tap-to-expand.
+  const cardMapper: CardMapper<ContactWithTags> = {
+    id: (contact) => contact.id,
+    title: (contact) =>
+      displayContactName(contact.name, contact.phone, t('unnamed')),
+    subtitle: (contact) =>
+      displayContactPhone(contact.phone, revealedPhones.has(contact.id)),
+    image: (contact) => contact.avatar_url || null,
+    fallbackIcon: (contact) => (
+      <span className="text-sm font-medium text-foreground">
+        {displayContactName(
+          contact.name,
+          contact.phone,
+          t('unnamed')
+        ).charAt(0).toUpperCase()}
+      </span>
+    ),
+    statusBadge: (contact) =>
+      showWorkspaceSelector && contact.account_id ? (
+        <WorkspaceBadge accountId={contact.account_id} size="sm" />
+      ) : undefined,
+    detailFields: (contact) => [
+      ...(contact.email
+        ? [{ label: t('tableColumns.email'), value: contact.email }]
+        : []),
+      ...(contact.company
+        ? [{ label: t('tableColumns.company'), value: contact.company }]
+        : []),
+      ...(contact.tags && contact.tags.length > 0
+        ? [
+            {
+              label: t('tableColumns.tags'),
+              value: (
+                <div className="flex flex-wrap gap-1">
+                  {contact.tags.map((tag) => (
+                    <span
+                      key={tag.id}
+                      className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium"
+                      style={{
+                        backgroundColor: tag.color + '20',
+                        color: tag.color,
+                      }}
+                    >
+                      {tag.name}
+                    </span>
+                  ))}
+                </div>
+              ),
+            },
+          ]
+        : []),
+      {
+        label: t('tableColumns.createdAt'),
+        value: new Date(contact.created_at).toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+        }),
+      },
+    ],
+    actions: (contact): CardAction[] => {
+      const crossWorkspace =
+        !!contact.account_id && contact.account_id !== accountId;
+      const actions: CardAction[] = [
+        {
+          label: t('viewAction'),
+          icon: Eye,
+          variant: 'outline',
+          onClick: () => openDetail(contact.id),
+        },
+      ];
+      if (!crossWorkspace) {
+        actions.push({
+          label: t('editAction'),
+          icon: Pencil,
+          variant: 'outline',
+          onClick: () => {
+            void openEditForm(contact);
+          },
+        });
+        actions.push({
+          label: t('deleteAction'),
+          icon: Trash2,
+          variant: 'destructive',
+          onClick: () => confirmDelete(contact),
+        });
+      }
+      return actions;
+    },
+  };
+
+  const filters: FilterConfig[] = [
+    ...(showWorkspaceSelector
+      ? [
+          {
+            key: 'workspace',
+            label: 'Workspace',
+            value: workspaceFilter ?? '',
+            onChange: (v: string) => setWorkspaceFilter(v || null),
+            options: workspaces.map((w) => ({
+              label: w.account_name,
+              value: w.account_id,
+            })),
+          },
+        ]
+      : []),
+    ...(allTags.length > 0
+      ? [
+          {
+            key: 'tags',
+            label: t('filterByTags'),
+            multi: true,
+            values: selectedTagIds,
+            onValuesChange: setSelectedTagIds,
+            options: allTags.map((tg) => ({
+              label: tg.name,
+              value: tg.id,
+            })),
+          },
+        ]
+      : []),
+  ];
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3 sm:gap-4">
-        <div className="min-w-0">
-          <h1 className="text-foreground text-2xl font-bold">{t('title')}</h1>
-          <p className="text-muted-foreground mt-1 text-sm">
-            {totalCount > 0
-              ? t('subtitle', { count: totalCount })
-              : t('subtitleZero')}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {/* Workspace filter — desktop only */}
-          {showWorkspaceSelector && (
-            <DropdownMenu>
-              <DropdownMenuTrigger className="border-border bg-background text-muted-foreground hover:bg-muted data-[state=open]:bg-muted hidden h-9 items-center gap-1.5 rounded-md border px-3 text-sm sm:flex">
-                <Building2 className="h-4 w-4" />
-                {workspaceFilter === null ? (
-                  <span>All</span>
-                ) : (
-                  <span>
-                    {workspaces.find((w) => w.account_id === workspaceFilter)
-                      ?.account_name ?? 'Workspace'}
-                  </span>
-                )}
-                <ChevronDown className="h-3 w-3" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-fit min-w-[160px]">
-                <DropdownMenuItem
-                  onClick={() => {
-                    setWorkspaceFilter(null);
-                    setPage(0);
-                  }}
-                  className={cn(
-                    'text-sm',
-                    workspaceFilter === null && 'bg-muted text-primary'
-                  )}
-                >
-                  All
-                </DropdownMenuItem>
-                {workspaces.map((ws) => (
-                  <DropdownMenuItem
-                    key={ws.account_id}
-                    onClick={() => {
-                      setWorkspaceFilter(ws.account_id);
-                      setPage(0);
-                    }}
-                    className={cn(
-                      'text-sm',
-                      workspaceFilter === ws.account_id &&
-                        'bg-muted text-primary'
-                    )}
-                  >
-                    <div className="flex w-full items-center justify-between">
-                      <span className="truncate">{ws.account_name}</span>
-                      <span className="text-muted-foreground text-xs capitalize">
-                        {ws.role}
-                      </span>
-                    </div>
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-          {/* Mobile: actions in ... menu */}
-          <DropdownMenu>
-            <DropdownMenuTrigger className="border-border bg-background text-muted-foreground hover:bg-muted data-[state=open]:bg-muted flex h-9 w-9 items-center justify-center rounded-md border px-0 sm:hidden">
-              <MoreHorizontal className="size-4" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              {showWorkspaceSelector && (
-                <>
-                  <DropdownMenuItem
-                    onClick={() => {
-                      setWorkspaceFilter(null);
-                      setPage(0);
-                    }}
-                    className={cn(
-                      'text-sm',
-                      workspaceFilter === null && 'bg-muted text-primary'
-                    )}
-                  >
-                    <Building2 className="size-4" />
-                    All Workspaces
-                  </DropdownMenuItem>
-                  {workspaces.map((ws) => (
-                    <DropdownMenuItem
-                      key={ws.account_id}
-                      onClick={() => {
-                        setWorkspaceFilter(ws.account_id);
-                        setPage(0);
-                      }}
-                      className={cn(
-                        'text-sm',
-                        workspaceFilter === ws.account_id &&
-                          'bg-muted text-primary'
-                      )}
-                    >
-                      <Building2 className="size-4" />
-                      {ws.account_name}
-                    </DropdownMenuItem>
-                  ))}
-                  <DropdownMenuSeparator />
-                </>
-              )}
-              {canEditSettings && (
-                <DropdownMenuItem
-                  onClick={() => setCustomFieldsOpen(true)}
-                  className="text-sm"
-                >
-                  <SlidersHorizontal className="size-4" />
-                  {t('customFieldsBtn')}
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem
-                onClick={() => setImportOpen(true)}
-                className="text-sm"
-              >
-                <Upload className="size-4" />
-                {t('importBtn')}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={openAddForm} className="text-sm">
-                <Plus className="size-4" />
-                {t('addContactBtn')}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          {/* Desktop: direct buttons */}
-          {canEditSettings && (
-            <Button
-              variant="outline"
-              onClick={() => setCustomFieldsOpen(true)}
-              className="border-border text-muted-foreground hover:bg-muted hidden sm:flex"
-            >
-              <SlidersHorizontal className="size-4" />
-              {t('customFieldsBtn')}
-            </Button>
-          )}
-          <GatedButton
-            variant="outline"
-            canAct={canEdit}
-            gateReason="add or import contacts"
-            onClick={() => setImportOpen(true)}
-            className="border-border text-muted-foreground hover:bg-muted hidden sm:flex"
-          >
-            <Upload className="size-4" />
-            {t('importBtn')}
-          </GatedButton>
-          <GatedButton
-            canAct={canEdit}
-            gateReason="add or import contacts"
-            onClick={openAddForm}
-            className="bg-primary hover:bg-primary/90 text-primary-foreground hidden sm:flex"
-          >
-            <Plus className="size-4" />
-            {t('addContactBtn')}
-          </GatedButton>
-        </div>
-      </div>
-
-      {/* Search + tag filter */}
-      <div className="space-y-3 px-1">
-        <div className="flex flex-row flex-wrap items-center gap-2">
-          <div className="relative min-w-0 flex-1">
-            <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
-            <Input
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                // Reset pagination when the query changes — the result
-                // set shrinks/grows, page N may no longer be valid.
-                setPage(0);
-              }}
-              placeholder={t('searchPlaceholder')}
-              className="bg-card border-border text-foreground placeholder:text-muted-foreground h-11 pl-10 text-base"
-            />
-          </div>
-
-          <Popover>
-            <PopoverTrigger
-              render={
+      <ResponsiveDataListing<ContactWithTags>
+        title={t('title')}
+        description={
+          totalCount > 0
+            ? t('subtitle', { count: totalCount })
+            : t('subtitleZero')
+        }
+        items={contacts}
+        columns={columns}
+        cardMapper={cardMapper}
+        loading={loading}
+        searchQuery={search}
+        onSearchChange={setSearch}
+        searchPlaceholder={t('searchPlaceholder')}
+        filters={filters}
+        secondaryActions={[
+          ...(canEditSettings
+            ? [
+                {
+                  label: t('customFieldsBtn'),
+                  icon: SlidersHorizontal,
+                  onClick: () => setCustomFieldsOpen(true),
+                },
+              ]
+            : []),
+          {
+            label: t('importBtn'),
+            icon: Upload,
+            onClick: () => setImportOpen(true),
+            canAct: canEdit,
+            gateReason: 'add or import contacts',
+          },
+        ]}
+        primaryAction={{
+          label: t('addContactBtn'),
+          icon: Plus,
+          onClick: openAddForm,
+          canAct: canEdit,
+          gateReason: 'add or import contacts',
+        }}
+        bulkBar={
+          selected.size > 0 ? (
+            <div className="border-border bg-muted/40 flex items-center justify-between gap-4 rounded-lg border px-4 py-2">
+              <p className="text-sm text-foreground">
+                {t('selectedCount', { count: selected.size })}
+              </p>
+              <div className="flex items-center gap-2">
                 <Button
-                  variant="outline"
-                  aria-label={t('filterByTags')}
-                  className="border-border text-muted-foreground hover:bg-muted h-11 shrink-0 px-4 text-base"
-                />
-              }
-            >
-              <Filter className="size-4" />
-              <span className="hidden sm:inline">{t('filterByTags')}</span>
-              {selectedTagIds.length > 0 && (
-                <span className="bg-primary text-primary-foreground ml-1 inline-flex items-center justify-center rounded-full px-1.5 text-[10px] font-semibold">
-                  {selectedTagIds.length}
-                </span>
-              )}
-            </PopoverTrigger>
-            <PopoverContent align="start" className="w-64 p-0">
-              <div className="border-border flex items-center justify-between border-b px-3 py-2">
-                <span className="text-popover-foreground text-sm font-medium">
-                  {t('filterByTags')}
-                </span>
-                {selectedTagIds.length > 0 && (
-                  <button
-                    onClick={clearTagFilters}
-                    className="text-muted-foreground hover:text-foreground text-xs"
-                  >
-                    {t('clearAll')}
-                  </button>
-                )}
-              </div>
-              {allTags.length === 0 ? (
-                <p className="text-muted-foreground px-3 py-4 text-center text-sm">
-                  {t('noTagsYet')}
-                </p>
-              ) : (
-                <div className="max-h-64 overflow-y-auto py-1">
-                  {allTags.map((tag) => (
-                    <label
-                      key={tag.id}
-                      className="hover:bg-muted/50 flex cursor-pointer items-center gap-2.5 px-3 py-1.5"
-                    >
-                      <Checkbox
-                        checked={selectedTagIds.includes(tag.id)}
-                        onCheckedChange={() => toggleTagFilter(tag.id)}
-                        aria-label={`Filter by ${tag.name}`}
-                      />
-                      <span
-                        className="size-2.5 shrink-0 rounded-full"
-                        style={{ backgroundColor: tag.color }}
-                      />
-                      <span className="text-popover-foreground truncate text-sm">
-                        {tag.name}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              )}
-            </PopoverContent>
-          </Popover>
-        </div>
-
-        {/* Active tag-filter chips */}
-        {selectedTagIds.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5">
-            {selectedTagIds.map((id) => {
-              const tag = tagsMap[id];
-              if (!tag) return null;
-              return (
-                <span
-                  key={id}
-                  className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
-                  style={{
-                    backgroundColor: tag.color + '20',
-                    color: tag.color,
-                  }}
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSelected(new Set())}
+                  className="text-muted-foreground hover:text-foreground"
                 >
-                  {tag.name}
-                  <button
-                    onClick={() => toggleTagFilter(id)}
-                    aria-label={`Remove ${tag.name} filter`}
-                    className="hover:opacity-70"
-                  >
-                    <X className="size-3" />
-                  </button>
-                </span>
-              );
-            })}
-            <button
-              onClick={clearTagFilters}
-              className="text-muted-foreground hover:text-foreground px-1 text-xs"
-            >
-              {t('clearAll')}
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Bulk action bar */}
-      {selected.size > 0 && (
-        <div className="border-border bg-muted/40 flex items-center justify-between gap-4 rounded-lg border px-4 py-2">
-          <p className="text-foreground text-sm">
-            {t('selectedCount', { count: selected.size })}
-          </p>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setSelected(new Set())}
-              className="text-muted-foreground hover:text-foreground"
-            >
-              {t('clearSelection')}
-            </Button>
-            <GatedButton
-              variant="destructive"
-              size="sm"
-              canAct={canEdit}
-              gateReason="delete contacts"
-              onClick={() => setBulkDeleteOpen(true)}
-            >
-              <Trash2 className="size-4" />
-              {t('deleteSelected')}
-            </GatedButton>
-          </div>
-        </div>
-      )}
-
-      {/* Table — desktop only */}
-      <div className="border-border hidden overflow-hidden rounded-lg border md:block">
-        <Table>
-          <TableHeader>
-            <TableRow className="border-border hover:bg-transparent">
-              <TableHead className="w-10">
-                <Checkbox
-                  checked={allOnPageSelected}
-                  indeterminate={!allOnPageSelected && someOnPageSelected}
-                  onCheckedChange={toggleSelectAll}
-                  disabled={contacts.length === 0}
-                  aria-label="Select all contacts on this page"
-                />
-              </TableHead>
-              <TableHead className="text-muted-foreground">
-                {t('tableColumns.name')}
-              </TableHead>
-              <TableHead className="text-muted-foreground">
-                {t('tableColumns.phone')}
-              </TableHead>
-              <TableHead className="text-muted-foreground hidden md:table-cell">
-                {t('tableColumns.email')}
-              </TableHead>
-              <TableHead className="text-muted-foreground hidden lg:table-cell">
-                {t('tableColumns.company')}
-              </TableHead>
-              <TableHead className="text-muted-foreground hidden md:table-cell">
-                {t('tableColumns.tags')}
-              </TableHead>
-              <TableHead className="text-muted-foreground hidden lg:table-cell">
-                {t('tableColumns.createdAt')}
-              </TableHead>
-              <TableHead className="text-muted-foreground w-12" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading ? (
-              <TableRow className="border-border">
-                <TableCell colSpan={8} className="py-12 text-center">
-                  <div className="flex flex-col items-center gap-2">
-                    <Loader2 className="text-primary size-6 animate-spin" />
-                    <p className="text-muted-foreground text-sm">
-                      {t('loading')}
-                    </p>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ) : contacts.length === 0 ? (
-              <TableRow className="border-border">
-                <TableCell colSpan={8} className="py-12 text-center">
-                  <div className="flex flex-col items-center gap-2">
-                    <Users className="text-muted-foreground size-8" />
-                    <p className="text-muted-foreground text-sm">
-                      {hasActiveFilters
-                        ? t('noContactsMatch')
-                        : t('noContactsYet')}
-                    </p>
-                    {!hasActiveFilters && (
-                      <GatedButton
-                        canAct={canEdit}
-                        gateReason="add or import contacts"
-                        variant="outline"
-                        size="sm"
-                        onClick={openAddForm}
-                        className="border-border text-muted-foreground hover:bg-muted mt-2"
-                      >
-                        <Plus className="size-3.5" />
-                        {t('addFirstContact')}
-                      </GatedButton>
-                    )}
-                  </div>
-                </TableCell>
-              </TableRow>
-            ) : (
-              contacts.map((contact) => (
-                <TableRow
-                  key={contact.id}
-                  className="border-border hover:bg-muted/50 cursor-pointer"
-                  onClick={() => openDetail(contact.id)}
+                  {t('clearSelection')}
+                </Button>
+                <GatedButton
+                  variant="destructive"
+                  size="sm"
+                  canAct={canEdit}
+                  gateReason="delete contacts"
+                  onClick={() => setBulkDeleteOpen(true)}
                 >
-                  <TableCell onClick={(e) => e.stopPropagation()}>
-                    <Checkbox
-                      checked={selected.has(contact.id)}
-                      onCheckedChange={() => toggleSelect(contact.id)}
-                      aria-label={`Select ${contact.name || contact.phone}`}
-                    />
-                  </TableCell>
-                  <TableCell className="text-foreground font-medium">
-                    <div className="flex items-center gap-1.5">
-                      <span className="truncate">
-                        {displayContactName(
-                          contact.name,
-                          contact.phone,
-                          t('unnamed')
-                        )}
-                      </span>
-                      {showWorkspaceSelector && contact.account_id && (
-                        <WorkspaceBadge
-                          accountId={contact.account_id}
-                          size="sm"
-                        />
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground font-mono text-xs">
-                    <div className="flex items-center gap-1.5">
-                      <span>
-                        {displayContactPhone(
-                          contact.phone,
-                          revealedPhones.has(contact.id)
-                        )}
-                      </span>
-                      {!isPlaceholderPhone(contact.phone) && (
-                      <button
-                        onClick={() => {
-                          setRevealedPhones((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(contact.id)) {
-                              next.delete(contact.id);
-                            } else {
-                              next.add(contact.id);
-                            }
-                            return next;
-                          });
-                        }}
-                        className="text-muted-foreground hover:text-primary flex cursor-pointer items-center justify-center p-1.5 transition-colors"
-                        title={
-                          revealedPhones.has(contact.id)
-                            ? 'Hide number'
-                            : 'Reveal number'
-                        }
-                      >
-                        {revealedPhones.has(contact.id) ? (
-                          <EyeOff className="size-3" />
-                        ) : (
-                          <Eye className="size-3" />
-                        )}
-                      </button>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground hidden text-sm md:table-cell">
-                    {contact.email || (
-                      <span className="text-muted-foreground">-</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground hidden text-sm lg:table-cell">
-                    {contact.company || (
-                      <span className="text-muted-foreground">-</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="hidden md:table-cell">
-                    <div className="flex flex-wrap gap-1">
-                      {contact.tags && contact.tags.length > 0 ? (
-                        contact.tags.slice(0, 3).map((tag) => (
-                          <span
-                            key={tag.id}
-                            className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium"
-                            style={{
-                              backgroundColor: tag.color + '20',
-                              color: tag.color,
-                            }}
-                          >
-                            {tag.name}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-muted-foreground text-xs">-</span>
-                      )}
-                      {contact.tags && contact.tags.length > 3 && (
-                        <span className="text-muted-foreground text-[10px]">
-                          +{contact.tags.length - 3}
-                        </span>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground hidden text-xs lg:table-cell">
-                    {new Date(contact.created_at).toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                      year: 'numeric',
-                    })}
-                  </TableCell>
-                  <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        render={
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            className="text-muted-foreground hover:text-foreground"
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                        }
-                      >
-                        <MoreHorizontal className="size-4" />
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent
-                        align="end"
-                        className="bg-popover border-border"
-                      >
-                        <DropdownMenuItem
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openDetail(contact.id);
-                          }}
-                          className="text-popover-foreground focus:bg-muted focus:text-foreground"
-                        >
-                          <Eye className="size-4" />
-                          {t('viewAction')}
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator className="bg-border" />
-                        {contact.account_id &&
-                        contact.account_id !== accountId ? (
-                          <Tooltip>
-                            <TooltipTrigger
-                              render={
-                                <DropdownMenuItem
-                                  disabled
-                                  className="text-popover-foreground focus:bg-muted focus:text-foreground opacity-50"
-                                />
-                              }
-                            >
-                              <Pencil className="size-4" />
-                              {t('editAction')}
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              {t('crossWorkspaceEditHint')}
-                            </TooltipContent>
-                          </Tooltip>
-                        ) : (
-                          <DropdownMenuItem
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openEditForm(contact);
-                            }}
-                            className="text-popover-foreground focus:bg-muted focus:text-foreground"
-                          >
-                            <Pencil className="size-4" />
-                            {t('editAction')}
-                          </DropdownMenuItem>
-                        )}
-                        <DropdownMenuSeparator className="bg-border" />
-                        {contact.account_id &&
-                        contact.account_id !== accountId ? (
-                          <Tooltip>
-                            <TooltipTrigger
-                              render={
-                                <DropdownMenuItem
-                                  disabled
-                                  variant="destructive"
-                                  className="opacity-50"
-                                />
-                              }
-                            >
-                              <Trash2 className="size-4" />
-                              {t('deleteAction')}
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              {t('crossWorkspaceDeleteHint')}
-                            </TooltipContent>
-                          </Tooltip>
-                        ) : (
-                          <DropdownMenuItem
-                            variant="destructive"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              confirmDelete(contact);
-                            }}
-                          >
-                            <Trash2 className="size-4" />
-                            {t('deleteAction')}
-                          </DropdownMenuItem>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
-
-      {/* Mobile contact cards */}
-      <div className="divide-border divide-y md:hidden">
-        {loading ? (
-          <div className="flex flex-col items-center justify-center gap-3 py-12">
-            <Loader2 className="text-primary size-6 animate-spin" />
-            <p className="text-muted-foreground text-sm">{t('loading')}</p>
-          </div>
-        ) : contacts.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-3 py-12">
-            <Users className="text-muted-foreground size-8" />
-            <p className="text-muted-foreground text-sm">
-              {hasActiveFilters ? t('noContactsMatch') : t('noContactsYet')}
-            </p>
-            {!hasActiveFilters && (
-              <GatedButton
-                canAct={canEdit}
-                gateReason="add or import contacts"
-                variant="outline"
-                size="sm"
-                onClick={openAddForm}
-                className="border-border text-muted-foreground hover:bg-muted mt-2"
-              >
-                <Plus className="size-3.5" />
-                {t('addFirstContact')}
-              </GatedButton>
-            )}
-          </div>
-        ) : (
-          contacts.map((contact) => {
-            const displayName = displayContactName(
-              contact.name,
-              contact.phone,
-              t('unnamed')
-            );
-            const initials = displayName.charAt(0).toUpperCase();
-            const showReveal = !isPlaceholderPhone(contact.phone);
-            const displayPhone = displayContactPhone(
-              contact.phone,
-              revealedPhones.has(contact.id)
-            );
-            return (
-              <div
-                key={contact.id}
-                className="hover:bg-muted/50 flex cursor-pointer items-start gap-3 p-4"
-                onClick={() => openDetail(contact.id)}
-              >
-                <Checkbox
-                  checked={selected.has(contact.id)}
-                  onCheckedChange={() => toggleSelect(contact.id)}
-                  onClick={(e) => e.stopPropagation()}
-                  aria-label={`Select ${contact.name || contact.phone}`}
-                  className="mt-1"
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <div className="bg-muted text-foreground flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-sm font-medium">
-                        {contact.avatar_url ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={contact.avatar_url}
-                            alt={contact.name || 'Avatar'}
-                            className="h-10 w-10 rounded-full object-cover"
-                          />
-                        ) : (
-                          initials
-                        )}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex min-w-0 items-center gap-1.5">
-                          <p className="text-foreground truncate text-sm font-medium">
-                            {displayName}
-                          </p>
-                          {showWorkspaceSelector && contact.account_id && (
-                            <WorkspaceBadge
-                              accountId={contact.account_id}
-                              size="sm"
-                            />
-                          )}
-                        </div>
-                        {contact.company && (
-                          <p className="text-muted-foreground truncate text-xs">
-                            {contact.company}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        render={
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            className="text-muted-foreground hover:text-foreground flex-shrink-0"
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                        }
-                      >
-                        <MoreHorizontal className="size-4" />
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent
-                        align="end"
-                        className="bg-popover border-border"
-                      >
-                        <DropdownMenuItem
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openDetail(contact.id);
-                          }}
-                          className="text-popover-foreground focus:bg-muted focus:text-foreground"
-                        >
-                          <Eye className="size-4" />
-                          {t('viewAction')}
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator className="bg-border" />
-                        <DropdownMenuItem
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openEditForm(contact);
-                          }}
-                          className="text-popover-foreground focus:bg-muted focus:text-foreground"
-                        >
-                          <Pencil className="size-4" />
-                          {t('editAction')}
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator className="bg-border" />
-                        <DropdownMenuItem
-                          variant="destructive"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            confirmDelete(contact);
-                          }}
-                        >
-                          <Trash2 className="size-4" />
-                          {t('deleteAction')}
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                  <div className="mt-2 flex items-center gap-1">
-                    <span className="text-muted-foreground font-mono text-xs">
-                      {displayPhone}
-                    </span>
-                    {showReveal && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setRevealedPhones((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(contact.id)) {
-                            next.delete(contact.id);
-                          } else {
-                            next.add(contact.id);
-                          }
-                          return next;
-                        });
-                      }}
-                      className="text-muted-foreground hover:text-primary flex items-center justify-center p-1.5 transition-colors"
-                    >
-                      {revealedPhones.has(contact.id) ? (
-                        <EyeOff className="size-3" />
-                      ) : (
-                        <Eye className="size-3" />
-                      )}
-                    </button>
-                    )}
-                  </div>
-                  {contact.email && (
-                    <p className="text-muted-foreground mt-1 truncate text-xs">
-                      {contact.email}
-                    </p>
-                  )}
-                  {contact.tags && contact.tags.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {contact.tags.slice(0, 3).map((tag) => (
-                        <span
-                          key={tag.id}
-                          className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium"
-                          style={{
-                            backgroundColor: tag.color + '20',
-                            color: tag.color,
-                          }}
-                        >
-                          {tag.name}
-                        </span>
-                      ))}
-                      {contact.tags.length > 3 && (
-                        <span className="text-muted-foreground text-[10px]">
-                          +{contact.tags.length - 3}
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </div>
+                  <Trash2 className="size-4" />
+                  {t('deleteSelected')}
+                </GatedButton>
               </div>
-            );
-          })
-        )}
-      </div>
-
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-          <p className="text-muted-foreground text-xs">
-            {t('showingPagination', {
-              start: page * PAGE_SIZE + 1,
-              end: Math.min((page + 1) * PAGE_SIZE, totalCount),
-              total: totalCount,
-            })}
-          </p>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="outline"
-              size="icon-sm"
-              disabled={!hasPrev}
-              onClick={() => setPage((p) => p - 1)}
-              className="border-border text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
-            >
-              <ChevronLeft className="size-4" />
-            </Button>
-            <span className="text-muted-foreground px-2 text-xs">
-              {t('pageCount', { page: page + 1, total: totalPages })}
-            </span>
-            <Button
-              variant="outline"
-              size="icon-sm"
-              disabled={!hasNext}
-              onClick={() => setPage((p) => p + 1)}
-              className="border-border text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
-            >
-              <ChevronRight className="size-4" />
-            </Button>
-          </div>
-        </div>
-      )}
+            </div>
+          ) : undefined
+        }
+        emptyState={{
+          icon: Users,
+          title: hasActiveFilters ? t('noContactsMatch') : t('noContactsYet'),
+          actionLabel: hasActiveFilters ? undefined : t('addFirstContact'),
+          onAction: hasActiveFilters ? undefined : openAddForm,
+        }}
+        hasMore={contacts.length < totalCount}
+        isLoadingMore={isLoadingMore}
+        onLoadMore={() => fetchContacts(true)}
+        rowKey={(contact) => contact.id}
+      />
 
       {/* Contact Form Dialog */}
       <ContactForm
