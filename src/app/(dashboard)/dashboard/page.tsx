@@ -33,6 +33,7 @@ import { ConversationsChart } from '@/components/dashboard/conversations-chart'
 import { PipelineDonut } from '@/components/dashboard/pipeline-donut'
 import { ResponseTimeChart } from '@/components/dashboard/response-time-chart'
 import { ActivityFeed } from '@/components/dashboard/activity-feed'
+import { ReportsCard } from '@/components/dashboard/reports-card'
 
 import { useTranslations } from 'next-intl'
 
@@ -125,16 +126,14 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-5">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">{t('title')}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {t('description')}
-        </p>
-      </div>
+      {/* No page <h1> here — the app header already shows the page
+          title (getPageTitleKey) on every breakpoint, and a second
+          2xl title above the metrics just pushed the data down on
+          phones. */}
 
-      {/* Metric cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {/* Metric cards — 2-up on phones (was 1-up, which stacked four
+          full-width cards before anything else on the page). */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {metricsLoading || !metrics ? (
           Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)
         ) : (
@@ -220,6 +219,10 @@ export default function DashboardPage() {
 
       {/* Response time */}
       <ResponseTimeChart data={responseTime} loading={responseTimeLoading} />
+
+      {/* Reports — audit-log summary (admin+; renders null otherwise).
+          Replaces the sidebar's REPORTS section. */}
+      <ReportsCard />
 
       {/* Activity feed */}
       <ActivityFeed items={activity} loading={activityLoading} />

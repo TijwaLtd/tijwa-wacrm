@@ -7,14 +7,11 @@ import { useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/use-auth';
 import { useTotalUnread } from '@/hooks/use-total-unread';
-import { canViewAudit as canViewAuditRole, hasMinRole, type AccountRole } from '@/lib/auth/roles';
+import { hasMinRole, type AccountRole } from '@/lib/auth/roles';
 import {
-  BarChart3,
   BookOpen,
   CreditCard,
   Crown,
-  FileText,
-  GitBranch,
   LayoutDashboard,
   LogOut,
   MessageSquare,
@@ -150,10 +147,6 @@ const bottomNavItems = [
   { href: '/settings', labelKey: 'settings', icon: Settings },
 ];
 
-const reportNavItems: NavItem[] = [
-  { href: '/audit', labelKey: 'audit', icon: FileText },
-];
-
 // Icon mapping for capability navigation
 const CAPABILITY_ICONS: Record<string, typeof LayoutDashboard> = {
   Package,
@@ -190,7 +183,6 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
   const pathname = usePathname();
   const { profile, profileLoading, account, accountRole, capabilities, signOut } = useAuth();
   const totalUnread = useTotalUnread();
-  const canViewAudit = accountRole ? canViewAuditRole(accountRole) : false;
 
   // Derive navigation items from persisted capabilities in auth context
   const capabilityNavItems = capabilities
@@ -410,42 +402,6 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
           )}
 
           <div className="border-border my-4 border-t" />
-
-          {/* Reports section — admin+ only */}
-          {canViewAudit && (
-            <>
-              <div className="px-3 py-1.5">
-                <div className="text-muted-foreground flex items-center gap-2 text-[10px] font-semibold tracking-wider uppercase">
-                  <BarChart3 className="h-3 w-3" />
-                  {t('reports')}
-                </div>
-              </div>
-              <ul className="flex flex-col gap-1">
-                {reportNavItems.map((item) => {
-                  const isActive = pathname.startsWith(item.href);
-                  return (
-                    <li key={item.href}>
-                      <Link
-                        href={item.href}
-                        className={cn(
-                          'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors lg:py-2',
-                          isActive
-                            ? 'bg-primary/10 text-primary'
-                            : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                        )}
-                      >
-                        <item.icon className="h-4 w-4" />
-                        <span className="flex-1">
-                          {t(item.labelKey as string)}
-                        </span>
-                      </Link>
-                    </li>
-                  );
-                })}
-              </ul>
-              <div className="border-border my-4 border-t" />
-            </>
-          )}
 
           <ul className="flex flex-col gap-1">
             {bottomNavItems

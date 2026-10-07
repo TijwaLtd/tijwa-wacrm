@@ -1,7 +1,7 @@
 "use client"
 
 import Link from 'next/link'
-import { UserPlus, Briefcase, Radio, Zap } from 'lucide-react'
+import { UserPlus, Radio, Zap } from 'lucide-react'
 import type { ComponentType } from 'react'
 
 import { useTranslations } from 'next-intl'
@@ -28,19 +28,24 @@ export function QuickActions() {
   const t = useTranslations('Dashboard.quickActions')
   
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+    // 3-up from sm so the three actions fill one row without leaving
+    // a dangling 4th slot (the old grid-cols-4 did); on phones the
+    // labels get leading-tight so two lines don't blow up card height.
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 [&>*:last-child]:col-span-2 sm:[&>*:last-child]:col-span-1">
       {ACTIONS.map((a) => {
         const Icon = a.icon
         return (
           <Link
             key={a.href}
             href={a.href}
-            className="group flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 transition-colors hover:border-border hover:bg-muted/60"
+            className="group flex items-center gap-2.5 rounded-xl border border-border bg-card px-3 py-3 transition-colors hover:border-border hover:bg-muted/60 sm:gap-3 sm:px-4"
           >
-            <div className={`flex h-9 w-9 items-center justify-center rounded-lg bg-muted ${a.tint}`}>
+            <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted ${a.tint}`}>
               <Icon className="h-4 w-4" />
             </div>
-            <span className="text-sm font-medium text-foreground">{t(a.labelKey as string)}</span>
+            <span className="min-w-0 flex-1 text-[13px] leading-tight font-medium text-foreground sm:text-sm">
+              {t(a.labelKey as string)}
+            </span>
           </Link>
         )
       })}

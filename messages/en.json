@@ -144,6 +144,13 @@
       "noReplies": "No replies recorded yet",
       "noRepliesHint": "This chart fills in as you reply to customer messages."
     },
+    "reports": {
+      "title": "Reports",
+      "description": "Audit log activity for your team.",
+      "last7Days": "Last 7 days",
+      "last30Days": "Last 30 days",
+      "openAuditLog": "Open audit log"
+    },
     "emptyState": {
       "title": "Not enough data yet"
     }
