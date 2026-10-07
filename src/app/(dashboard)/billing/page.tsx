@@ -231,7 +231,7 @@ const FEATURE_ROWS = [
 ];
 
 export default function BillingPage() {
-  const { activeWorkspace, accountRole } = useAuth();
+  const { activeWorkspace, accountRole, refreshProfile } = useAuth();
   const router = useRouter();
   const currentPlan = (activeWorkspace?.plan ?? 'starter') as string;
 
@@ -374,6 +374,11 @@ export default function BillingPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to update plan');
       toast.success(`Plan updated to ${planId}`);
+      // Re-fetch workspaces so activeWorkspace.subscription_status/plan
+      // reflect the new plan — otherwise the SubscriptionGate still sees
+      // the old status and would bounce the owner back to /billing on the
+      // next navigation.
+      void refreshProfile();
       // Optimistic state update — no page reload
       setSubscription((prev) =>
         prev

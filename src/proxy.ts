@@ -128,6 +128,33 @@ export async function proxy(request: NextRequest) {
           return withRefreshedCookies(NextResponse.redirect(url))
         }
       }
+
+      // Part of the session (see (dashboard)/layout.tsx → SubscriptionGate):
+      // this RPC already runs on every protected navigation, so the active
+      // account's plan status + role are forwarded as REQUEST headers —
+      // NextResponse.next({ request }) encodes them as x-middleware-request-*
+      // upstream, where headers() in the dashboard layout reads them. The
+      // gate then decides on first client render with zero fetching. They
+      // never reach the browser (unlike response headers) and are refreshed
+      // on every navigation.
+      const active = activeAccount
+        ? memberships.find((m: { account_id: string }) => m.account_id === activeAccount)
+        : null
+      if (active) {
+        request.headers.set('x-wacrm-account-id', active.account_id)
+        request.headers.set(
+          'x-wacrm-subscription-status',
+          active.subscription_status ?? 'none',
+        )
+        request.headers.set('x-wacrm-role', String(active.role ?? ''))
+
+        // Rebuild the response so the augmented request snapshot is what
+        // passes upstream. Carry Set-Cookie from any token refresh that
+        // already landed on the previous response (see issue #288 note).
+        const refreshedCookies = supabaseResponse.cookies.getAll()
+        supabaseResponse = NextResponse.next({ request })
+        refreshedCookies.forEach((cookie) => supabaseResponse.cookies.set(cookie))
+      }
     }
   }
 

@@ -14,36 +14,43 @@ const PUBLIC_ROUTES = ["/billing", "/settings", "/ai-test"];
  * Gates the dashboard: owners without an active plan are sent to /billing.
  * /billing and /settings are always accessible.
  *
- * Two traps this used to fall into:
- *  1. `activeWorkspace` is null on every cold load (the workspaces RPC
- *     resolves after the session), so the gate saw "no plan", flashed
- *     "Redirecting to billing…" and router.replace'd to /billing before
- *     subscription_status='active' ever arrived — a race that fired
- *     "under special circumstances" (login, hard refresh, slow network).
- *  2. Sending non-owners there loops: the billing page redirects
- *     non-owners to /dashboard, which the gate then redirects back.
- *     Only owners can change plans, so only owners are redirected;
- *     server-side checks (requireActiveSubscription) still enforce the
- *     expired state for everyone else.
+ * The plan status + role come from two sources, in order:
+ *  1. `activeWorkspace` — live client data (wins once loaded, so
+ *     workspace switches and post-upgrade refreshes are respected);
+ *  2. `initialSubscription` — session state carried by proxy.ts as
+ *     request headers (from the get_user_accounts RPC middleware already
+ *     runs), read by the server layout. Available on the first render,
+ *     so the redirect decision needs no client fetch at all.
+ *
+ * Only if BOTH are missing while profile data is still loading do we
+ * show a neutral loader and wait — the old trap was judging on
+ * `activeWorkspace` alone, which is null on every cold load: the gate
+ * raced the workspaces RPC, flashed "Redirecting to billing…" and
+ * bounced users whose plan was active all along.
+ *
+ * Only owners are redirected — non-owners would loop (the billing page
+ * redirects them to /dashboard, which the gate would redirect back).
+ * Server-side checks (requireActiveSubscription) still enforce the
+ * expired state for everyone else.
  */
 export function SubscriptionGate({ children }: SubscriptionGateProps) {
-  const { activeWorkspace, profileLoading } = useAuth();
+  const { activeWorkspace, profileLoading, initialSubscription } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
 
-  const subscriptionStatus = activeWorkspace?.subscription_status;
-  // No trial tier exists — plans are packages (none/active/suspended/cancelled).
-  const hasActivePlan = subscriptionStatus === "active";
+  const status =
+    activeWorkspace?.subscription_status ?? initialSubscription?.status;
+  const role = activeWorkspace?.role ?? initialSubscription?.role ?? undefined;
+
+  const hasActivePlan = status === "active";
+  const isOwner = role === "owner";
   const isPublicRoute = PUBLIC_ROUTES.some(
     (r) => pathname === r || pathname.startsWith(`${r}/`),
   );
-  const isOwner = activeWorkspace?.role === "owner";
 
-  // Workspace/subscription data not resolved yet → judge nothing,
-  // redirect nothing. Show a neutral loader instead of the billing one.
-  const stillResolving = profileLoading && !isPublicRoute;
-  const shouldRedirect =
-    !profileLoading && !isPublicRoute && !hasActivePlan && isOwner;
+  // No source available yet → judge nothing, redirect nothing.
+  const stillResolving = status === undefined && profileLoading && !isPublicRoute;
+  const shouldRedirect = !isPublicRoute && status !== undefined && !hasActivePlan && isOwner;
 
   useEffect(() => {
     if (shouldRedirect) {

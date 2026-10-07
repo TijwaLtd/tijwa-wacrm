@@ -59,6 +59,18 @@ interface AccountSummary {
 
 export type AccountStatus = "loading" | "ready" | "unlinked" | "error";
 
+/**
+ * Plan status + role for the active account, prefilled from the request
+ * (proxy.ts sets them as headers → server layout reads them) so the
+ * SubscriptionGate can decide on the first render without waiting for the
+ * client-side workspaces fetch.
+ */
+export interface InitialSubscription {
+  accountId: string;
+  status: string;
+  role: string | null;
+}
+
 interface AuthContextValue {
   user: User | null;
   profile: Profile | null;
@@ -66,6 +78,9 @@ interface AuthContextValue {
   profileLoading: boolean;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+
+  // Session-level plan state (see InitialSubscription)
+  initialSubscription: InitialSubscription | null;
 
   // Multi-workspace
   workspaces: Workspace[];
@@ -104,7 +119,13 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+export function AuthProvider({
+  children,
+  initialSubscription = null,
+}: {
+  children: ReactNode;
+  initialSubscription?: InitialSubscription | null;
+}) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -412,6 +433,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         profileLoading,
         signOut,
         refreshProfile,
+        initialSubscription,
         workspaces,
         activeAccountId,
         activeWorkspace,
@@ -442,6 +464,7 @@ export function useAuth(): AuthContextValue {
       profileLoading: false,
       signOut: async () => { window.location.href = "/login"; },
       refreshProfile: async () => {},
+      initialSubscription: null,
       workspaces: [],
       activeAccountId: null,
       activeWorkspace: null,

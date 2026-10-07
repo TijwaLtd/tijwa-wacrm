@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AuthProvider, useAuth } from "@/hooks/use-auth";
+import { AuthProvider, useAuth, type InitialSubscription } from "@/hooks/use-auth";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { MobileBottomNav } from "@/components/layout/mobile-bottom-nav";
@@ -63,9 +63,15 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function DashboardShell({ children }: { children: React.ReactNode }) {
+export function DashboardShell({
+  children,
+  initialSubscription = null,
+}: {
+  children: React.ReactNode;
+  initialSubscription?: InitialSubscription | null;
+}) {
   return (
-    <AuthProvider>
+    <AuthProvider initialSubscription={initialSubscription}>
       <HeaderProvider>
         <DashboardShellInner>{children}</DashboardShellInner>
       </HeaderProvider>
