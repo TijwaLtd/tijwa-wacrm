@@ -236,6 +236,8 @@ export function buildSystemPrompt(args: {
       '- If no items match, say so honestly\n' +
       '- If multiple items match, list them with key details (name, price, brief description)\n' +
       '- For specific items, provide full details including description and price\n' +
+      '- If an item\'s price is null (contact-for-price), say "Price on request" — NEVER show "KES null" or invent a number\n' +
+      '- When search results return a list, keep your reply short — it becomes the caption above the tappable list; the customer picks items from the list itself\n' +
       'The catalogue is the single source of truth for all business offerings.\n' +
       'For services with dynamic pricing (delivery, logistics, etc.):\n' +
       '- Use the pricing service to calculate prices based on customer-provided parameters\n' +

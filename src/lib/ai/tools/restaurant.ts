@@ -14,6 +14,7 @@
 // ============================================================
 
 import type { ToolDefinition, ToolHandler, ToolContext } from './types'
+import { buildListRow, formatPriceLabel } from './list-format'
 
 // ============================================================
 // Tool Definitions
@@ -244,14 +245,18 @@ export async function searchMenuItems(
     result.buttons = [{ id: `menu_more_${nextOffset}`, title: 'See More →' }]
   }
 
-  // Build WhatsApp list rows for clickable menu list
+  // Build WhatsApp list rows for clickable menu list.
+  // Row title ≤24 chars (name only), price + details in description (≤72).
+  // Null price → price_enquire_ id (never order at 0).
   result.list_section = {
     title: 'Menu',
-    rows: resultItems.map((item: { id: string; name: string; description: string | null; price: number; currency: string }) => ({
-      id: `menu_add_${item.id}_${Math.round(item.price)}`,
-      title: `${item.name} — ${item.currency} ${item.price}`,
-      description: item.description || undefined,
-    })),
+    rows: resultItems.map((item: { id: string; name: string; description: string | null; price: number | null; currency: string }) => buildListRow(
+      item.price !== null && item.price !== undefined
+        ? `menu_add_${item.id}_${Math.round(item.price)}`
+        : `price_enquire_${item.id}`,
+      item.name,
+      [formatPriceLabel(item.currency, item.price), item.description],
+    )),
   }
 
   return result

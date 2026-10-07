@@ -13,6 +13,7 @@
 // ============================================================
 
 import type { ToolDefinition, ToolHandler, ToolContext } from './types'
+import { buildListRow, formatPriceLabel } from './list-format'
 
 // ============================================================
 // Tool Definitions
@@ -218,14 +219,20 @@ export async function searchProperties(
     result.buttons = [{ id: `property_more_${nextOffset}`, title: 'See More →' }]
   }
 
-  // Build WhatsApp list rows for clickable property list
+  // Build WhatsApp list rows for clickable property list.
+  // Row title ≤24 chars (name only), price/beds/area in description (≤72).
   result.list_section = {
     title: 'Properties',
-    rows: resultItems.map((item: { id: string; name: string; description: string | null; price: number; currency: string; bedrooms: number | null; property_type: string | null }) => ({
-      id: `property_select_${item.id}_${Math.round(item.price)}`,
-      title: `${item.name} — ${item.currency} ${item.price}`,
-      description: [item.bedrooms ? `${item.bedrooms} bed` : null, item.property_type, item.description].filter(Boolean).join(' · ') || undefined,
-    })),
+    rows: resultItems.map((item: { id: string; name: string; price: number | null; currency: string; bedrooms: number | null; listing_type: string | null; location: string | null }) => buildListRow(
+      `property_select_${item.id}_${Math.round(item.price ?? 0)}`,
+      item.name,
+      [
+        formatPriceLabel(item.currency, item.price),
+        item.listing_type,
+        item.bedrooms ? `${item.bedrooms} bed` : null,
+        item.location,
+      ],
+    )),
   }
 
   return result

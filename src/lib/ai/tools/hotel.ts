@@ -13,6 +13,7 @@
 // ============================================================
 
 import type { ToolDefinition, ToolHandler, ToolContext } from './types'
+import { buildListRow, formatPriceLabel } from './list-format'
 
 // ============================================================
 // Tool Definitions
@@ -227,14 +228,21 @@ export async function searchRooms(
     result.buttons = [{ id: `room_more_${nextOffset}`, title: 'See More →' }]
   }
 
-  // Build WhatsApp list rows for clickable room list
+  // Build WhatsApp list rows for clickable room list.
+  // Row title ≤24 chars (name only), price/guests/details in description (≤72).
   result.list_section = {
     title: 'Rooms',
-    rows: resultRooms.map((room: { id: string; name: string; description: string | null; price_per_night: number; currency: string; max_guests: number }) => ({
-      id: `room_select_${room.id}_${Math.round(room.price_per_night)}`,
-      title: `${room.name} — ${room.currency} ${room.price_per_night}/night`,
-      description: `${room.max_guests} guests · ${room.description || ''}`.trim(),
-    })),
+    rows: resultRooms.map((room: { id: string; name: string; description: string | null; price_per_night: number | null; currency: string; max_guests: number }) => buildListRow(
+      room.price_per_night !== null && room.price_per_night !== undefined
+        ? `room_select_${room.id}_${Math.round(room.price_per_night)}`
+        : `price_enquire_${room.id}`,
+      room.name,
+      [
+        formatPriceLabel(room.currency, room.price_per_night, 'night'),
+        room.max_guests ? `${room.max_guests} guests` : null,
+        room.description,
+      ],
+    )),
   }
 
   return result

@@ -16,6 +16,7 @@
 
 import type { ToolDefinition, ToolHandler, ToolContext } from './types'
 import { mapLocationToZone } from './zone-mapper'
+import { buildListRow, formatPriceLabel } from './list-format'
 
 // ============================================================
 // Tool Definitions
@@ -138,6 +139,7 @@ export const logisticsTools: ToolDefinition[] = [
         properties: {
           query: { type: 'string', description: 'Search term' },
           type: { type: 'string', enum: ['product', 'service', 'package', 'menu_item', 'room', 'course', 'event', 'any'] },
+          offset: { type: 'number', description: 'Offset for pagination (default 0)' },
         },
         required: ['query'],
       },
@@ -526,6 +528,8 @@ const searchOfferingsHandler: ToolHandler = async (args, ctx) => {
   const { db } = ctx
   const query = args.query as string
   const type = args.type as string
+  const offset = (args.offset as number) || 0
+  const limit = 10
 
   let q = db
     .from('offerings')
@@ -538,7 +542,10 @@ const searchOfferingsHandler: ToolHandler = async (args, ctx) => {
     q = q.eq('type', type)
   }
 
-  const { data: offerings } = await q.limit(10)
+  // Fetch one extra row to detect has_more
+  const { data: offerings } = await q
+    .order('created_at', { ascending: true })
+    .range(offset, offset + limit)
 
   if (!offerings || offerings.length === 0) {
     return { offerings: [], message: `No offerings found for "${query}"` }
@@ -554,7 +561,10 @@ const searchOfferingsHandler: ToolHandler = async (args, ctx) => {
     media: Array<{ url: string; is_primary?: boolean }> | null
   }
 
-  const mapped = (offerings as OfferingRow[]).map((o) => {
+  const has_more = offerings.length > limit
+  const page = (offerings as OfferingRow[]).slice(0, limit)
+
+  const mapped = page.map((o) => {
     const media = o.media || []
     const primaryImage = media.find((m) => m.is_primary)?.url || media[0]?.url || null
     return {
@@ -571,11 +581,65 @@ const searchOfferingsHandler: ToolHandler = async (args, ctx) => {
   const result: Record<string, unknown> = {
     offerings: mapped,
     count: mapped.length,
+    has_more,
+    offset,
+  }
+
+  if (has_more) {
+    result.buttons = [{ id: `offering_more_${offset + limit}`, title: 'See More →' }]
   }
 
   // Single-result searches share the item photo with the reply
   if (mapped.length === 1 && mapped[0].image_url) {
     result.image_url = mapped[0].image_url
+  }
+
+  // Tappable list rows — row title ≤24 chars (name), price + details in
+  // description (≤72). Route to the domain tap handlers when the type has
+  // one (cart / food order / booking / viewing), generic offering detail
+  // otherwise. Null price → price_enquire_ (never transact at 0).
+  result.list_section = {
+    title: 'Results',
+    rows: mapped.map((o) => {
+      const priced = o.price !== null && o.price !== undefined
+      if (!priced) {
+        return buildListRow(`price_enquire_${o.id}`, o.name, [formatPriceLabel(o.currency, o.price), o.description])
+      }
+      const price = Math.round(o.price ?? 0)
+      switch (o.type) {
+        case 'product':
+          return buildListRow(`product_add_${o.id}_${price}`, o.name, [formatPriceLabel(o.currency, o.price), o.description])
+        case 'service':
+          return buildListRow(`service_select_${o.id}_${price}`, o.name, [formatPriceLabel(o.currency, o.price), o.description])
+        case 'room':
+          return buildListRow(`room_select_${o.id}_${price}`, o.name, [formatPriceLabel(o.currency, o.price, 'night'), o.description])
+        case 'menu_item':
+          return buildListRow(`menu_add_${o.id}_${price}`, o.name, [formatPriceLabel(o.currency, o.price), o.description])
+        case 'property':
+          return buildListRow(`property_select_${o.id}_${price}`, o.name, [formatPriceLabel(o.currency, o.price), o.description])
+        default:
+          return buildListRow(`offering_select_${o.id}`, o.name, [formatPriceLabel(o.currency, o.price), o.description])
+      }
+    }),
+  }
+
+  // Persist search params for the "See More" button
+  if (ctx.conversationId) {
+    const { data: conv } = await db
+      .from('conversations')
+      .select('metadata')
+      .eq('id', ctx.conversationId)
+      .maybeSingle()
+
+    await db
+      .from('conversations')
+      .update({
+        metadata: {
+          ...(conv?.metadata || {}),
+          offering_search_params: { query, type },
+        },
+      })
+      .eq('id', ctx.conversationId)
   }
 
   return result

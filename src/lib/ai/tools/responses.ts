@@ -112,6 +112,12 @@ export function parseProductMoreButtonId(buttonId: string): { offset: number } |
   return { offset: parseInt(match[1], 10) }
 }
 
+export function parseOfferingMoreButtonId(buttonId: string): { offset: number } | null {
+  const match = buttonId.match(/^offering_more_(\d+)$/)
+  if (!match) return null
+  return { offset: parseInt(match[1], 10) }
+}
+
 export function parseServiceMoreButtonId(buttonId: string): { offset: number } | null {
   const match = buttonId.match(/^service_more_(\d+)$/)
   if (!match) return null

@@ -13,6 +13,7 @@
 // ============================================================
 
 import type { ToolDefinition, ToolHandler } from './types'
+import { buildListRow, formatPriceLabel } from './list-format'
 
 // ============================================================
 // Tool Definitions
@@ -249,14 +250,20 @@ export async function searchProducts(
     result.image_url = resultItems[0].image_url
   }
 
-  // Build WhatsApp list rows for clickable product list
+  // Build WhatsApp list rows for clickable product list.
+  // Row title ≤24 chars (name only), price + details in description (≤72).
+  // Null price → price_enquire_ id (never add to cart at 0).
   result.list_section = {
     title: 'Products',
-    rows: resultItems.map((item: { id: string; name: string; description: string | null; price: number; currency: string }) => ({
-      id: `product_add_${item.id}_${Math.round(item.price)}`,
-      title: `${item.name} — ${item.currency} ${item.price}`,
-      description: item.description || undefined,
-    })),
+    rows: resultItems.map((item: { id: string; name: string; description: string | null; price: number | null; currency: string; pricing_unit?: string | null }) => {
+      const id = item.price !== null && item.price !== undefined
+        ? `product_add_${item.id}_${Math.round(item.price)}`
+        : `price_enquire_${item.id}`
+      return buildListRow(id, item.name, [
+        formatPriceLabel(item.currency, item.price, item.pricing_unit || undefined),
+        item.description,
+      ])
+    }),
   }
 
   return result

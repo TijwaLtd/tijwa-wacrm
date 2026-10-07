@@ -13,13 +13,15 @@ import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 import { checkAiCredits, calculateCreditCost } from './credits'
 import { AiError, type ChatMessage } from './types'
 import { getToolsForBusinessType, executeToolCalls, hasToolCalls, ToolContext } from './tools'
-import { parseOrderButtonId, parseFoodOrderButtonId, parseReservationButtonId, parseBookingButtonId, parsePropertyInquiryButtonId, parseProductOrderButtonId, parseMenuMoreButtonId, parseRoomMoreButtonId, parseProductMoreButtonId, parseServiceMoreButtonId, parsePropertyMoreButtonId, parseNgoProgramMoreButtonId, parseNgoCourseMoreButtonId, parseCartButtonId } from './tools'
+import { parseOrderButtonId, parseFoodOrderButtonId, parseReservationButtonId, parseBookingButtonId, parsePropertyInquiryButtonId, parseProductOrderButtonId, parseMenuMoreButtonId, parseRoomMoreButtonId, parseProductMoreButtonId, parseServiceMoreButtonId, parsePropertyMoreButtonId, parseNgoProgramMoreButtonId, parseNgoCourseMoreButtonId, parseCartButtonId, parseOfferingMoreButtonId } from './tools'
+import { clampListSection, clampBody, listCtaFor, type ListSection } from './tools/list-format'
 import { searchMenuItems } from './tools/restaurant'
 import { searchRooms } from './tools/hotel'
 import { searchProducts, getCart, addToCart, clearCart, formatCartSummary, getCartButtons } from './tools/retailer'
 import { searchServices } from './tools/services'
 import { searchProperties } from './tools/property'
 import { searchPrograms, searchCourses } from './tools/ngo'
+import { logisticsToolHandlers } from './tools/logistics'
 import { getEnabledCapabilityKeys } from '@/lib/business/account-capabilities'
 
 interface DispatchArgs {
@@ -1662,6 +1664,222 @@ async function handlePropertyMore(
 }
 
 // ============================================================
+// Shared: send an offering's primary photo (best effort)
+// ============================================================
+
+type OfferingMedia = { url: string; is_primary?: boolean; sort_order?: number }
+
+async function sendPrimaryPhoto(
+  params: {
+    accountId: string
+    userId: string
+    conversationId: string
+    contactId: string
+  },
+  media: unknown,
+  logTag: string,
+): Promise<void> {
+  const list = (media as OfferingMedia[] | null) || []
+  const url = list.find((m) => m.is_primary)?.url || list[0]?.url
+  if (!url) return
+  try {
+    await engineSendMedia({ ...params, kind: 'image', link: url })
+  } catch (imgErr) {
+    console.error(`[${logTag}] failed to send item image:`, imgErr)
+  }
+}
+
+// ============================================================
+// Price Enquiry Handler (no AI — contact-for-price items)
+// ============================================================
+
+async function handlePriceEnquire(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  configOwnerUserId: string,
+  selectionId: string,
+): Promise<void> {
+  // Parse: price_enquire_{uuid}
+  const match = selectionId.match(/^price_enquire_(.+)$/)
+  if (!match) {
+    await engineSendText({ accountId, userId: configOwnerUserId, conversationId, contactId, text: 'Invalid selection.', aiGenerated: true })
+    return
+  }
+
+  const { data: offering } = await db
+    .from('offerings')
+    .select('name, media:offering_media(url, is_primary, sort_order)')
+    .eq('id', match[1])
+    .eq('account_id', accountId)
+    .maybeSingle()
+
+  const name = offering?.name || 'This item'
+  await sendPrimaryPhoto(
+    { accountId, userId: configOwnerUserId, conversationId, contactId },
+    offering?.media,
+    'handlePriceEnquire',
+  )
+  await engineSendText({
+    accountId,
+    userId: configOwnerUserId,
+    conversationId,
+    contactId,
+    text:
+      `💰 *Price on request*\n\n` +
+      `*${name}*\n\n` +
+      `Reply with the quantity you need or any question and we'll get right back to you with pricing.`,
+    aiGenerated: true,
+  })
+}
+
+// ============================================================
+// Generic Offering Detail Handler (no AI — non-domain types)
+// ============================================================
+
+async function handleOfferingListSelect(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  configOwnerUserId: string,
+  selectionId: string,
+): Promise<void> {
+  // Parse: offering_select_{uuid}
+  const match = selectionId.match(/^offering_select_(.+)$/)
+  if (!match) {
+    await engineSendText({ accountId, userId: configOwnerUserId, conversationId, contactId, text: 'Invalid selection.', aiGenerated: true })
+    return
+  }
+
+  const { data: offering } = await db
+    .from('offerings')
+    .select('name, type, price, currency, short_description, metadata, media:offering_media(url, is_primary, sort_order)')
+    .eq('id', match[1])
+    .eq('account_id', accountId)
+    .eq('status', 'active')
+    .maybeSingle()
+
+  if (!offering) {
+    await engineSendText({ accountId, userId: configOwnerUserId, conversationId, contactId, text: 'Sorry, that item is no longer available.', aiGenerated: true })
+    return
+  }
+
+  await sendPrimaryPhoto(
+    { accountId, userId: configOwnerUserId, conversationId, contactId },
+    offering.media,
+    'handleOfferingListSelect',
+  )
+
+  const priceLabel = offering.price !== null && offering.price !== undefined
+    ? `${offering.currency || 'KES'} ${Math.round(offering.price).toLocaleString('en-US')}`
+    : 'Price on request'
+
+  const lines = [
+    `*${offering.name}*`,
+    offering.short_description || '',
+    `💰 ${priceLabel}`,
+  ].filter(Boolean).join('\n')
+
+  await engineSendText({
+    accountId,
+    userId: configOwnerUserId,
+    conversationId,
+    contactId,
+    text: `${lines}\n\nWould you like to go ahead? Just reply and I'll take care of it.`,
+    aiGenerated: true,
+  })
+}
+
+// ============================================================
+// Offering More Handler (no AI — paginated catalogue list)
+// ============================================================
+
+async function handleOfferingMore(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  configOwnerUserId: string,
+  offset: number,
+): Promise<void> {
+  const { data: conv } = await db
+    .from('conversations')
+    .select('metadata')
+    .eq('id', conversationId)
+    .maybeSingle()
+
+  const searchParams = (conv?.metadata as Record<string, unknown>)?.offering_search_params as Record<string, unknown> | undefined
+
+  const handler = logisticsToolHandlers.search_offerings
+  if (!handler) return
+
+  // Reuse the tool handler so list rows/pagination stay consistent
+  const result = (await handler(
+    { query: searchParams?.query, type: searchParams?.type, offset },
+    {
+      db,
+      accountId,
+      conversationId,
+      contactId,
+      contactPhone: null,
+      contactName: null,
+      businessType: null,
+      userId: configOwnerUserId,
+    },
+  )) as {
+    list_section?: ListSection
+    buttons?: Array<{ id: string; title: string }>
+    offerings?: Array<{ name: string; price: number | null; currency: string | null }>
+  }
+
+  const section = clampListSection(result.list_section)
+  const cta = section ? listCtaFor(section) : { buttonLabel: 'View Options', fallbackBody: 'Tap an option below:' }
+
+  if (section) {
+    try {
+      await engineSendInteractiveList({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        bodyText: clampBody(`More results for "${searchParams?.query || 'your search'}":`),
+        buttonLabel: cta.buttonLabel,
+        sections: [section],
+      })
+      const buttons = (result.buttons as Array<{ id: string; title: string }> | undefined) || []
+      if (buttons.length > 0) {
+        await engineSendInteractiveButtons({
+          accountId,
+          userId: configOwnerUserId,
+          conversationId,
+          contactId,
+          bodyText: 'Need more options?',
+          buttons,
+        })
+      }
+      return
+    } catch (listErr) {
+      console.error('[handleOfferingMore] failed to send list:', listErr)
+    }
+  }
+
+  const items = (result.offerings as Array<{ name: string; price: number | null; currency: string | null }> ) || []
+  const lines = items.map((o, i) =>
+    `${offset + i + 1}. *${o.name}* — ${o.price !== null && o.price !== undefined ? `${o.currency || 'KES'} ${Math.round(o.price).toLocaleString('en-US')}` : 'Price on request'}`,
+  ).join('\n')
+  await engineSendText({
+    accountId,
+    userId: configOwnerUserId,
+    conversationId,
+    contactId,
+    text: lines || 'No more results to show.',
+    aiGenerated: true,
+  })
+}
+
+// ============================================================
 // Product List Selection Handler (no AI — like logistics confirm)
 // ============================================================
 
@@ -1770,15 +1988,20 @@ async function handleMenuListSelect(
   const itemId = match[1]
   const price = parseInt(match[2], 10)
 
-  // Look up item name
+  // Look up item name + primary image
   const { data: item } = await db
     .from('offerings')
-    .select('name')
+    .select('name, media:offering_media(url, is_primary, sort_order)')
     .eq('id', itemId)
     .eq('account_id', accountId)
     .maybeSingle()
 
   const itemName = item?.name || 'Menu Item'
+  await sendPrimaryPhoto(
+    { accountId, userId: configOwnerUserId, conversationId, contactId },
+    item?.media,
+    'handleMenuListSelect',
+  )
 
   // For menu items, we send a direct order confirmation (no cart for food — order is immediate)
   // Create pending food order with quantity 1
@@ -1862,15 +2085,20 @@ async function handleRoomListSelect(
   const roomId = match[1]
   const pricePerNight = parseInt(match[2], 10)
 
-  // Look up room details
+  // Look up room details + primary image
   const { data: room } = await db
     .from('offerings')
-    .select('name, metadata')
+    .select('name, metadata, media:offering_media(url, is_primary, sort_order)')
     .eq('id', roomId)
     .eq('account_id', accountId)
     .maybeSingle()
 
   const roomName = room?.name || 'Room'
+  await sendPrimaryPhoto(
+    { accountId, userId: configOwnerUserId, conversationId, contactId },
+    room?.media,
+    'handleRoomListSelect',
+  )
   const meta = (room?.metadata || {}) as Record<string, unknown>
   const capacity = (meta.capacity || {}) as Record<string, unknown>
   const maxGuests = (capacity.max_guests as number) || 2
@@ -1961,15 +2189,20 @@ async function handleServiceListSelect(
   const serviceId = match[1]
   const price = parseInt(match[2], 10)
 
-  // Look up service name
+  // Look up service name + primary image
   const { data: service } = await db
     .from('offerings')
-    .select('name, metadata')
+    .select('name, metadata, media:offering_media(url, is_primary, sort_order)')
     .eq('id', serviceId)
     .eq('account_id', accountId)
     .maybeSingle()
 
   const serviceName = service?.name || 'Service'
+  await sendPrimaryPhoto(
+    { accountId, userId: configOwnerUserId, conversationId, contactId },
+    service?.media,
+    'handleServiceListSelect',
+  )
   const meta = (service?.metadata || {}) as Record<string, unknown>
   const durationMinutes = (meta.duration_minutes as number) || 60
 
@@ -2052,15 +2285,20 @@ async function handlePropertyListSelect(
   const propertyId = match[1]
   const price = parseInt(match[2], 10)
 
-  // Look up property details
+  // Look up property details + primary image
   const { data: property } = await db
     .from('offerings')
-    .select('name, metadata')
+    .select('name, metadata, media:offering_media(url, is_primary, sort_order)')
     .eq('id', propertyId)
     .eq('account_id', accountId)
     .maybeSingle()
 
   const propertyName = property?.name || 'Property'
+  await sendPrimaryPhoto(
+    { accountId, userId: configOwnerUserId, conversationId, contactId },
+    property?.media,
+    'handlePropertyListSelect',
+  )
   const meta = (property?.metadata || {}) as Record<string, unknown>
   const listingType = (meta.listing_type as string) || 'sale'
   const bedrooms = meta.bedrooms || null
@@ -2128,7 +2366,7 @@ async function handlePropertyListSelect(
     (bedrooms ? `🛏️ ${bedrooms} bed` : '') +
     (bathrooms ? ` · 🚿 ${bathrooms} bath` : '') +
     (bedrooms || bathrooms ? '\n' : '') +
-    `💰 KES ${price} (${listingType})\n\n` +
+    `💰 ${price > 0 ? `KES ${price.toLocaleString('en-US')}` : 'Price on request'} (${listingType})\n\n` +
     `What would you like to do?`
 
   // Show 3 action buttons — each routes to a different pending record
@@ -2555,6 +2793,12 @@ export async function dispatchInboundToAiReply(
           await handleNgoCourseMore(db, accountId, conversationId, contactId, configOwnerUserId, ngoCourseMore.offset)
           return
         }
+        const offeringMore = parseOfferingMoreButtonId(interactiveReplyId)
+        if (offeringMore) {
+          console.log(`[dispatchInboundToAiReply] offering more click (no AI config): offset=${offeringMore.offset}`)
+          await handleOfferingMore(db, accountId, conversationId, contactId, configOwnerUserId, offeringMore.offset)
+          return
+        }
         const cartAction = parseCartButtonId(interactiveReplyId)
         if (cartAction) {
           console.log(`[dispatchInboundToAiReply] cart button click (no AI config): ${cartAction.action}`)
@@ -2601,6 +2845,18 @@ export async function dispatchInboundToAiReply(
         if (interactiveReplyId.startsWith('ngo_course_select_')) {
           console.log(`[dispatchInboundToAiReply] ngo course list select (no AI config): ${interactiveReplyId}`)
           await handleNgoCourseListSelect(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId)
+          return
+        }
+        // Contact-for-price item enquiry (WhatsApp list reply)
+        if (interactiveReplyId.startsWith('price_enquire_')) {
+          console.log(`[dispatchInboundToAiReply] price enquire select (no AI config): ${interactiveReplyId}`)
+          await handlePriceEnquire(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId)
+          return
+        }
+        // Generic offering detail (WhatsApp list reply)
+        if (interactiveReplyId.startsWith('offering_select_')) {
+          console.log(`[dispatchInboundToAiReply] offering list select (no AI config): ${interactiveReplyId}`)
+          await handleOfferingListSelect(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId)
           return
         }
       }
@@ -2689,6 +2945,12 @@ export async function dispatchInboundToAiReply(
         await handleNgoCourseMore(db, accountId, conversationId, contactId, configOwnerUserId, ngoCourseMore.offset)
         return
       }
+      const offeringMore = parseOfferingMoreButtonId(interactiveReplyId)
+      if (offeringMore) {
+        console.log(`[dispatchInboundToAiReply] offering more click: offset=${offeringMore.offset}`)
+        await handleOfferingMore(db, accountId, conversationId, contactId, configOwnerUserId, offeringMore.offset)
+        return
+      }
       const cartAction = parseCartButtonId(interactiveReplyId)
       if (cartAction) {
         console.log(`[dispatchInboundToAiReply] cart button click: ${cartAction.action}`)
@@ -2735,6 +2997,18 @@ export async function dispatchInboundToAiReply(
       if (interactiveReplyId.startsWith('ngo_course_select_')) {
         console.log(`[dispatchInboundToAiReply] ngo course list select: ${interactiveReplyId}`)
         await handleNgoCourseListSelect(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId)
+        return
+      }
+      // Contact-for-price item enquiry (WhatsApp list reply)
+      if (interactiveReplyId.startsWith('price_enquire_')) {
+        console.log(`[dispatchInboundToAiReply] price enquire select: ${interactiveReplyId}`)
+        await handlePriceEnquire(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId)
+        return
+      }
+      // Generic offering detail (WhatsApp list reply)
+      if (interactiveReplyId.startsWith('offering_select_')) {
+        console.log(`[dispatchInboundToAiReply] offering list select: ${interactiveReplyId}`)
+        await handleOfferingListSelect(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId)
         return
       }
     }
@@ -3175,42 +3449,54 @@ export async function dispatchInboundToAiReply(
       }
     }
 
-    // Send interactive list if tool returned list_section (clickable product list)
+    // Send interactive list if tool returned list_section (clickable catalogue list)
     if (finalListSection && finalListSection.rows.length > 0) {
-      try {
-        await engineSendInteractiveList({
-          accountId,
-          userId: configOwnerUserId,
-          conversationId,
-          contactId,
-          bodyText: reply.text || 'Tap a product to add to cart:',
-          buttonLabel: 'Browse Products',
-          sections: [finalListSection],
-        })
-        // Send See More button as separate message if there are more items
-        if (finalButtons && finalButtons.length > 0) {
-          await engineSendInteractiveButtons({
+      // Meta rejects lists whose rows exceed 24/72 chars or >10 rows —
+      // clamp defensively, then pick CTA wording from the row id prefix.
+      const listSection = clampListSection(finalListSection)
+      const cta = listSection
+        ? listCtaFor(listSection)
+        : { buttonLabel: 'View Options', fallbackBody: 'Tap an option below:' }
+      if (listSection) {
+        try {
+          await engineSendInteractiveList({
             accountId,
             userId: configOwnerUserId,
             conversationId,
             contactId,
-            bodyText: 'Need more options?',
-            buttons: finalButtons.map((b) => ({ id: b.id, title: b.title })),
+            bodyText: clampBody(reply.text || cta.fallbackBody),
+            buttonLabel: cta.buttonLabel,
+            sections: [listSection],
           })
+          // Send See More button as separate message if there are more items
+          if (finalButtons && finalButtons.length > 0) {
+            await engineSendInteractiveButtons({
+              accountId,
+              userId: configOwnerUserId,
+              conversationId,
+              contactId,
+              bodyText: 'Need more options?',
+              buttons: finalButtons.map((b) => ({ id: b.id, title: b.title })),
+            })
+          }
+          return
+        } catch (listErr) {
+          console.error('[ai auto-reply] failed to send list, falling back to text:', listErr)
         }
-      } catch (listErr) {
-        console.error('[ai auto-reply] failed to send list, falling back to text:', listErr)
-        await engineSendText({
-          accountId,
-          userId: configOwnerUserId,
-          conversationId,
-          contactId,
-          text: reply.text || 'Here are the products:',
-          aiGenerated: true,
-        })
       }
+      await engineSendText({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        text: reply.text || 'Here are the results:',
+        aiGenerated: true,
+      })
+      return
+    }
+
     // Send interactive buttons if available, otherwise plain text
-    } else if (finalButtons && finalButtons.length > 0 && reply.text) {
+    if (finalButtons && finalButtons.length > 0 && reply.text) {
       try {
         await engineSendInteractiveButtons({
           accountId,

@@ -13,6 +13,7 @@
 // ============================================================
 
 import type { ToolDefinition, ToolHandler, ToolContext } from './types'
+import { buildListRow, formatPriceLabel } from './list-format'
 
 // ============================================================
 // Tool Definitions
@@ -196,14 +197,22 @@ export async function searchServices(
     result.buttons = [{ id: `service_more_${nextOffset}`, title: 'See More →' }]
   }
 
-  // Build WhatsApp list rows for clickable service list
+  // Build WhatsApp list rows for clickable service list.
+  // Row title ≤24 chars (name only), price + details in description (≤72).
+  // Null price → price_enquire_ id (never book at 0).
   result.list_section = {
     title: 'Services',
-    rows: resultItems.map((item: { id: string; name: string; description: string | null; price: number; currency: string; duration_minutes: number | null }) => ({
-      id: `service_select_${item.id}_${Math.round(item.price)}`,
-      title: `${item.name} — ${item.currency} ${item.price}`,
-      description: item.description || undefined,
-    })),
+    rows: resultItems.map((item: { id: string; name: string; description: string | null; price: number | null; currency: string; duration_minutes: number | null }) => buildListRow(
+      item.price !== null && item.price !== undefined
+        ? `service_select_${item.id}_${Math.round(item.price)}`
+        : `price_enquire_${item.id}`,
+      item.name,
+      [
+        formatPriceLabel(item.currency, item.price),
+        item.duration_minutes ? `${item.duration_minutes} min` : null,
+        item.description,
+      ],
+    )),
   }
 
   return result

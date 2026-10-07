@@ -15,6 +15,7 @@
 // ============================================================
 
 import type { ToolDefinition, ToolHandler, ToolContext } from './types'
+import { buildListRow } from './list-format'
 
 // ============================================================
 // Tool Definitions
@@ -366,13 +367,14 @@ export async function searchPrograms(
     result.buttons = [{ id: `ngo_program_more_${nextOffset}`, title: 'See More →' }]
   }
 
+  // Row title ≤24 chars (name only), details in description (≤72).
   result.list_section = {
     title: 'Programs',
-    rows: resultItems.map((item: { id: string; name: string; short_description: string | null; description: string | null }) => ({
-      id: `ngo_program_select_${item.id}`,
-      title: item.name,
-      description: item.short_description || item.description || undefined,
-    })),
+    rows: resultItems.map((item: { id: string; name: string; short_description: string | null; description: string | null }) => buildListRow(
+      `ngo_program_select_${item.id}`,
+      item.name,
+      [item.short_description || item.description],
+    )),
   }
 
   return result
@@ -457,13 +459,14 @@ export async function searchCourses(
     result.buttons = [{ id: `ngo_course_more_${nextOffset}`, title: 'See More →' }]
   }
 
+  // Row title ≤24 chars (name only), details in description (≤72).
   result.list_section = {
     title: 'Training Courses',
-    rows: resultItems.map((item: { id: string; name: string; duration_weeks: number; category: string | null }) => ({
-      id: `ngo_course_select_${item.id}`,
-      title: item.name,
-      description: `${item.duration_weeks} weeks · ${item.category || 'general'}`,
-    })),
+    rows: resultItems.map((item: { id: string; name: string; duration_weeks: number; category: string | null }) => buildListRow(
+      `ngo_course_select_${item.id}`,
+      item.name,
+      [`${item.duration_weeks} weeks`, item.category],
+    )),
   }
 
   return result
