@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import {
   Loader2, Upload, ArrowRight, ArrowLeft, Check, Building2, Store, Hotel, UtensilsCrossed,
   GraduationCap, Heart, Home, Calendar, Briefcase, Truck, Package, Navigation, Sparkles,
-  Wrench, Scissors, Dumbbell, Car, Dog, Stethoscope, Clock, CheckCircle2, SlidersHorizontal, X
+  Wrench, Scissors, Dumbbell, Car, Dog, Stethoscope, Clock, CheckCircle2, SlidersHorizontal, X, Sprout
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,6 +25,7 @@ type Step = typeof STEPS[number];
 const BUSINESS_TYPE_ICONS: Record<BusinessType, typeof Building2> = {
   retailer: Store,
   wholesaler: Store,
+  agriculture: Sprout,
   restaurant: UtensilsCrossed,
   hotel: Hotel,
   hotel_restaurant: Hotel,

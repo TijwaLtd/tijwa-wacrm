@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
-import { Building2, Loader2, Store, Hotel, UtensilsCrossed, GraduationCap, Heart, Home, Calendar, Briefcase, Truck, Package, Navigation, Sparkles, Wrench, Scissors, Dumbbell, Car, Dog, Stethoscope, Settings } from 'lucide-react';
+import { Building2, Loader2, Store, Hotel, UtensilsCrossed, GraduationCap, Heart, Home, Calendar, Briefcase, Truck, Package, Navigation, Sparkles, Wrench, Scissors, Dumbbell, Car, Dog, Stethoscope, Settings, Sprout } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/use-auth';
@@ -12,6 +12,7 @@ import { BUSINESS_TYPES, type BusinessType, type CapabilityWithState, groupCapab
 const BUSINESS_TYPE_ICONS: Record<BusinessType, typeof Building2> = {
   retailer: Store,
   wholesaler: Store,
+  agriculture: Sprout,
   restaurant: UtensilsCrossed,
   hotel: Hotel,
   hotel_restaurant: Hotel,

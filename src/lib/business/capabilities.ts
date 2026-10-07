@@ -18,6 +18,7 @@
 export type BusinessType =
   | 'retailer'
   | 'wholesaler'
+  | 'agriculture'
   | 'restaurant'
   | 'hotel'
   | 'hotel_restaurant'
@@ -43,6 +44,7 @@ export type BusinessType =
 export const BUSINESS_TYPES: { value: BusinessType; label: string; description: string }[] = [
   { value: 'retailer', label: 'Retailer', description: 'Sell products directly to consumers' },
   { value: 'wholesaler', label: 'Wholesaler', description: 'Sell products in bulk to businesses' },
+  { value: 'agriculture', label: 'Agriculture / Agro', description: 'Farm inputs, agro-dealing and agro-processing' },
   { value: 'restaurant', label: 'Restaurant', description: 'Food and beverage service' },
   { value: 'hotel', label: 'Hotel', description: 'Accommodation and lodging' },
   { value: 'hotel_restaurant', label: 'Hotel + Restaurant', description: 'Accommodation with food service' },
@@ -144,6 +146,7 @@ export function getRecommendedCapabilityKeys(businessType: BusinessType): string
   const recommendations: Record<BusinessType, string[]> = {
     retailer: ['products', 'product_catalog', 'inventory', 'orders', 'inquiries'],
     wholesaler: ['products', 'product_catalog', 'inventory', 'orders', 'wholesale', 'pricing', 'inquiries'],
+    agriculture: ['products', 'product_catalog', 'inventory', 'orders', 'inquiries'],
     restaurant: ['menu', 'food_orders', 'reservations', 'events', 'inquiries'],
     hotel: ['accommodation', 'bookings', 'hospitality_services', 'events', 'inquiries'],
     hotel_restaurant: ['accommodation', 'bookings', 'menu', 'food_orders', 'hospitality_services', 'events', 'inquiries'],
