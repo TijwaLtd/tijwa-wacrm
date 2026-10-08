@@ -1,11 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { AuthProvider, useAuth, type InitialSubscription } from "@/hooks/use-auth";
+import { useNetworkStatus } from "@/hooks/use-network-status";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { MobileBottomNav } from "@/components/layout/mobile-bottom-nav";
+import { NetworkStatusBanner } from "@/components/layout/network-status-banner";
 import { AccountAccessAlert } from "@/components/layout/account-access-alert";
 import { PresenceHeartbeat } from "@/components/presence/presence-heartbeat";
 import { SubscriptionGate } from "@/components/subscription-gate";
@@ -14,7 +16,9 @@ import { HeaderProvider, useHideDefaultHeader } from "@/components/layout/header
 function DashboardShellInner({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
   const { headerHidden, bottomNavHidden } = useHideDefaultHeader();
+  const { online, checking, retry } = useNetworkStatus();
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
@@ -24,6 +28,16 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
       router.push("/login");
     }
   }, [user, loading, router]);
+
+  // Offline: the inbox is the only screen that works (IndexedDB cache +
+  // message outbox). Bounce every other route there so users don't land
+  // on pages that can only render empty-state errors without a network.
+  useEffect(() => {
+    if (loading || !user) return;
+    if (!online && pathname !== "/inbox") {
+      router.replace("/inbox");
+    }
+  }, [online, pathname, loading, user, router]);
 
   if (loading) {
     return (
@@ -48,6 +62,9 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
       <Sidebar open={sidebarOpen} onClose={closeSidebar} />
       <div className="border-border/70 bg-card flex flex-1 flex-col overflow-hidden shadow-sm lg:rounded-2xl lg:border">
         {!headerHidden && <Header onMenuClick={() => setSidebarOpen(true)} />}
+        {/* Global connectivity strip: amber while offline (Retry probes
+            /api/health), green flash on recovery. */}
+        <NetworkStatusBanner online={online} checking={checking} onRetry={retry} />
         {/* Thinner horizontal padding on mobile so cards have room to breathe. */}
         <main className="flex-1 overflow-y-auto p-4 [scrollbar-width:thin] sm:p-6 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border/70">
           {/* Above every page: writes are being rejected and here's why.

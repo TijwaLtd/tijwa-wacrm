@@ -2114,5 +2114,12 @@
     "yourWorkspacesDesc": "All workspaces you belong to and your role in each.",
     "current": "Current",
     "switchTo": "Switch"
+  },
+  "Network": {
+    "offlineTitle": "You're offline",
+    "offlineDesc": "Only Chat is available — messages queue and send when you're back.",
+    "retry": "Retry",
+    "checking": "Checking…",
+    "backOnline": "Back online — syncing…"
   }
 }
