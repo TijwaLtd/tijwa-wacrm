@@ -115,14 +115,16 @@ export function ConversationList({
     );
   }, [canSeeAllConversations, userId]);
 
+  // "Open" is deliberately absent: every unread conversation is an open
+  // one, so the three overlapping views (all/unread/open) bought nothing.
   const FILTER_OPTIONS: { label: string; value: InboxFilter }[] = useMemo(
     () => [
       { label: t('filterAll'), value: 'all' },
       { label: t('filterUnread'), value: 'unread' },
-      { label: t('filterOpen'), value: 'open' },
       { label: t('filterPending'), value: 'pending' },
       { label: t('filterClosed'), value: 'closed' },
     ],
+
     [t]
   );
 
@@ -446,17 +448,17 @@ export function ConversationList({
     [onSelect]
   );
 
-  const activeFilter = FILTER_OPTIONS.find((o) => o.value === filter);
-
   return (
     // w-full on mobile so the list occupies the whole viewport when it's
     // the single pane showing; fixed 320px on desktop where it shares the
     // row with the thread + contact sidebar.
-    <div className="border-border bg-card flex h-full w-full flex-col border-r lg:w-80">
+    <div className="border-border bg-card flex h-full w-full min-w-0 flex-col border-r lg:w-80">
       {/* Header with tabs and actions */}
       <div className="border-border flex items-center justify-between border-b px-3 py-2">
-        {/* Tabs — WhatsApp / Team, shown on every size */}
-        <div className="flex min-w-0 items-center gap-1">
+        {/* Tabs — WhatsApp / Team, shown on every size. `flex-1 min-w-0`
+            + overflow-hidden so a cramped header clips the tab labels
+            instead of shoving the action buttons out of view. */}
+        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
           <button
             onClick={() => onModeChange?.('whatsapp')}
             className={cn(
@@ -483,8 +485,9 @@ export function ConversationList({
           </button>
         </div>
 
-        {/* Action buttons */}
-        <div className="flex items-center gap-1">
+        {/* Action buttons — never shrink, or they collapse to nothing
+            (icons invisible) the moment the tab row runs out of room. */}
+        <div className="flex shrink-0 items-center gap-1">
           {onNewConversation && (
             <button
               onClick={onNewConversation}
@@ -535,32 +538,29 @@ export function ConversationList({
           />
         </div>
 
+        {/* Status filter — laid out horizontally instead of tucked behind
+            a dropdown: all/unread are the two most-used views and they
+            were costing an extra tap to reach. */}
         <div className="flex flex-wrap items-center gap-1">
-          <DropdownMenu>
-            <DropdownMenuTrigger className="text-muted-foreground hover:text-foreground hover:bg-muted inline-flex h-7 items-center justify-center gap-1 rounded-md px-2 text-xs">
-              {activeFilter?.label ?? t('filterAll')}
-              <ChevronDown className="h-3 w-3" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="start"
-              className="border-border bg-popover"
+          {FILTER_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => setFilter(opt.value)}
+              aria-pressed={filter === opt.value}
+              className={cn(
+                'inline-flex h-7 shrink-0 items-center rounded-full px-2.5 text-xs transition-colors',
+                filter === opt.value
+                  ? 'bg-primary/10 font-medium text-primary'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+              )}
             >
-              {FILTER_OPTIONS.map((opt) => (
-                <DropdownMenuItem
-                  key={opt.value}
-                  onClick={() => setFilter(opt.value)}
-                  className={cn(
-                    'text-sm',
-                    filter === opt.value
-                      ? 'text-primary'
-                      : 'text-popover-foreground'
-                  )}
-                >
-                  {opt.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+              {opt.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-1">
 
           {tags.length > 0 && (
             <DropdownMenu>
@@ -614,7 +614,7 @@ export function ConversationList({
                     : 'text-muted-foreground hover:text-foreground'
                 )}
               >
-                <span className="truncate">
+                <span className="min-w-0 truncate">
                   {selectedCompany ?? t('company')}
                 </span>
                 <ChevronDown className="h-3 w-3 shrink-0" />
@@ -669,7 +669,7 @@ export function ConversationList({
                       backgroundColor: tag?.color ?? 'var(--muted-foreground)',
                     }}
                   />
-                  <span className="max-w-24 truncate">
+                  <span className="min-w-0 max-w-24 truncate">
                     {tag?.name ?? t('tags')}
                   </span>
                   <X className="h-3 w-3" />
@@ -681,7 +681,7 @@ export function ConversationList({
                 onClick={() => setSelectedCompany(null)}
                 className="bg-muted text-foreground hover:bg-muted/70 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px]"
               >
-                <span className="max-w-24 truncate">{selectedCompany}</span>
+                <span className="min-w-0 max-w-24 truncate">{selectedCompany}</span>
                 <X className="h-3 w-3" />
               </button>
             )}
@@ -813,7 +813,7 @@ function ConversationItem({
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-1.5">
-            <span className="text-foreground truncate text-sm font-medium">
+            <span className="text-foreground min-w-0 truncate text-sm font-medium">
               {displayName}
             </span>
             {isTeam ? (
@@ -856,7 +856,7 @@ function ConversationItem({
           </span>
         </div>
         <div className="mt-0.5 flex items-center justify-between gap-2">
-          <p className="text-muted-foreground truncate text-xs">
+          <p className="text-muted-foreground min-w-0 flex-1 truncate text-xs">
             {conversation.last_message_text
               ? formatWhatsAppInline(conversation.last_message_text)
               : t('noMessagesYet')}
