@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Loader2, Upload, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -148,7 +148,12 @@ export function CatalogForm({ open, onOpenChange, offering, onSuccess, defaultTy
   const fileInputImageRef = useRef<HTMLInputElement>(null);
 
   const [categories, setCategories] = useState<OfferingCategory[]>([]);
-  const allowedTypes = getAllowedOfferingTypes(enabledCapabilities);
+  // Must be referentially stable — the reset effect below depends on it,
+  // and a fresh array each render re-runs that effect forever.
+  const allowedTypes = useMemo(
+    () => getAllowedOfferingTypes(enabledCapabilities),
+    [enabledCapabilities],
+  );
   const isEditing = !!offering;
 
   // Load categories
