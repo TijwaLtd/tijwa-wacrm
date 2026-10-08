@@ -19,6 +19,7 @@ import {
   BOOKING_STATUSES,
 } from '@/lib/business/orders';
 import { ResponsiveDataListing, type ColumnDef, type CardMapper } from '@/components/shared/responsive-data-listing';
+import { StatCard, STAT_GRID_CLASS } from '@/components/shared/stat-card';
 
 const PAGE_SIZE = 25;
 
@@ -268,38 +269,11 @@ export default function ViewingsPage() {
   return (
     <div className="space-y-6">
       {/* Top Overview Metric Cards */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">Total Viewings</span>
-            <Eye className="h-4 w-4 text-primary" />
-          </div>
-          <p className="text-xl font-bold text-foreground mt-1.5">{total}</p>
-        </div>
-
-        <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">Pending</span>
-            <Clock className="h-4 w-4 text-amber-500" />
-          </div>
-          <p className="text-xl font-bold text-foreground mt-1.5">{pendingCount}</p>
-        </div>
-
-        <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">Confirmed</span>
-            <CalendarCheck className="h-4 w-4 text-blue-500" />
-          </div>
-          <p className="text-xl font-bold text-foreground mt-1.5">{confirmedCount}</p>
-        </div>
-
-        <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">Viewed</span>
-            <CheckCircle className="h-4 w-4 text-emerald-500" />
-          </div>
-          <p className="text-xl font-bold text-foreground mt-1.5">{viewedCount}</p>
-        </div>
+      <div className={STAT_GRID_CLASS}>
+        <StatCard title="Total Viewings" value={total} icon={Eye} iconClassName="text-primary" />
+        <StatCard title="Pending" value={pendingCount} icon={Clock} iconClassName="text-amber-500" />
+        <StatCard title="Confirmed" value={confirmedCount} icon={CalendarCheck} iconClassName="text-blue-500" />
+        <StatCard title="Viewed" value={viewedCount} icon={CheckCircle} iconClassName="text-emerald-500" />
       </div>
 
       {/* Main Responsive Data Listing */}

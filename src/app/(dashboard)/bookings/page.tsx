@@ -14,6 +14,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { cn } from '@/lib/utils';
 import { type Booking, type BookingStatus, BOOKING_STATUSES, formatCurrency } from '@/lib/business/orders';
 import { ResponsiveDataListing, type ColumnDef, type CardMapper } from '@/components/shared/responsive-data-listing';
+import { StatCard, STAT_GRID_CLASS } from '@/components/shared/stat-card';
 
 const PAGE_SIZE = 25;
 
@@ -314,38 +315,11 @@ export default function BookingsPage() {
   return (
     <div className="space-y-6">
       {/* Top Overview Metric Cards */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">Total Bookings</span>
-            <Calendar className="h-4 w-4 text-primary" />
-          </div>
-          <p className="text-xl font-bold text-foreground mt-1.5">{total}</p>
-        </div>
-
-        <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">Pending</span>
-            <Clock className="h-4 w-4 text-amber-500" />
-          </div>
-          <p className="text-xl font-bold text-foreground mt-1.5">{pendingCount}</p>
-        </div>
-
-        <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">Confirmed</span>
-            <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-          </div>
-          <p className="text-xl font-bold text-foreground mt-1.5">{confirmedCount}</p>
-        </div>
-
-        <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">Checked In</span>
-            <UserCheck className="h-4 w-4 text-blue-500" />
-          </div>
-          <p className="text-xl font-bold text-foreground mt-1.5">{checkedInCount}</p>
-        </div>
+      <div className={STAT_GRID_CLASS}>
+        <StatCard title="Total Bookings" value={total} icon={Calendar} iconClassName="text-primary" />
+        <StatCard title="Pending" value={pendingCount} icon={Clock} iconClassName="text-amber-500" />
+        <StatCard title="Confirmed" value={confirmedCount} icon={CheckCircle2} iconClassName="text-emerald-500" />
+        <StatCard title="Checked In" value={checkedInCount} icon={UserCheck} iconClassName="text-blue-500" />
       </div>
 
       {/* Main Responsive Data Listing */}

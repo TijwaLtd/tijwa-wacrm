@@ -8,6 +8,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { cn } from '@/lib/utils';
 import { formatCurrency } from '@/lib/business/orders';
 import { ResponsiveDataListing, type ColumnDef, type CardMapper } from '@/components/shared/responsive-data-listing';
+import { StatCard, STAT_GRID_CLASS } from '@/components/shared/stat-card';
 
 const PAGE_SIZE = 25;
 
@@ -185,43 +186,11 @@ export default function RoomsPage() {
   return (
     <div className="space-y-6">
       {/* Stats */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">Total Rooms</span>
-            <Bed className="h-4 w-4 text-primary" />
-          </div>
-          <p className="text-xl font-bold text-foreground mt-1.5">{total}</p>
-        </div>
-        <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">Active</span>
-            <Bed className="h-4 w-4 text-green-500" />
-          </div>
-          <p className="text-xl font-bold text-foreground mt-1.5">
-            {rooms.filter(r => r.status === 'active').length}
-          </p>
-        </div>
-        <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">Avg Price</span>
-            <Bed className="h-4 w-4 text-blue-500" />
-          </div>
-          <p className="text-xl font-bold text-foreground mt-1.5 font-mono">
-            {rooms.length > 0
-              ? formatCurrency(rooms.reduce((sum, r) => sum + r.price, 0) / rooms.length, 'KES')
-              : '—'}
-          </p>
-        </div>
-        <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">Draft</span>
-            <Bed className="h-4 w-4 text-amber-500" />
-          </div>
-          <p className="text-xl font-bold text-foreground mt-1.5">
-            {rooms.filter(r => r.status === 'draft').length}
-          </p>
-        </div>
+      <div className={STAT_GRID_CLASS}>
+        <StatCard title="Total Rooms" value={total} icon={Bed} iconClassName="text-primary" />
+        <StatCard title="Active" value={rooms.filter(r => r.status === 'active').length} icon={Bed} iconClassName="text-green-500" />
+        <StatCard title="Avg Price" value={rooms.length > 0 ? formatCurrency(rooms.reduce((sum, r) => sum + r.price, 0) / rooms.length, 'KES') : '—'} icon={Bed} iconClassName="text-blue-500" valueClassName="font-mono" />
+        <StatCard title="Draft" value={rooms.filter(r => r.status === 'draft').length} icon={Bed} iconClassName="text-amber-500" />
       </div>
 
       {/* Data Listing */}

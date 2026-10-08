@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/hooks/use-auth';
 import { cn } from '@/lib/utils';
 import { ResponsiveDataListing, type ColumnDef, type CardMapper } from '@/components/shared/responsive-data-listing';
+import { StatCard, STAT_GRID_CLASS } from '@/components/shared/stat-card';
 
 const PAGE_SIZE = 25;
 
@@ -172,41 +173,11 @@ export default function ReservationsPage() {
   return (
     <div className="space-y-6">
       {/* Stats */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">Total</span>
-            <CalendarCheck className="h-4 w-4 text-primary" />
-          </div>
-          <p className="text-xl font-bold text-foreground mt-1.5">{total}</p>
-        </div>
-        <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">Pending</span>
-            <Clock className="h-4 w-4 text-amber-500" />
-          </div>
-          <p className="text-xl font-bold text-foreground mt-1.5">
-            {reservations.filter(r => r.status === 'pending').length}
-          </p>
-        </div>
-        <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">Confirmed</span>
-            <CheckCircle2 className="h-4 w-4 text-blue-500" />
-          </div>
-          <p className="text-xl font-bold text-foreground mt-1.5">
-            {reservations.filter(r => r.status === 'confirmed').length}
-          </p>
-        </div>
-        <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">No Shows</span>
-            <XCircle className="h-4 w-4 text-red-500" />
-          </div>
-          <p className="text-xl font-bold text-foreground mt-1.5">
-            {reservations.filter(r => r.status === 'no_show').length}
-          </p>
-        </div>
+      <div className={STAT_GRID_CLASS}>
+        <StatCard title="Total" value={total} icon={CalendarCheck} iconClassName="text-primary" />
+        <StatCard title="Pending" value={reservations.filter(r => r.status === 'pending').length} icon={Clock} iconClassName="text-amber-500" />
+        <StatCard title="Confirmed" value={reservations.filter(r => r.status === 'confirmed').length} icon={CheckCircle2} iconClassName="text-blue-500" />
+        <StatCard title="No Shows" value={reservations.filter(r => r.status === 'no_show').length} icon={XCircle} iconClassName="text-red-500" />
       </div>
 
       {/* Data Listing */}

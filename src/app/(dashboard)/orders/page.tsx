@@ -14,6 +14,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { cn } from '@/lib/utils';
 import { type Order, type OrderStatus, ORDER_STATUSES, formatCurrency } from '@/lib/business/orders';
 import { ResponsiveDataListing, type ColumnDef, type CardMapper } from '@/components/shared/responsive-data-listing';
+import { StatCard, STAT_GRID_CLASS } from '@/components/shared/stat-card';
 
 const PAGE_SIZE = 25;
 
@@ -307,38 +308,11 @@ export default function OrdersPage() {
   return (
     <div className="space-y-6">
       {/* Top Overview Metric Cards */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">Total Orders</span>
-            <ShoppingCart className="h-4 w-4 text-primary" />
-          </div>
-          <p className="text-xl font-bold text-foreground mt-1.5">{total}</p>
-        </div>
-
-        <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">Pending</span>
-            <Clock className="h-4 w-4 text-amber-500" />
-          </div>
-          <p className="text-xl font-bold text-foreground mt-1.5">{pendingCount}</p>
-        </div>
-
-        <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">Processing</span>
-            <Truck className="h-4 w-4 text-blue-500" />
-          </div>
-          <p className="text-xl font-bold text-foreground mt-1.5">{processingCount}</p>
-        </div>
-
-        <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">Delivered</span>
-            <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-          </div>
-          <p className="text-xl font-bold text-foreground mt-1.5">{deliveredCount}</p>
-        </div>
+      <div className={STAT_GRID_CLASS}>
+        <StatCard title="Total Orders" value={total} icon={ShoppingCart} iconClassName="text-primary" />
+        <StatCard title="Pending" value={pendingCount} icon={Clock} iconClassName="text-amber-500" />
+        <StatCard title="Processing" value={processingCount} icon={Truck} iconClassName="text-blue-500" />
+        <StatCard title="Delivered" value={deliveredCount} icon={CheckCircle2} iconClassName="text-emerald-500" />
       </div>
 
       {/* Main Responsive Data Listing */}

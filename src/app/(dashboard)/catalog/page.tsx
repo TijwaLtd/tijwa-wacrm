@@ -20,6 +20,7 @@ import {
 import { CatalogForm } from '@/components/catalog/catalog-form';
 import { CategoryManager } from '@/components/catalog/category-manager';
 import { ResponsiveDataListing, type ColumnDef, type CardMapper } from '@/components/shared/responsive-data-listing';
+import { StatCard, STAT_GRID_CLASS } from '@/components/shared/stat-card';
 
 const PAGE_SIZE = 25;
 
@@ -249,38 +250,11 @@ export default function CatalogPage() {
   return (
     <div className="space-y-6">
       {/* Top Overview Metric Cards */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">Total Offerings</span>
-            <Package className="h-4 w-4 text-primary" />
-          </div>
-          <p className="text-xl font-bold text-foreground mt-1.5">{total}</p>
-        </div>
-
-        <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">Active</span>
-            <CheckCircle className="h-4 w-4 text-emerald-500" />
-          </div>
-          <p className="text-xl font-bold text-foreground mt-1.5">{activeCount}</p>
-        </div>
-
-        <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">Drafts</span>
-            <Clock className="h-4 w-4 text-amber-500" />
-          </div>
-          <p className="text-xl font-bold text-foreground mt-1.5">{draftCount}</p>
-        </div>
-
-        <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">Archived</span>
-            <ArchiveX className="h-4 w-4 text-zinc-500" />
-          </div>
-          <p className="text-xl font-bold text-foreground mt-1.5">{archivedCount}</p>
-        </div>
+      <div className={STAT_GRID_CLASS}>
+        <StatCard title="Total Offerings" value={total} icon={Package} iconClassName="text-primary" />
+        <StatCard title="Active" value={activeCount} icon={CheckCircle} iconClassName="text-emerald-500" />
+        <StatCard title="Drafts" value={draftCount} icon={Clock} iconClassName="text-amber-500" />
+        <StatCard title="Archived" value={archivedCount} icon={ArchiveX} iconClassName="text-zinc-500" />
       </div>
 
       {/* Main Responsive Data Listing */}

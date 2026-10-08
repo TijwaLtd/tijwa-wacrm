@@ -9,6 +9,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { cn } from '@/lib/utils';
 import { formatCurrency } from '@/lib/business/orders';
 import { ResponsiveDataListing, type ColumnDef, type CardMapper } from '@/components/shared/responsive-data-listing';
+import { StatCard, STAT_GRID_CLASS } from '@/components/shared/stat-card';
 
 const PAGE_SIZE = 25;
 
@@ -194,41 +195,11 @@ export default function FoodOrdersPage() {
   return (
     <div className="space-y-6">
       {/* Overview Stats */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">Total Orders</span>
-            <UtensilsCrossed className="h-4 w-4 text-primary" />
-          </div>
-          <p className="text-xl font-bold text-foreground mt-1.5">{total}</p>
-        </div>
-        <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">Pending</span>
-            <Clock className="h-4 w-4 text-amber-500" />
-          </div>
-          <p className="text-xl font-bold text-foreground mt-1.5">
-            {orders.filter(o => o.status === 'pending').length}
-          </p>
-        </div>
-        <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">Preparing</span>
-            <ChefHat className="h-4 w-4 text-purple-500" />
-          </div>
-          <p className="text-xl font-bold text-foreground mt-1.5">
-            {orders.filter(o => o.status === 'preparing').length}
-          </p>
-        </div>
-        <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">Delivered</span>
-            <PackageCheck className="h-4 w-4 text-emerald-500" />
-          </div>
-          <p className="text-xl font-bold text-foreground mt-1.5">
-            {orders.filter(o => o.status === 'delivered').length}
-          </p>
-        </div>
+      <div className={STAT_GRID_CLASS}>
+        <StatCard title="Total Orders" value={total} icon={UtensilsCrossed} iconClassName="text-primary" />
+        <StatCard title="Pending" value={orders.filter(o => o.status === 'pending').length} icon={Clock} iconClassName="text-amber-500" />
+        <StatCard title="Preparing" value={orders.filter(o => o.status === 'preparing').length} icon={ChefHat} iconClassName="text-purple-500" />
+        <StatCard title="Delivered" value={orders.filter(o => o.status === 'delivered').length} icon={PackageCheck} iconClassName="text-emerald-500" />
       </div>
 
       {/* Data Listing */}

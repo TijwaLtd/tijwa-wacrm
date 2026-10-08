@@ -27,6 +27,7 @@ import {
 } from '@/lib/business/offerings';
 import { CatalogForm } from '@/components/catalog/catalog-form';
 import { ResponsiveDataListing, type ColumnDef, type CardMapper } from '@/components/shared/responsive-data-listing';
+import { StatCard, STAT_GRID_CLASS } from '@/components/shared/stat-card';
 
 const PAGE_SIZE = 25;
 
@@ -314,38 +315,11 @@ export default function PropertiesPage() {
   return (
     <div className="space-y-6">
       {/* Top Overview Metric Cards */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">Total Properties</span>
-            <Home className="h-4 w-4 text-primary" />
-          </div>
-          <p className="text-xl font-bold text-foreground mt-1.5">{total}</p>
-        </div>
-
-        <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">Active</span>
-            <CheckCircle className="h-4 w-4 text-emerald-500" />
-          </div>
-          <p className="text-xl font-bold text-foreground mt-1.5">{activeCount}</p>
-        </div>
-
-        <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">For Sale</span>
-            <BadgePercent className="h-4 w-4 text-emerald-500" />
-          </div>
-          <p className="text-xl font-bold text-foreground mt-1.5">{saleCount}</p>
-        </div>
-
-        <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">For Rent</span>
-            <KeyRound className="h-4 w-4 text-sky-500" />
-          </div>
-          <p className="text-xl font-bold text-foreground mt-1.5">{rentCount}</p>
-        </div>
+      <div className={STAT_GRID_CLASS}>
+        <StatCard title="Total Properties" value={total} icon={Home} iconClassName="text-primary" />
+        <StatCard title="Active" value={activeCount} icon={CheckCircle} iconClassName="text-emerald-500" />
+        <StatCard title="For Sale" value={saleCount} icon={BadgePercent} iconClassName="text-emerald-500" />
+        <StatCard title="For Rent" value={rentCount} icon={KeyRound} iconClassName="text-sky-500" />
       </div>
 
       {/* Main Responsive Data Listing */}
