@@ -3,6 +3,12 @@ import { createClient } from '@supabase/supabase-js'
 import { decrypt, encrypt, isLegacyFormat } from '@/lib/whatsapp/encryption'
 import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/meta-api'
 import { normalizePhone } from '@/lib/whatsapp/phone-utils'
+import {
+  sniffMime,
+  isAllowedInboundMime,
+  extForAllowedMime,
+  MAX_INBOUND_MEDIA_BYTES,
+} from '@/lib/media/file-guard'
 import { saveContactMetaIdentity } from '@/lib/whatsapp/contact-meta-identity'
 import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe'
 import { reopenClosedConversation } from '@/lib/conversations/reopen'
@@ -768,21 +774,29 @@ async function processMessage(
   }
 
   // Persist inbound media to public storage so we don't depend on
-  // the auth-gated proxy. If persistence fails, fall back to the
-  // proxy URL (best-effort — message is still saved).
+  // the auth-gated proxy.
+  //   persisted → use the bucket URL
+  //   dropped   → the bytes failed sniffing, so the message carries NO
+  //               media at all (not even the proxy — we must not serve
+  //               content we could not vouch for)
+  //   transient → a network/Storage hiccup; fall back to the proxy URL,
+  //               which re-validates on every read
   let finalMediaUrl = mediaUrl
   if (mediaUrl && message.type !== 'reaction') {
     const metaMediaId = mediaUrl.replace('/api/whatsapp/media/', '')
     console.log('[processMessage] persisting inbound media — metaMediaId:', metaMediaId)
-    const publicUrl = await persistInboundMedia(
+    const persisted = await persistInboundMedia(
       accountId,
       metaMediaId,
       accessToken,
       `${contactName.replace(/[^a-zA-Z0-9]+/g, '_')}_${message.type}`,
     )
-    if (publicUrl) {
-      finalMediaUrl = publicUrl
+    if (persisted.status === 'persisted') {
+      finalMediaUrl = persisted.url
       console.log('[processMessage] media persisted to public bucket')
+    } else if (persisted.status === 'dropped') {
+      finalMediaUrl = null
+      console.warn('[processMessage] unsupported media dropped — message saved without media')
     } else {
       console.warn('[processMessage] media persistence failed — falling back to proxy URL')
     }
@@ -1181,32 +1195,6 @@ async function parseMessageContent(
 // any other image — no proxy, no auth, no blob cache needed.
 // ────────────────────────────────────────────────────────────────
 
-const MIME_TO_EXT: Record<string, string> = {
-  'image/jpeg': 'jpg',
-  'image/png': 'png',
-  'image/webp': 'webp',
-  'image/gif': 'gif',
-  'video/mp4': 'mp4',
-  'video/3gpp': '3gp',
-  'audio/ogg': 'ogg',
-  'audio/mpeg': 'mp3',
-  'audio/aac': 'aac',
-  'audio/mp4': 'm4a',
-  'audio/amr': 'amr',
-  'application/pdf': 'pdf',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
-  'application/msword': 'doc',
-  'application/vnd.ms-powerpoint': 'ppt',
-  'application/vnd.ms-excel': 'xls',
-  'text/plain': 'txt',
-}
-
-function extForMime(contentType: string): string {
-  return MIME_TO_EXT[contentType.split(';')[0].trim()] || 'bin'
-}
-
 const BUCKET = 'chat-media'
 
 /**
@@ -1214,42 +1202,69 @@ const BUCKET = 'chat-media'
  * Returns the public URL on success, or null on failure (logged and
  * swallowed — the message is still saved, just without media).
  */
+type PersistResult =
+  | { status: 'persisted'; url: string }
+  | { status: 'dropped' }
+  | { status: 'transient' }
+
 async function persistInboundMedia(
   accountId: string,
   mediaId: string,
   accessToken: string,
   contentLabel: string,
-): Promise<string | null> {
+): Promise<PersistResult> {
   try {
     // Step 1: Resolve Meta CDN URL + MIME type
     const mediaInfo = await getMediaUrl({ mediaId, accessToken })
     console.log('[persistMedia] Meta resolved — mimeType:', mediaInfo.mimeType)
 
-    // Step 2: Download binary bytes
+    // Step 2: Download binary bytes (capped at the bucket's size limit)
     const { buffer, contentType } = await downloadMedia({
       downloadUrl: mediaInfo.url,
       accessToken,
+      maxBytes: MAX_INBOUND_MEDIA_BYTES,
     })
     console.log('[persistMedia] downloaded — size:', buffer.byteLength, 'bytes')
 
-    // Step 3: Build account-scoped storage path
-    const ext = extForMime(contentType)
+    // Step 3: Identify the file from its BYTES, not the upstream header.
+    // The sniffed MIME is the single source of truth for both the
+    // allowlist decision and the stored extension — a spoofed or
+    // mislabelled Content-Type can no longer decide either.
+    const sniffed = sniffMime(buffer)
+    if (!sniffed || !isAllowedInboundMime(sniffed)) {
+      console.warn(
+        '[persistMedia] dropping unsupported media — sniffed:',
+        sniffed,
+        'claimed:',
+        contentType,
+        'size:',
+        buffer.byteLength,
+      )
+      return { status: 'dropped' }
+    }
+
+    // Step 4: Build account-scoped storage path from the verified type
+    const ext = extForAllowedMime(sniffed)
+    if (!ext) {
+      console.warn('[persistMedia] dropping media with no extension mapping:', sniffed)
+      return { status: 'dropped' }
+    }
     const safeLabel = contentLabel.replace(/[^a-zA-Z0-9_-]+/g, '_').slice(0, 40) || 'media'
     const path = `account-${accountId}/${Date.now()}-${safeLabel}.${ext}`
 
-    // Step 4: Upload to chat-media bucket (service-role bypasses RLS)
+    // Step 5: Upload to chat-media bucket (service-role bypasses RLS)
     const { error: upErr } = await supabaseAdmin()
       .storage
       .from(BUCKET)
       .upload(path, buffer, {
         cacheControl: '3600',
         upsert: false,
-        contentType,
+        contentType: sniffed,
       })
 
     if (upErr) {
       console.error('[persistMedia] upload failed:', upErr.message)
-      return null
+      return { status: 'transient' }
     }
 
     // Step 5: Get public URL
@@ -1259,10 +1274,10 @@ async function persistInboundMedia(
       .getPublicUrl(path)
 
     console.log('[persistMedia] persisted — publicUrl:', urlData.publicUrl)
-    return urlData.publicUrl
+    return { status: 'persisted', url: urlData.publicUrl }
   } catch (err) {
     console.error('[persistMedia] failed:', err instanceof Error ? err.message : err)
-    return null
+    return { status: 'transient' }
   }
 }
 

@@ -1206,6 +1206,12 @@ export async function getMediaUrl(
 export interface DownloadMediaArgs {
   downloadUrl: string
   accessToken: string
+  /**
+   * Optional byte ceiling. When set, the download is refused if the
+   * upstream `Content-Length` exceeds it, and the assembled buffer is
+   * re-checked afterwards (a chunked response can omit the header).
+   */
+  maxBytes?: number
 }
 
 /**
@@ -1215,15 +1221,33 @@ export interface DownloadMediaArgs {
 export async function downloadMedia(
   args: DownloadMediaArgs
 ): Promise<{ buffer: Buffer; contentType: string }> {
-  const { downloadUrl, accessToken } = args
+  const { downloadUrl, accessToken, maxBytes } = args
   const response = await fetch(downloadUrl, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   if (!response.ok) {
     throw new Error(`Media download failed: ${response.status}`)
   }
+
+  // Refuse oversized payloads before reading the body into memory.
+  if (maxBytes !== undefined) {
+    const declared = Number(response.headers.get('content-length'))
+    if (Number.isFinite(declared) && declared > maxBytes) {
+      throw new Error(
+        `Media download rejected: ${declared} bytes exceeds limit of ${maxBytes}`
+      )
+    }
+  }
+
   const contentType =
     response.headers.get('content-type') || 'application/octet-stream'
   const buffer = Buffer.from(await response.arrayBuffer())
+
+  if (maxBytes !== undefined && buffer.byteLength > maxBytes) {
+    throw new Error(
+      `Media download rejected: ${buffer.byteLength} bytes exceeds limit of ${maxBytes}`
+    )
+  }
+
   return { buffer, contentType }
 }

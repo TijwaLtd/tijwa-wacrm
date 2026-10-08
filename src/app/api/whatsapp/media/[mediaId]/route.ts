@@ -3,6 +3,11 @@ import { createClient } from '@supabase/supabase-js'
 import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/meta-api'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
+import {
+  sniffMime,
+  isAllowedInboundMime,
+  MAX_INBOUND_MEDIA_BYTES,
+} from '@/lib/media/file-guard'
 
 export async function GET(
   request: Request,
@@ -16,6 +21,14 @@ export async function GET(
       { error: 'Media ID is required' },
       { status: 400 }
     )
+  }
+
+  // Meta media IDs are opaque base64-ish tokens. Reject anything that
+  // isn't one before it reaches the Graph API — this keeps the proxy
+  // from being used as an open fetcher for arbitrary URLs/paths.
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(mediaId)) {
+    console.warn('[media-proxy] rejected malformed mediaId')
+    return NextResponse.json({ error: 'Invalid media ID' }, { status: 400 })
   }
 
   // Use requireRole to resolve the active account from
@@ -53,17 +66,40 @@ export async function GET(
   const mediaInfo = await getMediaUrl({ mediaId, accessToken })
   console.log('[media-proxy] Meta media URL resolved — mimeType:', mediaInfo.mimeType)
 
-  // Download the binary data
-  const { buffer, contentType } = await downloadMedia({
-    downloadUrl: mediaInfo.url,
-    accessToken,
-  })
+  // Download the binary data (capped at the chat-media bucket limit)
+  let downloaded: { buffer: Buffer; contentType: string }
+  try {
+    downloaded = await downloadMedia({
+      downloadUrl: mediaInfo.url,
+      accessToken,
+      maxBytes: MAX_INBOUND_MEDIA_BYTES,
+    })
+  } catch (err) {
+    console.error('[media-proxy] download rejected/failed:', (err as Error).message)
+    return NextResponse.json({ error: 'Media unavailable' }, { status: 502 })
+  }
+  const { buffer, contentType } = downloaded
   console.log('[media-proxy] media downloaded — size:', buffer.byteLength, 'bytes, contentType:', contentType)
+
+  // Identify from BYTES, never from the upstream header. Anything we
+  // can't vouch for is refused rather than streamed back to the browser.
+  const sniffed = sniffMime(buffer)
+  if (!sniffed || !isAllowedInboundMime(sniffed)) {
+    console.warn(
+      '[media-proxy] blocked unsupported media — sniffed:',
+      sniffed,
+      'claimed:',
+      contentType
+    )
+    return NextResponse.json({ error: 'Unsupported media type' }, { status: 415 })
+  }
 
   return new Response(new Uint8Array(buffer), {
     status: 200,
     headers: {
-      'Content-Type': contentType || mediaInfo.mimeType || 'application/octet-stream',
+      'Content-Type': sniffed,
+      'X-Content-Type-Options': 'nosniff',
+      'Content-Security-Policy': "default-src 'none'; sandbox",
       'Cache-Control': 'public, max-age=86400',
     },
   })
