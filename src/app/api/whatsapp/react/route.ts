@@ -60,18 +60,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Message not found' }, { status: 404 });
     }
 
-    if (!targetMessage.message_id) {
-      // No Meta ID yet — usually a sending/failed agent message. We can't
-      // tell Meta to react to a message it never received.
-      return NextResponse.json(
-        { error: 'Cannot react to a message that has not been sent to WhatsApp' },
-        { status: 400 },
-      );
-    }
-
     const { data: conversation, error: convError } = await supabase
       .from('conversations')
-      .select('id, account_id, contact:contacts(id, phone, bsuid)')
+      .select('id, account_id, type, contact:contacts(id, phone, bsuid)')
       .eq('id', targetMessage.conversation_id)
       .eq('account_id', accountId)
       .maybeSingle();
@@ -80,6 +71,24 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: 'Conversation not found' },
         { status: 404 },
+      );
+    }
+
+    // Hard boundary: reactions are pushed to Meta, so internal team
+    // messages are off-limits regardless of any wamid they might carry.
+    if (conversation.type !== 'whatsapp') {
+      return NextResponse.json(
+        { error: 'Not a WhatsApp conversation — team messages cannot be reacted to on WhatsApp' },
+        { status: 400 },
+      );
+    }
+
+    if (!targetMessage.message_id) {
+      // No Meta ID yet — usually a sending/failed agent message. We can't
+      // tell Meta to react to a message it never received.
+      return NextResponse.json(
+        { error: 'Cannot react to a message that has not been sent to WhatsApp' },
+        { status: 400 },
       );
     }
 

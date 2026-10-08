@@ -25,6 +25,8 @@ export async function GET(
       .select(CONVERSATION_SELECT)
       .eq('id', id)
       .eq('account_id', ctx.accountId)
+      // Internal team threads are not part of the public API surface.
+      .eq('type', 'whatsapp')
       .maybeSingle();
 
     if (error) {

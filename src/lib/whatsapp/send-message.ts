@@ -229,6 +229,19 @@ export async function sendMessageToConversation(
     throw new SendMessageError('not_found', 'Conversation not found', 404);
   }
 
+  // Hard boundary: internal (team) conversations must never reach Meta.
+  // They are written by /api/team/messages and /api/team/forward, which
+  // are DB-only. Historically this path only failed incidentally because
+  // team rows have no contact — assert the type explicitly so a future
+  // contact join can't leak an internal thread onto WhatsApp.
+  if (conversation.type !== 'whatsapp') {
+    throw new SendMessageError(
+      'bad_request',
+      'Not a WhatsApp conversation — team messages are sent via /api/team/messages',
+      400
+    );
+  }
+
   const contact = conversation.contact;
   if (!contact) {
     throw new SendMessageError('bad_request', 'Contact not found', 400);

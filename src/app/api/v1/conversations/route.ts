@@ -31,7 +31,10 @@ export async function GET(request: Request) {
     let query = ctx.supabase
       .from('conversations')
       .select(CONVERSATION_SELECT)
-      .eq('account_id', ctx.accountId);
+      .eq('account_id', ctx.accountId)
+      // WhatsApp conversations only — internal team threads are not
+      // part of the public API surface.
+      .eq('type', 'whatsapp');
 
     if (status) query = query.eq('status', status);
     if (contactId) query = query.eq('contact_id', contactId);

@@ -25,12 +25,14 @@ export async function GET(
     const { id } = await params;
     const { limit, cursor } = parseListParams(request);
 
-    // Gate on account ownership of the conversation first.
+    // Gate on account ownership of the conversation first. WhatsApp
+    // conversations only — internal team threads are not exposed here.
     const { data: conv } = await ctx.supabase
       .from('conversations')
       .select('id')
       .eq('id', id)
       .eq('account_id', ctx.accountId)
+      .eq('type', 'whatsapp')
       .maybeSingle();
     if (!conv) return fail('not_found', 'Conversation not found', 404);
 

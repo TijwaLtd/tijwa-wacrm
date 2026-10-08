@@ -20,10 +20,9 @@ import { ConversationList } from '@/components/inbox/conversation-list';
 import { MessageThread } from '@/components/inbox/message-thread';
 import { ContactSidebar } from '@/components/inbox/contact-sidebar';
 import { NewConversationDialog } from '@/components/inbox/new-conversation-dialog';
+import { NewTeamConversationDialog } from '@/components/inbox/new-team-conversation-dialog';
 import {
   WifiOff,
-  MessageSquare,
-  Users,
   AlertTriangle,
   Plus,
 } from 'lucide-react';
@@ -123,6 +122,17 @@ function InboxPageInner() {
   });
 
   const [newConvDialogOpen, setNewConvDialogOpen] = useState(false);
+  const [newTeamConvDialogOpen, setNewTeamConvDialogOpen] = useState(false);
+
+  // The "+" affordance is mode-aware: on the Team tab it opens the team
+  // conversation creator, on the WhatsApp tab the contact picker.
+  const handleNewConversation = useCallback(() => {
+    if (inboxMode === 'team') {
+      setNewTeamConvDialogOpen(true);
+    } else {
+      setNewConvDialogOpen(true);
+    }
+  }, [inboxMode]);
 
   const handleToggleContactPanel = useCallback(() => {
     setContactPanelOpen((prev) => {
@@ -640,6 +650,24 @@ function InboxPageInner() {
     [router]
   );
 
+  // Handle a freshly created team conversation from the new-team dialog.
+  // Team rows carry no contact, so activeContact stays null — the thread
+  // renders its team header/composer branch for type='team'.
+  const handleSelectNewTeamConversation = useCallback(
+    (conv: Conversation) => {
+      setInboxMode('team');
+      setConversations((prev) =>
+        prev.some((c) => c.id === conv.id) ? prev : [conv, ...prev]
+      );
+      setActiveConversation(conv);
+      setActiveContact(null);
+      setMessages([]);
+      autoSelectedForDeepLinkRef.current = conv.id;
+      router.replace(`/inbox?c=${conv.id}`, { scroll: false });
+    },
+    [router]
+  );
+
   const handleMessagesLoaded = useCallback((loaded: Message[]) => {
     setMessages(loaded);
   }, []);
@@ -791,14 +819,14 @@ function InboxPageInner() {
             workspaceFilter={workspaceFilter}
             mode={inboxMode}
             onModeChange={handleModeChange}
-            onNewConversation={() => setNewConvDialogOpen(true)}
+            onNewConversation={handleNewConversation}
             onBroadcastsClick={() => router.push('/broadcasts')}
             onAutomationsClick={() => router.push('/automations')}
           />
 
           {/* Floating Action Button for new conversation on mobile */}
           <button
-            onClick={() => setNewConvDialogOpen(true)}
+            onClick={handleNewConversation}
             className="bg-primary text-primary-foreground hover:bg-primary/90 fixed right-4 bottom-24 z-50 flex h-14 w-14 items-center justify-center rounded-full shadow-lg lg:hidden"
             aria-label="New conversation"
           >
@@ -856,6 +884,13 @@ function InboxPageInner() {
         onOpenChange={setNewConvDialogOpen}
         onSelectConversation={handleSelectNewConversation}
         onAddNewContact={() => router.push('/contacts?new=true')}
+      />
+
+      {/* New team conversation dialog (Team tab) — DB-only, never Meta */}
+      <NewTeamConversationDialog
+        open={newTeamConvDialogOpen}
+        onOpenChange={setNewTeamConvDialogOpen}
+        onCreate={handleSelectNewTeamConversation}
       />
     </div>
   );

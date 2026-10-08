@@ -101,6 +101,7 @@ function makeSupabaseMock() {
         createdConversation = {
           id: 'conv-new',
           account_id: 'acct-1',
+          type: 'whatsapp',
           contact_id: 'contact-1',
           contact: CONTACT,
         }
@@ -270,6 +271,7 @@ describe('POST /api/whatsapp/send — contact_id template path', () => {
     existingConversation = {
       id: 'conv-existing',
       account_id: 'acct-1',
+      type: 'whatsapp',
       contact_id: 'contact-1',
       contact: CONTACT,
     }
@@ -311,6 +313,7 @@ describe('POST /api/whatsapp/send — role enforcement', () => {
     existingConversation = {
       id: 'conv-existing',
       account_id: 'acct-1',
+      type: 'whatsapp',
       contact_id: 'contact-1',
       contact: CONTACT,
     }
@@ -347,5 +350,41 @@ describe('POST /api/whatsapp/send — role enforcement', () => {
 
     expect(res.status).toBe(200)
     expect(sendTemplateMessage).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('POST /api/whatsapp/send — team conversation guard', () => {
+  beforeEach(() => {
+    conversationInserts.length = 0
+    messageInserts.length = 0
+    existingConversation = {
+      id: 'conv-team',
+      account_id: 'acct-1',
+      type: 'team',
+      contact_id: null,
+      team_name: 'Ops',
+      contact: null,
+    }
+    createdConversation = null
+    contactRow = CONTACT
+    callerRole = 'admin'
+    supabaseMock = makeSupabaseMock()
+    sendTemplateMessage.mockClear()
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('400s a team conversation and never reaches Meta', async () => {
+    // Team conversations are DB-only (/api/team/messages) — the WhatsApp
+    // send route must refuse them before any Meta call or message insert.
+    const res = await postContactTemplate({ conversation_id: 'conv-team' })
+    const json = await res.json()
+
+    expect(res.status).toBe(400)
+    expect(json.error).toMatch(/team/i)
+    expect(sendTemplateMessage).not.toHaveBeenCalled()
+    expect(messageInserts).toHaveLength(0)
   })
 })

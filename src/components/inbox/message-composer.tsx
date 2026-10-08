@@ -1216,7 +1216,7 @@ export function MessageComposer({
                 >
                   <Send className="h-4 w-4" />
                 </GatedButton>
-              ) : (
+              ) : isTeam ? null : (
                 <GatedButton
                   size="sm"
                   canAct={!readOnly && whatsappReady}
@@ -1320,7 +1320,7 @@ export function MessageComposer({
                   >
                     <Send className="h-5 w-5" />
                   </GatedButton>
-                ) : (
+                ) : isTeam ? null : (
                   <GatedButton
                     size="sm"
                     canAct={!readOnly && whatsappReady}

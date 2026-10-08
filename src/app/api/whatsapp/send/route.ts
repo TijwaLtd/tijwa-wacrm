@@ -99,15 +99,26 @@ export async function POST(request: Request) {
     if (conversationIdInput) {
       const { data, error: convError } = await supabase
         .from('conversations')
-        .select('id')
+        .select('id, type')
         .eq('id', conversationIdInput)
         .eq('account_id', accountId)
-        .single()
+        .maybeSingle()
 
       if (convError || !data) {
         return NextResponse.json(
           { error: 'Conversation not found' },
           { status: 404 }
+        )
+      }
+      // Hard boundary: internal team conversations never go through Meta.
+      // Their messages are written by /api/team/messages (DB-only).
+      if (data.type !== 'whatsapp') {
+        return NextResponse.json(
+          {
+            error:
+              'Not a WhatsApp conversation — team messages are sent via /api/team/messages',
+          },
+          { status: 400 }
         )
       }
       conversationId = data.id
@@ -211,6 +222,7 @@ async function findOrCreateConversation(
     .select('id')
     .eq('account_id', accountId)
     .eq('contact_id', contactId)
+    .eq('type', 'whatsapp')
     .maybeSingle()
 
   if (existing) return existing.id

@@ -379,6 +379,16 @@ export function ConversationList({
   const filtered = useMemo(() => {
     let result = conversations;
 
+    // Mode isolation: the WhatsApp tab shows only customer conversations,
+    // the Team tab only internal ones. The page's realtime handlers patch
+    // the shared list regardless of the active tab (a WhatsApp hydrate can
+    // land while Team is selected and vice versa), so enforce the split at
+    // display time too.
+    result =
+      mode === 'team'
+        ? result.filter((c) => c.type === 'team')
+        : result.filter((c) => c.type !== 'team');
+
     if (filter === 'unread') {
       result = result.filter((c) => c.unread_count > 0);
     } else if (filter !== 'all') {
@@ -406,7 +416,7 @@ export function ConversationList({
     }
 
     return result;
-  }, [conversations, filter, search, selectedTagIds, selectedCompany]);
+  }, [conversations, mode, filter, search, selectedTagIds, selectedCompany]);
 
   const toggleTag = useCallback((id: string) => {
     setSelectedTagIds((prev) =>

@@ -301,6 +301,21 @@ export function MessageThread({
   const conversationId = conversation?.id;
   const hasUnread = (conversation?.unread_count ?? 0) > 0;
 
+  // Team conversations route through the team API; everything else is
+  // WhatsApp (the default conversation type). WhatsApp is only "called"
+  // when the contact has a real phone or a BSUID Meta can deliver to.
+  // Declared above the messages-fetch effect so it can branch on it
+  // without capturing a stale closure.
+  const isTeam = conversation?.type === 'team';
+  const whatsappCalled = isTeam
+    ? true
+    : Boolean(
+        (contact?.phone &&
+          !contact.phone.startsWith('bsuid_') &&
+          contact.phone !== '') ||
+          contact?.bsuid,
+      );
+
   const mediaMessageId =
     openMedia && openMedia.conversationId === conversationId
       ? openMedia.messageId
@@ -341,26 +356,50 @@ export function MessageThread({
         // IndexedDB might not be available
       }
 
-      // 2. Fetch from Supabase in background (authoritative data)
-      const supabase = createClient();
+      // 2. Fetch authoritative data in the background. Team threads go
+      // through the team API (service-role + explicit participant check)
+      // — the client-side RLS SELECT only covers managers/assignees, not
+      // participants. WhatsApp threads read Supabase directly.
+      let fetched: Message[] | null = null;
 
-      const { data, error } = await supabase
-        .from("messages")
-        .select("*")
-        .eq("conversation_id", conversationId)
-        .order("created_at", { ascending: true });
+      if (isTeam) {
+        try {
+          const res = await fetch(
+            `/api/team/messages?conversation_id=${encodeURIComponent(conversationId)}`
+          );
+          if (res.ok) {
+            const payload = (await res.json()) as { messages?: Message[] };
+            fetched = payload.messages ?? [];
+          } else {
+            console.error(`Failed to fetch team messages: HTTP ${res.status}`);
+          }
+        } catch (err) {
+          console.error("Failed to fetch team messages:", err);
+        }
+      } else {
+        const supabase = createClient();
+        const { data, error } = await supabase
+          .from("messages")
+          .select("*")
+          .eq("conversation_id", conversationId)
+          .order("created_at", { ascending: true });
+
+        if (error) {
+          console.error("Failed to fetch messages:", error);
+        } else {
+          fetched = data ?? [];
+        }
+      }
 
       if (cancelled) return;
 
-      if (error) {
-        console.error("Failed to fetch messages:", error);
-      } else {
-        onMessagesLoadedRef.current(data ?? []);
+      if (fetched) {
+        onMessagesLoadedRef.current(fetched);
 
         // 3. Persist to IndexedDB for future offline access
         try {
           const { putMessages } = await import("@/lib/db");
-          const localMsgs = (data ?? []).map((m: Record<string, unknown>) => ({
+          const localMsgs = fetched.map((m: Message) => ({
             id: m.id as string,
             conversation_id: m.conversation_id as string,
             sender_type: m.sender_type as "customer" | "agent" | "bot",
@@ -392,8 +431,10 @@ export function MessageThread({
     // `resyncToken` is included so the parent can force a refetch when
     // the realtime channel reconnects or the tab regains focus —
     // realtime is best-effort and any message events sent while the WS
-    // was disconnected or throttled are otherwise lost.
-  }, [conversationId, resyncToken]);
+    // was disconnected or throttled are otherwise lost. `isTeam` picks
+    // the fetch source (team API vs Supabase) and only changes together
+    // with `conversationId`.
+  }, [conversationId, resyncToken, isTeam]);
 
   // Reactions fetch — pulls the current state from the DB. Kept separate
   // from the channel subscription below so a `resyncToken` bump just
@@ -534,19 +575,6 @@ export function MessageThread({
       el.scrollTop = el.scrollHeight;
     }
   }, [messages]);
-
-  // Team conversations route through the team API; everything else is
-  // WhatsApp (the default conversation type). WhatsApp is only "called"
-  // when the contact has a real phone or a BSUID Meta can deliver to.
-  const isTeam = conversation?.type === 'team';
-  const whatsappCalled = isTeam
-    ? true
-    : Boolean(
-        (contact?.phone &&
-          !contact.phone.startsWith('bsuid_') &&
-          contact.phone !== '') ||
-          contact?.bsuid,
-      );
 
   const handleSend = useCallback(
     async (text: string, replyToId?: string) => {
@@ -1139,8 +1167,9 @@ export function MessageThread({
 
   // Empty state — same WhatsApp-style doodle background as the active
   // thread below, so swapping between empty/selected doesn't change the
-  // pattern under the user's eye.
-  if (!conversation || !contact) {
+  // pattern under the user's eye. Team conversations have no contact
+  // (`contact_id IS NULL`), so only WhatsApp threads require one.
+  if (!conversation || (!contact && conversation.type !== 'team')) {
     return (
       <div className={cn("flex flex-1 flex-col items-center justify-center", DOODLE_BG_CLASSES)}>
         <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted">
@@ -1377,7 +1406,7 @@ export function MessageThread({
           <div className="flex flex-col items-center justify-center py-12">
             <p className="text-sm text-muted-foreground">{t("noMessagesYet")}</p>
             <p className="text-xs text-muted-foreground">
-              {t("sendTemplateHint")}
+              {isTeam ? t("sendTeamMessageHint") : t("sendTemplateHint")}
             </p>
           </div>
         ) : (
@@ -1430,6 +1459,7 @@ export function MessageThread({
                           setForwardModalOpen(true);
                         }}
                         onMobileLongPress={(msgId) => setMobileSelectedMsg(msgId)}
+                        hideReact={isTeam}
                       >
                         <MessageBubble
                           message={msg}

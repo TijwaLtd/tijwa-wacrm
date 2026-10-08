@@ -178,12 +178,23 @@ export function NewConversationDialog({
                     : displayContactPhone(contact.phone || "");
 
                   return (
-                    <button
+                    <div
                       key={contact.id}
-                      disabled={isCreating}
-                      onClick={() => handleSelectContact(contact)}
+                      role="button"
+                      tabIndex={0}
+                      aria-disabled={isCreating}
+                      onClick={() => {
+                        if (!isCreating) handleSelectContact(contact);
+                      }}
+                      onKeyDown={(e) => {
+                        if (isCreating) return;
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          handleSelectContact(contact);
+                        }
+                      }}
                       className={cn(
-                        "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-muted",
+                        "flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-muted",
                         isCreating && "opacity-50"
                       )}
                     >
@@ -234,7 +245,7 @@ export function NewConversationDialog({
                       ) : (
                         <MessageSquare className="h-4 w-4 text-muted-foreground" />
                       )}
-                    </button>
+                    </div>
                   );
                 })}
               </div>

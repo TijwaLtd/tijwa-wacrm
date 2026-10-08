@@ -169,6 +169,7 @@
       "me": " (me)",
       "noMessagesYet": "No messages yet",
       "sendTemplateHint": "Send a template to start the conversation",
+      "sendTeamMessageHint": "Send a message to start the conversation",
       "selectConversation": "Select a conversation",
       "selectConversationHint": "Choose a conversation from the left to start messaging",
       "today": "Today",
@@ -284,7 +285,27 @@
       "forward": "Forward",
       "success": "Message forwarded.",
       "failed": "Failed to forward message.",
-      "loadFailed": "Failed to load team conversations."
+      "loadFailed": "Failed to load team conversations.",
+      "createNew": "New conversation…",
+      "newNamePlaceholder": "Conversation name (optional)",
+      "noMembers": "No teammates available to add",
+      "memberCount": "{count} members including you",
+      "selectOne": "Select at least one teammate",
+      "createAndForward": "Create & forward"
+    },
+    "newTeam": {
+      "title": "New team conversation",
+      "description": "Pick teammates to chat with. Team conversations stay inside Tijwa — nothing is sent on WhatsApp.",
+      "namePlaceholder": "Conversation name (optional)",
+      "searchPlaceholder": "Search teammates...",
+      "you": "(You)",
+      "soloWorkspace": "You're the only member of this workspace — invite teammates to start a team conversation.",
+      "empty": "No teammates found",
+      "memberCount": "{count} members including you",
+      "selectOne": "Select at least one teammate",
+      "cancel": "Cancel",
+      "create": "Start conversation",
+      "failed": "Failed to create conversation."
     },
     "replyQuote": {
       "photo": "[Photo]",

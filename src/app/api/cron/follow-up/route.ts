@@ -41,11 +41,14 @@ export async function POST(request: Request) {
       const timeoutMinutes = account.follow_up_timeout_minutes || 10
       const cutoffTime = new Date(Date.now() - timeoutMinutes * 60 * 1000).toISOString()
 
-      // Find conversations needing follow-up (ONE-TIME ONLY, never repeat)
+      // Find conversations needing follow-up (ONE-TIME ONLY, never repeat).
+      // WhatsApp conversations only — internal team threads (type='team')
+      // must never enter the follow-up pipeline.
       const { data: conversations } = await db
         .from('conversations')
         .select('id, contact_id, assigned_agent_id, human_replied')
         .eq('account_id', account.account_id)
+        .eq('type', 'whatsapp')
         .in('status', ['open', 'pending'])
         .lt('last_message_at', cutoffTime)
         .is('last_follow_up_at', null)

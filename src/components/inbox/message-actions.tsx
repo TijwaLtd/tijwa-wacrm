@@ -39,6 +39,12 @@ interface MessageActionsProps {
   // onAddToNote?: () => void;
   /** Called on mobile long-press so the thread can show a mobile action bar */
   onMobileLongPress?: (messageId: string) => void;
+  /**
+   * Hides the React submenu. Reactions are pushed to Meta (the WhatsApp
+   * API mirrors them into `message_reactions`), so they don't apply to
+   * internal team messages.
+   */
+  hideReact?: boolean;
   children: ReactNode;
 }
 
@@ -60,6 +66,7 @@ export function MessageActions({
   // onReport,
   // onAddToNote,
   onMobileLongPress,
+  hideReact,
   children,
 }: MessageActionsProps) {
   const t = useTranslations("Inbox.actions");
@@ -243,7 +250,8 @@ export function MessageActions({
               {t("copyText")}
             </DropdownMenuItem>
 
-            {/* React submenu trigger */}
+            {/* React submenu trigger — hidden for team messages */}
+            {!hideReact && (
             <DropdownMenu>
               <DropdownMenuTrigger
                 className="flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
@@ -268,6 +276,7 @@ export function MessageActions({
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
+            )}
 
             {onForward && (
               <DropdownMenuItem onClick={handleForward}>
