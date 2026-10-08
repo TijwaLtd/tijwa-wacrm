@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { toast } from 'sonner';
-import { Eye, EyeOff, Copy, CheckCircle2, XCircle, Loader2, ExternalLink, Zap, AlertTriangle, RotateCcw } from 'lucide-react';
+import { Eye, EyeOff, Copy, CheckCircle2, XCircle, Loader2, ExternalLink, Zap, AlertTriangle, RotateCcw, Lock, Unlock } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import { useTranslations } from 'next-intl';
@@ -42,6 +42,17 @@ export function WhatsAppConfig() {
   const [resetting, setResetting] = useState(false);
   const [showResetDialog, setShowResetDialog] = useState(false);
   const [resetConfirmText, setResetConfirmText] = useState('');
+  const [resetPassword, setResetPassword] = useState('');
+  // Tab-entry lock: nothing in this panel renders — and no config is
+  // fetched — until the account password is verified. Client-side only
+  // (accident guard): the destructive DELETE route re-verifies the
+  // password server-side, and a successful unlock is audit-logged.
+  // `tabUnlocked` is component-local: leaving the tab unmounts this
+  // component and the next visit starts locked again.
+  const [tabUnlocked, setTabUnlocked] = useState(false);
+  const [unlockPassword, setUnlockPassword] = useState('');
+  const [unlockError, setUnlockError] = useState('');
+  const [unlocking, setUnlocking] = useState(false);
   const [showToken, setShowToken] = useState(false);
   const [config, setConfig] = useState<WhatsAppConfigType | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('unknown');
@@ -157,6 +168,9 @@ export function WhatsAppConfig() {
     // for the first render window and bail without ever retrying
     // once the profile arrives.
     if (authLoading || profileLoading) return;
+    // Nothing loads until the tab is unlocked — the lock screen is the
+    // only thing rendered pre-password.
+    if (!tabUnlocked) return;
     if (!user || !accountId) {
       loadedAccountIdRef.current = null;
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -166,7 +180,7 @@ export function WhatsAppConfig() {
     if (loadedAccountIdRef.current === accountId) return;
     loadedAccountIdRef.current = accountId;
     fetchConfig(accountId);
-  }, [authLoading, profileLoading, user, user?.id, accountId, fetchConfig]);
+  }, [authLoading, profileLoading, tabUnlocked, user, user?.id, accountId, fetchConfig]);
 
   // Fetch subdomain for the slug-based webhook URL
   useEffect(() => {
@@ -342,21 +356,71 @@ export function WhatsAppConfig() {
   async function handleReset() {
     setShowResetDialog(true);
     setResetConfirmText('');
+    setResetPassword('');
+  }
+
+  // Verify the account password against Supabase (same re-auth pattern
+  // as password-form.tsx). Returns false when the password is wrong.
+  async function verifyPassword(password: string): Promise<boolean> {
+    if (!user?.email || !password) return false;
+    const { error } = await supabase.auth.signInWithPassword({
+      email: user.email,
+      password,
+    });
+    return !error;
+  }
+
+  async function handleUnlock() {
+    if (!unlockPassword) return;
+    setUnlocking(true);
+    setUnlockError('');
+    try {
+      const ok = await verifyPassword(unlockPassword);
+      if (!ok) {
+        setUnlockError(t('unlockError'));
+        return;
+      }
+      setTabUnlocked(true);
+      setUnlockPassword('');
+      // Audit the reveal (fire-and-forget; the whitelist gates the type).
+      void fetch('/api/audit/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          eventType: 'WHATSAPP_SETTINGS_UNLOCKED',
+          metadata: { section: 'whatsapp' },
+        }),
+      }).catch(() => {});
+    } finally {
+      setUnlocking(false);
+    }
   }
 
   async function confirmReset() {
-    setShowResetDialog(false);
-
+    // The password travels with the request: the DELETE route re-verifies
+    // it server-side (UI gating alone isn't enforcement). The dialog only
+    // closes on success so a wrong password keeps it open.
     try {
       setResetting(true);
-      const res = await fetch('/api/whatsapp/config', { method: 'DELETE' });
+      const res = await fetch('/api/whatsapp/config', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: resetPassword }),
+      });
       const data = await res.json();
 
+      if (res.status === 401) {
+        toast.error(t('unlockError'));
+        return;
+      }
       if (!res.ok) {
         toast.error(data.error || 'Failed to reset configuration');
         return;
       }
 
+      setShowResetDialog(false);
+      setResetConfirmText('');
+      setResetPassword('');
       toast.success('Configuration cleared. You can now re-enter your credentials.');
       setConfig(null);
       setPhoneNumberId('');
@@ -378,6 +442,70 @@ export function WhatsAppConfig() {
   function handleCopyWebhookUrl() {
     navigator.clipboard.writeText(webhookUrl);
     toast.success('Webhook URL copied to clipboard');
+  }
+
+  // ── Tab-entry lock screen — nothing renders (and no config is
+  // fetched) until the account password is verified. ────────────────
+  if (!tabUnlocked) {
+    return (
+      <section className="animate-in fade-in-50 duration-200">
+        <SettingsPanelHead
+          title={t("title")}
+          description={t("description")}
+        />
+        <div className="mx-auto mt-6 max-w-md">
+          <Card className="border-border bg-card">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-foreground">
+                <Lock className="size-4 text-muted-foreground" />
+                {t('lockedTitle')}
+              </CardTitle>
+              <CardDescription className="text-muted-foreground">
+                {t('lockedDesc')}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label className="text-muted-foreground text-xs">
+                  {t('passwordLabel')}
+                </Label>
+                <Input
+                  type="password"
+                  value={unlockPassword}
+                  onChange={(e) => {
+                    setUnlockPassword(e.target.value);
+                    setUnlockError('');
+                  }}
+                  placeholder="••••••••"
+                  className="bg-background border-border text-foreground"
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && unlockPassword && !unlocking) {
+                      handleUnlock();
+                    }
+                  }}
+                />
+                {unlockError && (
+                  <p className="text-xs text-red-600 dark:text-red-400">{unlockError}</p>
+                )}
+              </div>
+              <Button
+                onClick={handleUnlock}
+                disabled={unlocking || !unlockPassword}
+                className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
+              >
+                {unlocking ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Unlock className="size-4" />
+                )}
+                {t('unlock')}
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </section>
+    );
   }
 
   if (loading) {
@@ -407,14 +535,14 @@ export function WhatsAppConfig() {
       <div className="space-y-6">
         {/* Corrupted-token reset banner */}
         {showResetBanner && (
-          <Alert className="bg-amber-950/40 border-amber-600/40">
+          <Alert className="bg-amber-500/10 border-amber-500/30">
             <div className="flex items-start gap-3">
-              <AlertTriangle className="size-5 text-amber-400 mt-0.5 shrink-0" />
+              <AlertTriangle className="size-5 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
               <div className="flex-1">
-                <AlertTitle className="text-amber-200 mb-1">
+                <AlertTitle className="text-amber-800 dark:text-amber-200 mb-1">
                   Stored token can&apos;t be decrypted
                 </AlertTitle>
-                <AlertDescription className="text-amber-100/80 text-sm">
+                <AlertDescription className="text-amber-700 dark:text-amber-100/80 text-sm">
                   {statusMessage}
                 </AlertDescription>
                 <Button
@@ -463,20 +591,20 @@ export function WhatsAppConfig() {
         {/* Auto-generated verify token — shown once after first save
             so the user can copy it into Meta's webhook configuration. */}
         {generatedVerifyToken && (
-          <Alert className="bg-blue-950/30 border-blue-700/50">
+          <Alert className="bg-blue-500/10 border-blue-500/30">
             <div className="flex items-start gap-3">
-              <CheckCircle2 className="size-5 text-blue-400 mt-0.5 shrink-0" />
+              <CheckCircle2 className="size-5 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
               <div className="flex-1">
-                <AlertTitle className="text-blue-200 mb-1">
+                <AlertTitle className="text-blue-800 dark:text-blue-200 mb-1">
                   Webhook Verification Token Generated
                 </AlertTitle>
-                <AlertDescription className="text-blue-100/80 text-sm space-y-2">
+                <AlertDescription className="text-blue-700 dark:text-blue-100/80 text-sm space-y-2">
                   <p>
                     Copy this token and paste it into Meta&apos;s WhatsApp webhook
                     configuration under <strong>Verify Token</strong>:
                   </p>
                   <div className="flex gap-2 items-center">
-                    <code className="bg-blue-900/50 px-3 py-1.5 rounded text-sm font-mono text-blue-100 select-all">
+                    <code className="bg-blue-500/10 dark:bg-blue-900/50 px-3 py-1.5 rounded text-sm font-mono text-blue-800 dark:text-blue-100 select-all">
                       {generatedVerifyToken}
                     </code>
                     <Button
@@ -486,13 +614,13 @@ export function WhatsAppConfig() {
                         navigator.clipboard.writeText(generatedVerifyToken);
                         toast.success('Verify token copied to clipboard');
                       }}
-                      className="border-blue-600/40 text-blue-300 hover:bg-blue-900/40 h-7 shrink-0"
+                      className="border-blue-500/40 text-blue-700 dark:text-blue-300 hover:bg-blue-500/10 dark:hover:bg-blue-900/40 h-7 shrink-0"
                     >
                       <Copy className="size-3.5 mr-1" />
                       Copy
                     </Button>
                   </div>
-                  <p className="text-blue-300/60 text-xs">
+                  <p className="text-blue-600/70 dark:text-blue-300/60 text-xs">
                     This token is only shown once. Store it somewhere safe.
                   </p>
                 </AlertDescription>
@@ -510,34 +638,34 @@ export function WhatsAppConfig() {
           <Alert
             className={
               isRegistered
-                ? 'bg-emerald-950/30 border-emerald-700/50'
+                ? 'bg-emerald-500/10 border-emerald-500/30'
                 : registrationSkipped
-                  ? 'bg-blue-950/20 border-blue-800/40'
-                  : 'bg-amber-950/30 border-amber-700/50'
+                  ? 'bg-blue-500/10 border-blue-500/30'
+                  : 'bg-amber-500/10 border-amber-500/30'
             }
           >
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <div className="flex items-center gap-2">
                 {isRegistered ? (
-                  <CheckCircle2 className="size-4 text-emerald-400" />
+                  <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400" />
                 ) : registrationSkipped ? (
-                  <Zap className="size-4 text-blue-400" />
+                  <Zap className="size-4 text-blue-600 dark:text-blue-400" />
                 ) : (
-                  <AlertTriangle className="size-4 text-amber-400" />
+                  <AlertTriangle className="size-4 text-amber-600 dark:text-amber-400" />
                 )}
                 <AlertTitle
                   className={
                     'mb-0 ' + (
-                      isRegistered ? 'text-emerald-200' :
-                      registrationSkipped ? 'text-blue-200' :
-                      'text-amber-200'
+                      isRegistered ? 'text-emerald-800 dark:text-emerald-200' :
+                      registrationSkipped ? 'text-blue-800 dark:text-blue-200' :
+                      'text-amber-800 dark:text-amber-200'
                     )
                   }
                 >
                   {isRegistered
                     ? t('registered')
                     : registrationSkipped
-                      ? 'Registration Pending'
+                      ? t('regPending')
                       : t('notRegistered')}
                 </AlertTitle>
               </div>
@@ -570,16 +698,14 @@ export function WhatsAppConfig() {
               ) : registrationFailed ? (
                 <>
                   {t('lastAttemptFailed')}
-                  <span className="text-red-300">
+                  <span className="text-red-600 dark:text-red-300">
                     &quot;{lastRegistrationError}&quot;
                   </span>
                   . {t('retryHint')}
                 </>
               ) : registrationSkipped ? (
-                <span className="text-blue-200/80">
-                  No 2-Step PIN was provided, so inbound registration was skipped.
-                  Test numbers work without registration. For production numbers,
-                  enter your PIN in the field below and save to register.
+                <span className="text-blue-700 dark:text-blue-200/80">
+                  {t('regSkippedDesc')}
                 </span>
               ) : (
                 <>{t('noRegistrationHint')}</>
@@ -590,7 +716,7 @@ export function WhatsAppConfig() {
               <div className="mt-3 rounded border border-border bg-card/60 px-3 py-2 space-y-1.5 text-[11px]">
                 <p className="font-medium text-foreground">
                   {t('diagnosticLastRun')}
-                  <span className={registrationProbe.live ? 'text-emerald-400' : 'text-amber-400'}>
+                  <span className={registrationProbe.live ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}>
                     {registrationProbe.live ? t('live') : t('notLive')}
                   </span>
                 </p>
@@ -598,9 +724,9 @@ export function WhatsAppConfig() {
                   {Object.entries(registrationProbe.checks).map(([k, v]) => (
                     <li key={k} className="flex items-center gap-1.5">
                       {v === true ? (
-                        <CheckCircle2 className="size-3 text-emerald-400 shrink-0" />
+                        <CheckCircle2 className="size-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
                       ) : v === false ? (
-                        <XCircle className="size-3 text-red-400 shrink-0" />
+                        <XCircle className="size-3 text-red-600 dark:text-red-400 shrink-0" />
                       ) : (
                         <span className="size-3 rounded-full border border-border shrink-0" />
                       )}
@@ -609,7 +735,7 @@ export function WhatsAppConfig() {
                   ))}
                 </ul>
                 {(registrationProbe.errors ?? []).length > 0 && (
-                  <ul className="pt-1 space-y-0.5 text-red-300">
+                  <ul className="pt-1 space-y-0.5 text-red-600 dark:text-red-300">
                     {registrationProbe.errors?.map((e, i) => (
                       <li key={i}>• {e}</li>
                     ))}
@@ -620,7 +746,8 @@ export function WhatsAppConfig() {
           </Alert>
         )}
 
-        {/* API Credentials */}
+        {/* API Credentials — only reachable after the tab-entry password
+            gate above; the DELETE route re-verifies server-side. */}
         <Card>
           <CardHeader>
             <CardTitle className="text-foreground">{t('apiCredentialsTitle')}</CardTitle>
@@ -652,7 +779,7 @@ export function WhatsAppConfig() {
             <div className="space-y-2">
               <Label className="text-muted-foreground">
                 {t('accessToken')}
-                {!config && <span className="ml-1 text-red-400">*</span>}
+                {!config && <span className="ml-1 text-red-600 dark:text-red-400">*</span>}
               </Label>
               <div className="relative">
                 <Input
@@ -684,8 +811,8 @@ export function WhatsAppConfig() {
                   {t('tokenHidden')}
                 </p>
               ) : config && tokenEdited && accessToken === MASKED_TOKEN ? (
-                <p className="text-xs text-amber-400">
-                  Re-enter your Access Token to save changes
+                <p className="text-xs text-amber-700 dark:text-amber-400">
+                  {t('tokenReenterHint')}
                 </p>
               ) : null}
             </div>
@@ -821,7 +948,7 @@ export function WhatsAppConfig() {
               variant="outline"
               onClick={handleReset}
               disabled={resetting}
-              className="border-red-900 text-red-400 hover:text-red-300 hover:bg-red-950/40"
+              className="border-red-500/40 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-500/10 dark:hover:bg-red-950/40"
             >
               {resetting ? (
                 <>
@@ -955,11 +1082,39 @@ export function WhatsAppConfig() {
             className="bg-background border-border text-foreground"
             autoFocus
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && resetConfirmText === 'reset') {
+              if (
+                e.key === 'Enter' &&
+                resetConfirmText === 'reset' &&
+                resetPassword
+              ) {
                 confirmReset();
               }
             }}
           />
+          {/* Password is always required — the DELETE route verifies it
+              server-side, so a stray click + typed "reset" can't wipe a
+              working connection even with a live session. */}
+          <div className="space-y-2 pt-2">
+            <Label className="text-muted-foreground text-xs">
+              {t('passwordLabel')}
+            </Label>
+            <Input
+              type="password"
+              value={resetPassword}
+              onChange={(e) => setResetPassword(e.target.value)}
+              placeholder="••••••••"
+              className="bg-background border-border text-foreground"
+              onKeyDown={(e) => {
+                if (
+                  e.key === 'Enter' &&
+                  resetConfirmText === 'reset' &&
+                  resetPassword
+                ) {
+                  confirmReset();
+                }
+              }}
+            />
+          </div>
         </div>
         <DialogFooter className="bg-popover border-border">
           <Button
@@ -972,7 +1127,7 @@ export function WhatsAppConfig() {
           </Button>
           <Button
             onClick={confirmReset}
-            disabled={resetConfirmText !== 'reset' || resetting}
+            disabled={resetConfirmText !== 'reset' || resetting || !resetPassword}
             className="bg-red-600 hover:bg-red-700 text-white disabled:opacity-50"
           >
             {resetting ? (

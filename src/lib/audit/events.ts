@@ -67,6 +67,10 @@ export const AuditEventType = {
   CATALOGUE_SEARCH_PERFORMED: 'CATALOGUE_SEARCH_PERFORMED',
   CATALOGUE_SOURCE_CONNECTED: 'CATALOGUE_SOURCE_CONNECTED',
   CATALOGUE_BROWSE_PERFORMED: 'CATALOGUE_BROWSE_PERFORMED',
+
+  // WhatsApp settings protection (password-gated tab)
+  WHATSAPP_SETTINGS_UNLOCKED: 'WHATSAPP_SETTINGS_UNLOCKED',
+  WHATSAPP_CONFIG_RESET: 'WHATSAPP_CONFIG_RESET',
 } as const;
 
 export type AuditEventTypeValue = (typeof AuditEventType)[keyof typeof AuditEventType];
@@ -104,6 +108,8 @@ export const EVENT_CATEGORY_MAP: Record<AuditEventTypeValue, AuditCategoryValue>
   CATALOGUE_SEARCH_PERFORMED: AuditCategory.BUSINESS,
   CATALOGUE_SOURCE_CONNECTED: AuditCategory.BUSINESS,
   CATALOGUE_BROWSE_PERFORMED: AuditCategory.BUSINESS,
+  WHATSAPP_SETTINGS_UNLOCKED: AuditCategory.ACCESS,
+  WHATSAPP_CONFIG_RESET: AuditCategory.ADMIN,
 };
 
 /** Event types that the frontend is allowed to report via POST /api/audit/events. */
@@ -116,4 +122,5 @@ export const FRONTEND_REPORTABLE_EVENTS: Set<string> = new Set([
   AuditEventType.CONTACT_WHATSAPP_CLICKED,
   AuditEventType.CONVERSATION_VIEWED,
   AuditEventType.CONVERSATION_CONTACT_OPENED,
+  AuditEventType.WHATSAPP_SETTINGS_UNLOCKED,
 ]);

@@ -8,6 +8,8 @@ import {
 import { encrypt, decrypt } from '@/lib/whatsapp/encryption'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { sendWhatsappConfigEmail, sendWhatsappResetEmail } from '@/lib/email/send'
+import { AuditService } from '@/lib/audit/service'
+import { AuditEventType } from '@/lib/audit/events'
 import crypto from 'crypto'
 
 // Lazy-initialised service-role client. We need it to detect a
@@ -473,12 +475,44 @@ export async function POST(request: Request) {
  * Removes the authenticated user's WhatsApp configuration row.
  * Used by the "Reset Configuration" button to recover from a corrupted
  * encrypted token (mismatched ENCRYPTION_KEY across environments).
+ *
+ * Server-side re-auth: the body must carry the account password, which
+ * is verified here against Supabase Auth. The UI password gate is only
+ * an accident guard — this is the actual enforcement, so a live session
+ * alone can't wipe a working connection. Every successful reset is
+ * recorded in the audit trail.
  */
-export async function DELETE() {
+export async function DELETE(request: Request) {
   try {
     const ctx = await requireRole('admin')
 
     console.log('[whatsapp/config DELETE] accountId:', ctx.accountId)
+
+    const body = (await request.json().catch(() => null)) as { password?: string } | null
+    const password = typeof body?.password === 'string' ? body.password : ''
+    if (!password) {
+      return NextResponse.json({ error: 'Password required' }, { status: 401 })
+    }
+
+    const { data: userData, error: userErr } = await supabaseAdmin().auth.admin.getUserById(
+      ctx.userId,
+    )
+    const email = userData.user?.email
+    let passwordOk = false
+    if (!userErr && email) {
+      const verifyClient = createAdminClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      )
+      const { error: verifyError } = await verifyClient.auth.signInWithPassword({
+        email,
+        password,
+      })
+      passwordOk = !verifyError
+    }
+    if (!passwordOk) {
+      return NextResponse.json({ error: 'Incorrect password' }, { status: 401 })
+    }
 
     // Fetch existing config before deleting (need phone_number_id for email)
     const { data: existing } = await ctx.supabase
@@ -499,6 +533,17 @@ export async function DELETE() {
         { status: 500 }
       )
     }
+
+    // Audit trail: destructive, password-verified action.
+    const forwarded = request.headers.get('x-forwarded-for')
+    await AuditService.record({
+      eventType: AuditEventType.WHATSAPP_CONFIG_RESET,
+      accountId: ctx.accountId,
+      actorUserId: ctx.userId,
+      metadata: { phone_number_id: existing?.phone_number_id ?? null },
+      ipAddress: forwarded?.split(',')[0]?.trim() ?? undefined,
+      userAgent: request.headers.get('user-agent') ?? undefined,
+    })
 
     // ── Fire-and-forget: send reset confirmation email ──────────
     createAdminClient(

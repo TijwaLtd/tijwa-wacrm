@@ -29,6 +29,8 @@ export const EVENT_LABELS: Record<string, string> = {
   CONTACT_DELETED: "Contact deleted",
   CONTACT_EXPORT_REQUESTED: "Export requested",
   CONTACT_EXPORT_COMPLETED: "Export completed",
+  WHATSAPP_SETTINGS_UNLOCKED: "WhatsApp settings unlocked",
+  WHATSAPP_CONFIG_RESET: "WhatsApp config reset",
 };
 
 const EVENT_BADGE_COLORS: Record<string, string> = {

@@ -29,6 +29,8 @@ const EVENT_TYPE_OPTIONS = [
   { value: "CONTACT_CREATED", label: "Contact created" },
   { value: "CONTACT_UPDATED", label: "Contact updated" },
   { value: "CONTACT_DELETED", label: "Contact deleted" },
+  { value: "WHATSAPP_SETTINGS_UNLOCKED", label: "WhatsApp settings unlocked" },
+  { value: "WHATSAPP_CONFIG_RESET", label: "WhatsApp config reset" },
 ];
 
 const ALL_ACTIONS = "ALL_ACTIONS";
