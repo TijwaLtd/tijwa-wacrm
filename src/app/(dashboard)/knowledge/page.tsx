@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
   Loader2,
@@ -15,7 +15,8 @@ import {
   Lock,
   ArrowUpRight,
   Coins,
-  Clock,
+  Eye,
+  ArrowLeft,
 } from 'lucide-react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -26,9 +27,9 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
-  CardDescription,
 } from '@/components/ui/card';
 import { useTranslations } from 'next-intl';
+import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
 import { cn } from '@/lib/utils';
 import { getKnowledgeDocumentsByTenant } from '@/lib/db';
@@ -38,6 +39,13 @@ import {
   queueKnowledgeUpload,
   syncKnowledgeOutbox,
 } from '@/lib/sync/knowledge-sync';
+import {
+  ResponsiveDataListing,
+  type ColumnDef,
+  type CardMapper,
+} from '@/components/shared/responsive-data-listing';
+import type { CardAction } from '@/components/shared/responsive-mobile-card';
+import { DocumentPreviewDialog } from '@/components/knowledge/document-preview-dialog';
 
 interface DocSummary {
   id: string;
@@ -45,12 +53,16 @@ interface DocSummary {
   content?: string;
   updated_at: string;
   source_type?: string;
+  file_path?: string | null;
 }
 
 type EditTarget = 'new' | string | null;
 type InputMode = 'text' | 'file';
 
-const ACCEPTED_EXTENSIONS = '.pdf,.docx,.doc,.txt,.csv,.md,.tsv';
+// Single source of truth for what may be uploaded — mirrored server-side
+// by EXTENSION_MAP in src/lib/ai/extract-text.ts (extension-authoritative).
+const ALLOWED_EXTENSIONS = ['.pdf', '.docx', '.doc', '.txt', '.csv', '.md', '.tsv'];
+const ACCEPTED_EXTENSIONS = ALLOWED_EXTENSIONS.join(',');
 const MAX_FILE_SIZE_MB = 10;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 const PREVIEW_LINES = 3;
@@ -100,7 +112,20 @@ export default function KnowledgePage() {
   const [saving, setSaving] = useState(false);
   const [reindexing, setReindexing] = useState(false);
   const loadedAccountIdRef = useRef<string | null>(null);
+  const formRef = useRef<HTMLDivElement>(null);
   const t = useTranslations('Settings.aiKnowledge');
+
+  // The create/edit form renders below the list — bring it into view so
+  // the Back button (and fields) are visible immediately on open.
+  const scrollToForm = () => {
+    requestAnimationFrame(() =>
+      formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    );
+  };
+
+  // List state
+  const [search, setSearch] = useState('');
+  const [previewDoc, setPreviewDoc] = useState<DocSummary | null>(null);
 
   // File upload state
   const [inputMode, setInputMode] = useState<InputMode>('text');
@@ -158,6 +183,7 @@ export default function KnowledgePage() {
               content: d.content,
               updated_at: d.updated_at,
               source_type: d.source_type,
+              file_path: d.file_path,
             }))
           );
           toast.info('Showing cached documents (offline)');
@@ -186,12 +212,25 @@ export default function KnowledgePage() {
     });
   }, [accountId, fetchDocs, fetchCredits]);
 
+  // Client-side filter over title + extracted content (the listing is
+  // small enough — no server round-trip needed).
+  const filteredDocs = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return docs;
+    return docs.filter(
+      (d) =>
+        d.title.toLowerCase().includes(q) ||
+        (d.content ?? '').toLowerCase().includes(q)
+    );
+  }, [docs, search]);
+
   const openNew = () => {
     setEditing('new');
     setTitle('');
     setContent('');
     setInputMode('text');
     setSelectedFile(null);
+    scrollToForm();
   };
 
   const openEdit = async (id: string) => {
@@ -205,6 +244,7 @@ export default function KnowledgePage() {
       setEditing(id);
       setTitle(data.title ?? '');
       setContent(data.content ?? '');
+      scrollToForm();
     } catch {
       toast.error(t('openFailed'));
     }
@@ -274,9 +314,7 @@ export default function KnowledgePage() {
       return;
     }
     if (!hasAiCredits) {
-      toast.error(
-        'AI credits are required for file uploads. Upgrade your plan to continue.'
-      );
+      toast.error(t('creditsRequired'));
       return;
     }
     setSaving(true);
@@ -370,14 +408,21 @@ export default function KnowledgePage() {
   };
 
   const handleFileSelect = (file: File) => {
+    // The `accept` attribute only filters the picker — drag-and-drop and
+    // "All files" bypass it, so validate the extension explicitly.
+    const ext = file.name.includes('.')
+      ? file.name.slice(file.name.lastIndexOf('.')).toLowerCase()
+      : '';
+    if (!ALLOWED_EXTENSIONS.includes(ext)) {
+      toast.error(t('invalidFileType', { name: file.name }));
+      return;
+    }
     if (file.size > MAX_FILE_SIZE_BYTES) {
-      toast.error(`File is too large. Maximum size is ${MAX_FILE_SIZE_MB} MB.`);
+      toast.error(t('fileTooLarge', { max: MAX_FILE_SIZE_MB }));
       return;
     }
     if (!hasAiCredits) {
-      toast.error(
-        'AI credits are required for file uploads. Upgrade your plan to continue.'
-      );
+      toast.error(t('creditsRequired'));
       return;
     }
     setSelectedFile(file);
@@ -431,38 +476,194 @@ export default function KnowledgePage() {
               Upload documents and build a knowledge base for AI-powered
               replies. Available on Pro and Enterprise plans.
             </p>
-            <a
+            <Link
               href="/billing"
               className={cn(buttonVariants({ variant: 'default' }))}
             >
               Upgrade plan
               <ArrowUpRight className="ml-1.5 h-4 w-4" />
-            </a>
+            </Link>
           </CardContent>
         </Card>
       </div>
     );
   }
 
+  const typeBadge = (doc: DocSummary) => (
+    <span className="bg-muted inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium uppercase text-muted-foreground">
+      {doc.source_type === 'file' ? (
+        <File className="size-3" />
+      ) : (
+        <FileText className="size-3" />
+      )}
+      {doc.source_type === 'file' ? t('typeFile') : t('typeText')}
+    </span>
+  );
+
+  const columns: ColumnDef<DocSummary>[] = [
+    {
+      header: t('colDocument'),
+      cell: (doc) => (
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="bg-muted shrink-0 rounded-md p-1">
+            {doc.source_type === 'file' ? (
+              <File className="text-muted-foreground size-3.5" />
+            ) : (
+              <FileText className="text-muted-foreground size-3.5" />
+            )}
+          </div>
+          <span className="text-foreground truncate text-sm font-medium">
+            {doc.title}
+          </span>
+        </div>
+      ),
+    },
+    {
+      header: t('colType'),
+      className: 'w-24',
+      cell: typeBadge,
+    },
+    {
+      header: t('colUpdated'),
+      className: 'hidden w-28 md:table-cell',
+      headerClassName: 'hidden w-28 md:table-cell',
+      cell: (doc) => (
+        <span className="text-muted-foreground text-xs">
+          {formatDate(doc.updated_at)}
+        </span>
+      ),
+    },
+    {
+      header: '',
+      className: 'w-28',
+      headerClassName: 'w-28',
+      cell: (doc) => (
+        <div className="flex items-center justify-end gap-0.5">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="text-muted-foreground hover:text-foreground"
+            onClick={() => setPreviewDoc(doc)}
+            title={t('preview')}
+          >
+            <Eye className="size-4" />
+          </Button>
+          {canEdit && (
+            <>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="text-muted-foreground hover:text-foreground"
+                onClick={() => void openEdit(doc.id)}
+                title={t('editAction')}
+              >
+                <Pencil className="size-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="text-destructive hover:text-destructive"
+                onClick={() => void remove(doc.id)}
+                title={t('deleteAction')}
+              >
+                <Trash2 className="size-4" />
+              </Button>
+            </>
+          )}
+        </div>
+      ),
+    },
+  ];
+
+  const cardMapper: CardMapper<DocSummary> = {
+    id: (doc) => doc.id,
+    title: (doc) => doc.title,
+    subtitle: (doc) => formatDate(doc.updated_at),
+    fallbackIcon: (doc) => (
+      <div className="bg-muted rounded-md p-1.5">
+        {doc.source_type === 'file' ? (
+          <File className="text-muted-foreground size-4" />
+        ) : (
+          <FileText className="text-muted-foreground size-4" />
+        )}
+      </div>
+    ),
+    statusBadge: typeBadge,
+    description: (doc) => truncateContent(doc.content) || null,
+    actions: (doc): CardAction[] => [
+      {
+        label: t('preview'),
+        icon: Eye,
+        variant: 'outline',
+        onClick: () => setPreviewDoc(doc),
+      },
+      ...(canEdit
+        ? ([
+            {
+              label: t('editAction'),
+              icon: Pencil,
+              variant: 'outline',
+              onClick: () => void openEdit(doc.id),
+            },
+            {
+              label: t('deleteAction'),
+              icon: Trash2,
+              variant: 'destructive',
+              onClick: () => void remove(doc.id),
+            },
+          ] as CardAction[])
+        : []),
+    ],
+  };
+
   return (
     <div className="py-6 sm:py-8">
-      {/* Header */}
-      <div className="mb-4 sm:mb-6">
-        <h1 className="text-foreground text-xl font-semibold sm:text-2xl">
-          Knowledge Base
-        </h1>
-        <p className="text-muted-foreground mt-1 text-xs sm:text-sm">
-          Add FAQs, policies, or product details. The AI assistant retrieves
-          relevant pieces when drafting and auto-replying.
-          {hasEmbeddingsKey
-            ? ' Semantic search is on.'
-            : ' Using keyword search — add an embeddings key for semantic search.'}
-        </p>
+      {/* Header — page-owned (matches Team): title + actions right */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-foreground text-xl font-semibold sm:text-2xl">
+            {t('title')}
+          </h1>
+          <p className="text-muted-foreground mt-1 max-w-[72ch] text-xs sm:text-sm">
+            {t('description', {
+              searchType: hasEmbeddingsKey
+                ? t('semanticSearchOn')
+                : t('keywordSearchOn'),
+            })}
+          </p>
+        </div>
+        {canEdit && editing === null && (
+          <div className="flex shrink-0 items-center gap-2">
+            {hasEmbeddingsKey && docs.length > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={reindex}
+                disabled={reindexing}
+                title={t('reindexTooltip')}
+              >
+                {reindexing ? (
+                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-1.5 h-4 w-4" />
+                )}
+                <span className="hidden sm:inline">{t('reindex')}</span>
+              </Button>
+            )}
+            <Button
+              size="sm"
+              onClick={openNew}
+              className="flex-1 gap-1.5 sm:flex-none"
+            >
+              <Plus className="h-4 w-4" /> {t('addDoc')}
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Credits status */}
       {!creditsLoading && (
-        <div className="text-muted-foreground mb-3 flex flex-wrap items-center gap-2 text-xs sm:mb-4 sm:gap-4 sm:text-sm">
+        <div className="text-muted-foreground mt-3 mb-1 flex flex-wrap items-center gap-2 text-xs sm:mt-4 sm:gap-4 sm:text-sm">
           <span className="flex items-center gap-1.5">
             <Coins className="h-3.5 w-3.5" />
             AI Credits: {credits?.creditsRemaining?.toFixed(2) ?? '0.00'}{' '}
@@ -471,327 +672,224 @@ export default function KnowledgePage() {
           {!hasAiCredits && (
             <span className="text-destructive">
               No credits left — file uploads disabled.{' '}
-              <a href="/billing" className="underline">
+              <Link href="/billing" className="underline">
                 Upgrade plan
-              </a>
+              </Link>
             </span>
           )}
         </div>
       )}
 
-      {/* Action bar: Add button + Reindex */}
-      {canEdit && editing === null && (
-        <div className="mb-3 flex items-center gap-2 sm:mb-4">
-          <Button size="sm" onClick={openNew} className="flex-1 sm:flex-none">
-            <Plus className="mr-1.5 h-4 w-4" /> Add document
-          </Button>
-          {hasEmbeddingsKey && docs.length > 0 && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={reindex}
-              disabled={reindexing}
-              title={t('reindexTooltip')}
-            >
-              {reindexing ? (
-                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-              ) : (
-                <RefreshCw className="mr-1.5 h-4 w-4" />
-              )}
-              <span className="hidden sm:inline">{t('reindex')}</span>
-              <span className="sm:hidden">Reindex</span>
-            </Button>
-          )}
-        </div>
-      )}
+      {/* Document list — shared responsive listing (desktop table,
+          mobile tap-to-expand cards) */}
+      <ResponsiveDataListing<DocSummary>
+        items={filteredDocs}
+        columns={columns}
+        cardMapper={cardMapper}
+        loading={false}
+        searchQuery={search}
+        onSearchChange={setSearch}
+        searchPlaceholder={t('searchPlaceholder')}
+        emptyState={{
+          icon: BookOpen,
+          title: search.trim() ? t('searchNoResults') : t('noDocs'),
+          actionLabel: search.trim() || !canEdit ? undefined : t('addDoc'),
+          onAction: search.trim() || !canEdit ? undefined : openNew,
+        }}
+        rowKey={(doc) => doc.id}
+      />
 
-      {loading ? (
-        <div className="text-muted-foreground flex items-center py-4 text-xs sm:text-sm">
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" /> {t('loading')}
-        </div>
-      ) : (
-        <div className="space-y-3 sm:space-y-4">
-          {/* Empty state */}
-          {docs.length === 0 && editing === null && (
-            <Card>
-              <CardContent className="flex flex-col items-center justify-center py-8 text-center sm:py-12">
-                <BookOpen className="text-muted-foreground mb-3 h-6 w-6 sm:h-8 sm:w-8" />
-                <p className="text-muted-foreground text-xs sm:text-sm">
-                  {t('noDocs')}
-                </p>
-                {canEdit && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="mt-3 sm:mt-4"
-                    onClick={openNew}
-                  >
-                    <Plus className="mr-2 h-4 w-4" /> {t('addDoc')}
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Document cards with preview */}
-          {docs.length > 0 && (
-            <div className="grid gap-2 sm:gap-3">
-              {docs.map((doc) => {
-                const preview = truncateContent(doc.content);
-                const hasPreview = Boolean(preview);
-
-                return (
-                  <Card
-                    key={doc.id}
-                    className={cn(
-                      'group hover:bg-accent/50 transition-colors',
-                      editing === doc.id && 'border-primary'
-                    )}
-                  >
-                    <CardContent className="p-3 sm:p-4">
-                      {/* Title row */}
-                      <div className="flex items-start justify-between gap-2 sm:gap-3">
-                        <div className="flex min-w-0 flex-1 items-start gap-2 sm:gap-2.5">
-                          <div className="bg-muted mt-0.5 rounded-md p-1 sm:p-1.5">
-                            {doc.source_type === 'file' ? (
-                              <File className="text-muted-foreground h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                            ) : (
-                              <FileText className="text-muted-foreground h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                            )}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <h3 className="text-foreground truncate text-xs font-medium sm:text-sm">
-                              {doc.title}
-                            </h3>
-                            <div className="text-muted-foreground mt-0.5 flex items-center gap-1.5 text-[10px] sm:gap-2 sm:text-xs">
-                              <span className="flex items-center gap-1">
-                                <Clock className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
-                                {formatDate(doc.updated_at)}
-                              </span>
-                              {doc.source_type === 'file' && (
-                                <span className="bg-muted rounded px-1 py-0.5 text-[8px] font-medium uppercase sm:px-1.5 sm:text-[10px]">
-                                  File
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Actions — always visible on mobile, hover on desktop */}
-                        {canEdit && (
-                          <div className="flex shrink-0 gap-0.5 opacity-100 sm:opacity-0 sm:transition-opacity sm:group-hover:sm:opacity-100">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 w-7 p-0 sm:h-8 sm:w-8"
-                              onClick={() => void openEdit(doc.id)}
-                              title="Edit"
-                            >
-                              <Pencil className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-destructive hover:text-destructive h-7 w-7 p-0 sm:h-8 sm:w-8"
-                              onClick={() => void remove(doc.id)}
-                              title="Delete"
-                            >
-                              <Trash2 className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                            </Button>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Content preview */}
-                      {hasPreview && (
-                        <div className="mt-2 ml-7 sm:mt-3 sm:ml-9">
-                          <p className="text-muted-foreground line-clamp-2 text-[10px] whitespace-pre-wrap sm:line-clamp-3 sm:text-xs">
-                            {preview}
-                          </p>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                );
-              })}
+      {/* Create/Edit form */}
+      {editing !== null && (
+        <Card ref={formRef} className="mt-4 sm:mt-5">
+          <CardHeader className="pb-3 sm:pb-4">
+            <div className="col-span-full flex min-w-0 items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="-ml-2 shrink-0 gap-1.5 text-muted-foreground"
+                onClick={cancelEdit}
+                disabled={saving}
+              >
+                <ArrowLeft className="size-4" />
+                {t('back')}
+              </Button>
+              <CardTitle className="truncate text-base sm:text-lg">
+                {editing === 'new' ? t('addDoc') : t('editDocument')}
+              </CardTitle>
             </div>
-          )}
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {/* Mode toggle — only when creating new */}
+            {editing === 'new' && (
+              <div className="bg-muted flex gap-1 rounded-md p-0.5">
+                <button
+                  type="button"
+                  className={`flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors ${
+                    inputMode === 'text'
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                  onClick={() => {
+                    setInputMode('text');
+                    setSelectedFile(null);
+                  }}
+                >
+                  {t('modeText')}
+                </button>
+                <button
+                  type="button"
+                  disabled={!hasAiCredits}
+                  className={`flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors ${
+                    inputMode === 'file'
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  } ${!hasAiCredits ? 'cursor-not-allowed opacity-50' : ''}`}
+                  onClick={() => {
+                    if (!hasAiCredits) {
+                      toast.error(t('creditsRequired'));
+                      return;
+                    }
+                    setInputMode('file');
+                    setContent('');
+                  }}
+                  title={
+                    !hasAiCredits ? 'No AI credits remaining' : undefined
+                  }
+                >
+                  {t('modeFile')}
+                  {!hasAiCredits && (
+                    <Lock className="ml-1 inline h-3 w-3" />
+                  )}
+                </button>
+              </div>
+            )}
 
-          {/* Edit/Create form */}
-          {editing !== null && (
-            <Card>
-              <CardHeader className="pb-3 sm:pb-4">
-                <CardTitle className="text-base sm:text-lg">
-                  {editing === 'new' ? 'Add document' : 'Edit document'}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {/* Mode toggle — only when creating new */}
-                {editing === 'new' && (
-                  <div className="bg-muted flex gap-1 rounded-md p-0.5">
-                    <button
-                      type="button"
-                      className={`flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors ${
-                        inputMode === 'text'
-                          ? 'bg-background text-foreground shadow-sm'
-                          : 'text-muted-foreground hover:text-foreground'
-                      }`}
-                      onClick={() => {
-                        setInputMode('text');
-                        setSelectedFile(null);
-                      }}
-                    >
-                      {t('modeText')}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!hasAiCredits}
-                      className={`flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors ${
-                        inputMode === 'file'
-                          ? 'bg-background text-foreground shadow-sm'
-                          : 'text-muted-foreground hover:text-foreground'
-                      } ${!hasAiCredits ? 'cursor-not-allowed opacity-50' : ''}`}
-                      onClick={() => {
-                        if (!hasAiCredits) {
-                          toast.error(
-                            'AI credits are required for file uploads.'
-                          );
-                          return;
-                        }
-                        setInputMode('file');
-                        setContent('');
-                      }}
-                      title={
-                        !hasAiCredits ? 'No AI credits remaining' : undefined
-                      }
-                    >
-                      {t('modeFile')}
-                      {!hasAiCredits && (
-                        <Lock className="ml-1 inline h-3 w-3" />
-                      )}
-                    </button>
-                  </div>
-                )}
+            <div className="space-y-2">
+              <Label htmlFor="kb-title">{t('editDocTitle')}</Label>
+              <Input
+                id="kb-title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder={t('editDocTitlePlaceholder')}
+                disabled={saving}
+              />
+            </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="kb-title">{t('editDocTitle')}</Label>
-                  <Input
-                    id="kb-title"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    placeholder={t('editDocTitlePlaceholder')}
-                    disabled={saving}
+            {/* Text input mode */}
+            {(editing !== 'new' || inputMode === 'text') && (
+              <div className="space-y-2">
+                <Label htmlFor="kb-content">{t('editDocContent')}</Label>
+                <Textarea
+                  id="kb-content"
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                  placeholder={t('editDocContentPlaceholder')}
+                  rows={6}
+                  className="sm:rows-10 min-h-30 font-mono text-sm sm:min-h-0"
+                  disabled={saving}
+                />
+              </div>
+            )}
+
+            {/* File upload mode */}
+            {editing === 'new' && inputMode === 'file' && (
+              <div className="space-y-2">
+                <Label>{t('uploadFile')}</Label>
+                <div
+                  className={`flex flex-col items-center justify-center rounded-md border-2 border-dashed p-4 transition-colors sm:p-6 ${
+                    dragOver
+                      ? 'border-primary bg-primary/5'
+                      : selectedFile
+                        ? 'border-green-500 bg-green-500/5'
+                        : 'border-border hover:border-primary/50'
+                  }`}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setDragOver(true);
+                  }}
+                  onDragLeave={() => setDragOver(false)}
+                  onDrop={handleDrop}
+                  onClick={() => fileInputRef.current?.click()}
+                  role="button"
+                  tabIndex={0}
+                >
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept={ACCEPTED_EXTENSIONS}
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleFileSelect(file);
+                      // Allow re-picking the same file after a rejection
+                      e.target.value = '';
+                    }}
                   />
-                </div>
-
-                {/* Text input mode */}
-                {(editing !== 'new' || inputMode === 'text') && (
-                  <div className="space-y-2">
-                    <Label htmlFor="kb-content">{t('editDocContent')}</Label>
-                    <Textarea
-                      id="kb-content"
-                      value={content}
-                      onChange={(e) => setContent(e.target.value)}
-                      placeholder={t('editDocContentPlaceholder')}
-                      rows={6}
-                      className="sm:rows-10 min-h-30 font-mono text-sm sm:min-h-0"
-                      disabled={saving}
-                    />
-                  </div>
-                )}
-
-                {/* File upload mode */}
-                {editing === 'new' && inputMode === 'file' && (
-                  <div className="space-y-2">
-                    <Label>{t('uploadFile')}</Label>
-                    <div
-                      className={`flex flex-col items-center justify-center rounded-md border-2 border-dashed p-4 transition-colors sm:p-6 ${
-                        dragOver
-                          ? 'border-primary bg-primary/5'
-                          : selectedFile
-                            ? 'border-green-500 bg-green-500/5'
-                            : 'border-border hover:border-primary/50'
-                      }`}
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        setDragOver(true);
-                      }}
-                      onDragLeave={() => setDragOver(false)}
-                      onDrop={handleDrop}
-                      onClick={() => fileInputRef.current?.click()}
-                      role="button"
-                      tabIndex={0}
-                    >
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept={ACCEPTED_EXTENSIONS}
-                        className="hidden"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) handleFileSelect(file);
+                  {selectedFile ? (
+                    <div className="flex flex-col items-center gap-1 text-center">
+                      <FileText className="h-6 w-6 text-green-600 sm:h-8 sm:w-8" />
+                      <span className="text-xs font-medium sm:text-sm">
+                        {selectedFile.name}
+                      </span>
+                      <span className="text-muted-foreground text-[10px] sm:text-xs">
+                        {(selectedFile.size / 1024).toFixed(1)} KB
+                      </span>
+                      <button
+                        type="button"
+                        className="text-destructive mt-1 text-xs hover:underline"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedFile(null);
                         }}
-                      />
-                      {selectedFile ? (
-                        <div className="flex flex-col items-center gap-1 text-center">
-                          <FileText className="h-6 w-6 text-green-600 sm:h-8 sm:w-8" />
-                          <span className="text-xs font-medium sm:text-sm">
-                            {selectedFile.name}
-                          </span>
-                          <span className="text-muted-foreground text-[10px] sm:text-xs">
-                            {(selectedFile.size / 1024).toFixed(1)} KB
-                          </span>
-                          <button
-                            type="button"
-                            className="text-destructive mt-1 text-xs hover:underline"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedFile(null);
-                            }}
-                          >
-                            {t('removeFile')}
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex flex-col items-center gap-1 text-center">
-                          <Upload className="text-muted-foreground h-6 w-6 sm:h-8 sm:w-8" />
-                          <span className="text-muted-foreground text-xs sm:text-sm">
-                            {t('dropOrClick')}
-                          </span>
-                          <span className="text-muted-foreground text-[10px] sm:text-xs">
-                            {t('acceptedFormats', { max: MAX_FILE_SIZE_MB })}
-                          </span>
-                        </div>
-                      )}
+                      >
+                        {t('removeFile')}
+                      </button>
                     </div>
-                  </div>
-                )}
-
-                <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
-                  <Button
-                    variant="ghost"
-                    onClick={cancelEdit}
-                    disabled={saving}
-                    className="w-full sm:w-auto"
-                  >
-                    {t('cancel')}
-                  </Button>
-                  <Button
-                    onClick={save}
-                    disabled={saving || !canSave}
-                    className="w-full sm:w-auto"
-                  >
-                    {saving && (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    )}
-                    {t('saveDoc')}
-                  </Button>
+                  ) : (
+                    <div className="flex flex-col items-center gap-1 text-center">
+                      <Upload className="text-muted-foreground h-6 w-6 sm:h-8 sm:w-8" />
+                      <span className="text-muted-foreground text-xs sm:text-sm">
+                        {t('dropOrClick')}
+                      </span>
+                      <span className="text-muted-foreground text-[10px] sm:text-xs">
+                        {t('acceptedFormats', { max: MAX_FILE_SIZE_MB })}
+                      </span>
+                    </div>
+                  )}
                 </div>
-              </CardContent>
-            </Card>
-          )}
-        </div>
+              </div>
+            )}
+
+            <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
+              <Button
+                variant="ghost"
+                onClick={cancelEdit}
+                disabled={saving}
+                className="w-full sm:w-auto"
+              >
+                {t('cancel')}
+              </Button>
+              <Button
+                onClick={save}
+                disabled={saving || !canSave}
+                className="w-full sm:w-auto"
+              >
+                {saving && (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                )}
+                {t('saveDoc')}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       )}
+
+      {/* Document preview: PDF embed via signed URL, text otherwise */}
+      <DocumentPreviewDialog
+        doc={previewDoc}
+        onClose={() => setPreviewDoc(null)}
+      />
     </div>
   );
 }

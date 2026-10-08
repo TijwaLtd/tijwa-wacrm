@@ -2005,7 +2005,23 @@
       "dropOrClick": "파일을 여기에 놓거나 클릭하여 찾아보기",
       "acceptedFormats": "PDF, DOCX, TXT, CSV, MD, TSV (최대 {max} MB)",
       "removeFile": "파일 제거",
-      "fileTooLarge": "파일이 너무 큽니다. 최대 크기는 {max}MB입니다."
+      "fileTooLarge": "파일이 너무 큽니다. 최대 크기는 {max}MB입니다.",
+      "creditsRequired": "파일 업로드에는 AI 크레딧이 필요합니다. 플랜을 업그레이드하세요.",
+      "searchPlaceholder": "문서 검색…",
+      "searchNoResults": "검색과 일치하는 문서가 없습니다.",
+      "colDocument": "문서",
+      "colType": "유형",
+      "colUpdated": "업데이트",
+      "typeText": "텍스트",
+      "typeFile": "파일",
+      "preview": "미리보기",
+      "download": "다운로드",
+      "invalidFileType": "“{name}” 파일은 지원되지 않는 형식입니다.",
+      "previewFailed": "파일 미리보기를 불러오지 못했습니다.",
+      "editAction": "편집",
+      "deleteAction": "삭제",
+      "back": "뒤로",
+      "editDocument": "문서 편집"
     }
   },
   "Sidebar": {

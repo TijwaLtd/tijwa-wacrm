@@ -6,10 +6,11 @@ import { ingestDocument } from '@/lib/ai/knowledge'
 import {
   extractText,
   mimeFromFilename,
-  isAcceptedFileType,
   DocumentExtractionError,
 } from '@/lib/ai/extract-text'
 import { AiError } from '@/lib/ai/types'
+
+const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
 
 /**
  * POST /api/ai/knowledge/upload  (admin+)
@@ -42,14 +43,26 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 })
     }
 
-    // Determine MIME type — trust the upload header first, fall back to extension
-    const uploadMime = file.type || mimeFromFilename(file.name)
-    if (!uploadMime || !isAcceptedFileType(uploadMime)) {
+    // Restrict by extension, not by the client-claimed MIME header (which
+    // any file can spoof). The allowlist maps 1:1 onto the storage bucket's
+    // allowed_mime_types, so app validation can never diverge from storage.
+    const uploadMime = mimeFromFilename(file.name)
+    if (!uploadMime) {
       return NextResponse.json(
         {
           error:
             'Unsupported file type. Accepted: PDF, DOCX, TXT, CSV, MD, TSV',
         },
+        { status: 400 },
+      )
+    }
+
+    // Enforce the size limit server-side too — storage is best-effort, so
+    // the bucket's 10 MB cap alone would still let oversized files into
+    // text extraction and the database.
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      return NextResponse.json(
+        { error: 'File is too large. Maximum size is 10 MB.' },
         { status: 400 },
       )
     }
