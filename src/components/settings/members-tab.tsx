@@ -69,6 +69,7 @@ import { RequireRole } from '@/components/auth/require-role';
 import { useAuth } from '@/hooks/use-auth';
 import { usePresence } from '@/hooks/use-presence';
 import type { AccountRole } from '@/lib/auth/roles';
+import { hasMetadataSchema } from '@/lib/assignments/team-metadata';
 import { presenceLabel, summarize } from '@/lib/presence';
 import {
   PRESENCE_DOT_CLASS,
@@ -154,7 +155,10 @@ function fmtExpiresIn(iso: string, t: (key: string, values?: Record<string, stri
 export function MembersTab() {
   const t = useTranslations('Settings.members');
   const tRoles = useTranslations('Settings.roles');
-  const { user, canManageMembers } = useAuth();
+  const { user, canManageMembers, businessType } = useAuth();
+  // The metadata (gear) affordance only exists for business types that
+  // actually have a schema — otherwise the dialog opens to a dead shell.
+  const showMetadata = canManageMembers && hasMetadataSchema(businessType);
   const { getPresence, getRow, now } = usePresence();
 
   const [members, setMembers] = useState<Member[]>([]);
@@ -458,19 +462,23 @@ export function MembersTab() {
       cell: (member) => {
         if (!canManageMembers || member.role === 'owner') return null;
         const isSelf = member.user_id === user?.id;
+        // Nothing actionable on your own row without a metadata schema.
+        if (isSelf && !showMetadata) return null;
         const isBusy = pendingMemberAction === member.user_id;
         return (
           <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setMetadataDialogMember(member)}
-              disabled={isBusy}
-              className="h-8 w-8 p-0"
-              aria-label={t('businessInfo')}
-            >
-              <Settings className="size-4" />
-            </Button>
+            {showMetadata && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setMetadataDialogMember(member)}
+                disabled={isBusy}
+                className="h-8 w-8 p-0"
+                aria-label={t('businessInfo')}
+              >
+                <Settings className="size-4" />
+              </Button>
+            )}
             {!isSelf && (
               <Button
                 variant="outline"
@@ -528,11 +536,15 @@ export function MembersTab() {
       if (!canManageMembers || member.role === 'owner') return [];
       const isSelf = member.user_id === user?.id;
       return [
-        {
-          label: t('businessInfo'),
-          icon: Settings,
-          onClick: () => setMetadataDialogMember(member),
-        },
+        ...(showMetadata
+          ? [
+              {
+                label: t('businessInfo'),
+                icon: Settings,
+                onClick: () => setMetadataDialogMember(member),
+              },
+            ]
+          : []),
         ...(isSelf
           ? []
           : [

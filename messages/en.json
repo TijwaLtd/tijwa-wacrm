@@ -1265,9 +1265,16 @@
       "tagNone": "{mode} tag (none picked)"
     }
   },
+  "BusinessSettings": {
+    "businessTypeTitle": "Business type",
+    "businessTypeDesc": "Sets the shape of this workspace — switching type recommends the capability set for that kind of business. Adjust individual capabilities below.",
+    "capabilitiesTitle": "Capabilities",
+    "capabilitiesDesc": "Enable only what this workspace needs. Enabled capabilities decide which modules and navigation items appear across the app."
+  },
   "Settings": {
     "pageTitle": "Settings",
     "pageDesc": "Everything in one place — your account and your workspace. Pick a section to manage it.",
+    "backToList": "Back to settings",
     "overview": {
       "notSetup": "Not set up yet",
       "connected": "Connected",

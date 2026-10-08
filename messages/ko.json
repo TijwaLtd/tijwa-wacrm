@@ -1337,9 +1337,16 @@
     "active": "활성",
     "loading": "불러오는 중..."
   },
+  "BusinessSettings": {
+    "businessTypeTitle": "사업 유형",
+    "businessTypeDesc": "워크스페이스의 형태를 결정합니다. 유형을 바꾸면 해당 사업에 맞는 기능 세트가 추천됩니다. 아래에서 개별 기능을 조정할 수 있습니다.",
+    "capabilitiesTitle": "기능",
+    "capabilitiesDesc": "워크스페이스에 필요한 기능만 켜세요. 사용 중인 기능이 앱 전체의 모듈과 내비게이션을 결정합니다."
+  },
   "Settings": {
     "pageTitle": "설정",
     "pageDesc": "계정과 워크스페이스에 관한 모든 것을 한곳에서 관리하세요. 관리할 섹션을 선택하세요.",
+    "backToList": "설정 목록으로",
     "overview": {
       "notSetup": "아직 설정되지 않음",
       "connected": "연결됨",

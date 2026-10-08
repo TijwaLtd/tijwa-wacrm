@@ -123,6 +123,16 @@ export const BUSINESS_TYPE_METADATA_KEY: Record<string, keyof BusinessMetadata> 
   maintenance: 'cleaning',
 };
 
+/**
+ * True when this business type has a member-metadata schema (a form in
+ * BusinessMetadataDialog + a key in the assignment engine). Business
+ * types without one (e.g. property_real_estate, restaurant) must not
+ * show the metadata affordances — the dialog would be an empty shell.
+ */
+export function hasMetadataSchema(businessType?: string | null): boolean {
+  return !!businessType && businessType in BUSINESS_TYPE_METADATA_KEY;
+}
+
 // ============================================================================
 // Role to Business Type Mapping
 // ============================================================================

@@ -1,5 +1,5 @@
 import {
-  ArrowRightLeft,
+  // ArrowRightLeft, — hidden section (auto-assign)
   Building2,
   Calendar,
   Calculator,
@@ -11,14 +11,14 @@ import {
   Palette,
   PlugZap,
   Shield,
-  Sparkles,
+  // Sparkles, — hidden section (AI assistant)
   Tags,
   User,
-  Zap,
+  // Zap, — hidden section (quick replies)
   Briefcase,
   type LucideIcon,
 } from 'lucide-react';
-import type { AccountRole } from '@/lib/auth/roles';
+import { hasMinRole, type AccountRole } from '@/lib/auth/roles';
 
 export type { AccountRole } from '@/lib/auth/roles';
 export { hasMinRole } from '@/lib/auth/roles';
@@ -38,13 +38,16 @@ export const SETTINGS_SECTIONS = [
   'appearance',
   'whatsapp',
   'templates',
-  'quick-replies',
+  // Temporarily hidden from settings (commented, not deleted — the
+  // panels themselves still exist). Re-enable by uncommenting here,
+  // in SECTION_META, and in settings/page.tsx:
+  // 'quick-replies',
   'fields',
   'deals',
-  'ai',
-  'auto-assign',
+  // 'ai',
+  // 'auto-assign',
   'departments',
-  'skills',
+  // 'skills',
   'schedule',
   // Team members lives on its own page now (/team) — not a settings section.
   'workspace',
@@ -74,13 +77,13 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   appearance: { id: 'appearance', label: 'Appearance', icon: Palette, group: 'account' },
   whatsapp: { id: 'whatsapp', label: 'WhatsApp', icon: PlugZap, group: 'workspace', minRole: 'admin' },
   templates: { id: 'templates', label: 'Templates', icon: FileText, group: 'workspace', minRole: 'admin' },
-  'quick-replies': { id: 'quick-replies', label: 'Quick replies', icon: Zap, group: 'workspace', minRole: 'admin' },
+  // 'quick-replies': { id: 'quick-replies', label: 'Quick replies', icon: Zap, group: 'workspace', minRole: 'admin' },
   fields: { id: 'fields', label: 'Fields & tags', icon: Tags, group: 'workspace', minRole: 'admin' },
   deals: { id: 'deals', label: 'Deals & currency', icon: Coins, group: 'workspace', minRole: 'admin' },
-  ai: { id: 'ai', label: 'AI Assistant', icon: Sparkles, group: 'workspace', minRole: 'admin' },
-  'auto-assign': { id: 'auto-assign', label: 'Auto-assignment', icon: ArrowRightLeft, group: 'workspace', minRole: 'admin' },
+  // ai: { id: 'ai', label: 'AI Assistant', icon: Sparkles, group: 'workspace', minRole: 'admin' },
+  // 'auto-assign': { id: 'auto-assign', label: 'Auto-assignment', icon: ArrowRightLeft, group: 'workspace', minRole: 'admin' },
   departments: { id: 'departments', label: 'Departments', icon: Building2, group: 'workspace', minRole: 'admin' },
-  skills: { id: 'skills', label: 'Agent skills', icon: Tags, group: 'workspace', minRole: 'admin' },
+  // skills: { id: 'skills', label: 'Agent skills', icon: Tags, group: 'workspace', minRole: 'admin' },
   schedule: { id: 'schedule', label: 'Working hours', icon: Calendar, group: 'workspace', minRole: 'admin' },
   workspace: { id: 'workspace', label: 'Workspace', icon: Building2, group: 'workspace', minRole: 'owner' },
   business: { id: 'business', label: 'Business type', icon: Briefcase, group: 'workspace', minRole: 'owner' },
@@ -94,6 +97,25 @@ export const RAIL_GROUPS: { label: string | null; group: SectionMeta['group'] }[
   { label: 'Account', group: 'account' },
   { label: 'Workspace', group: 'workspace' },
 ];
+
+/**
+ * Sections of a rail group that this role may open — single source of
+ * truth for the desktop rail AND the mobile drill-down index.
+ * A null/undefined role shows everything (auth still loading; the page
+ * redirects to Overview if the picked section turns out to be forbidden).
+ */
+export function visibleSectionsForRole(
+  group: SectionMeta['group'],
+  accountRole?: AccountRole | null,
+): SettingsSection[] {
+  return SETTINGS_SECTIONS.filter(
+    (s) =>
+      SECTION_META[s].group === group &&
+      (!accountRole ||
+        !SECTION_META[s].minRole ||
+        hasMinRole(accountRole, SECTION_META[s].minRole)),
+  );
+}
 
 function isSection(value: string | null): value is SettingsSection {
   return !!value && (SETTINGS_SECTIONS as readonly string[]).includes(value);
