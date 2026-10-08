@@ -58,7 +58,8 @@ export interface ListingAction {
 }
 
 export interface ResponsiveDataListingProps<T> {
-  title: string;
+  /** Omit when the surrounding page brings its own header (h1 + actions). */
+  title?: string;
   description?: string;
   /** Optional full-width content rendered under the header (e.g. a live summary strip). */
   headerExtra?: React.ReactNode;
@@ -118,48 +119,55 @@ export function ResponsiveDataListing<T>({
 
   return (
     <div className="space-y-5">
-      {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">{title}</h1>
-          {description && <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">{description}</p>}
-        </div>
+      {/* Top Header — skipped entirely when the page owns the header
+          (h1 + primary action live above, e.g. on the tabbed Team page). */}
+      {(title || description || primaryAction || secondaryActions.length > 0) && (
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            {title && (
+              <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
+                {title}
+              </h1>
+            )}
+            {description && <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">{description}</p>}
+          </div>
 
-        <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
-          {secondaryActions.map((sec, idx) => {
-            const Icon = sec.icon;
-            return (
+          <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+            {secondaryActions.map((sec, idx) => {
+              const Icon = sec.icon;
+              return (
+                <GatedButton
+                  key={idx}
+                  variant={sec.variant || 'outline'}
+                  canAct={sec.canAct}
+                  gateReason={sec.gateReason}
+                  onClick={sec.onClick}
+                  className="border-border gap-2 text-xs sm:text-sm h-9"
+                >
+                  {Icon && <Icon className="h-4 w-4" />}
+                  <span>{sec.label}</span>
+                </GatedButton>
+              );
+            })}
+
+            {primaryAction && (
               <GatedButton
-                key={idx}
-                variant={sec.variant || 'outline'}
-                canAct={sec.canAct}
-                gateReason={sec.gateReason}
-                onClick={sec.onClick}
-                className="border-border gap-2 text-xs sm:text-sm h-9"
+                canAct={primaryAction.canAct}
+                gateReason={primaryAction.gateReason}
+                onClick={primaryAction.onClick}
+                className="gap-2 text-xs sm:text-sm h-9 shadow-xs"
               >
-                {Icon && <Icon className="h-4 w-4" />}
-                <span>{sec.label}</span>
+                {primaryAction.icon ? (
+                  <primaryAction.icon className="h-4 w-4" />
+                ) : (
+                  <Plus className="h-4 w-4" />
+                )}
+                <span>{primaryAction.label}</span>
               </GatedButton>
-            );
-          })}
-
-          {primaryAction && (
-            <GatedButton
-              canAct={primaryAction.canAct}
-              gateReason={primaryAction.gateReason}
-              onClick={primaryAction.onClick}
-              className="gap-2 text-xs sm:text-sm h-9 shadow-xs"
-            >
-              {primaryAction.icon ? (
-                <primaryAction.icon className="h-4 w-4" />
-              ) : (
-                <Plus className="h-4 w-4" />
-              )}
-              <span>{primaryAction.label}</span>
-            </GatedButton>
-          )}
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Optional slot under the header — live summaries, banners, etc. */}
       {headerExtra && <div>{headerExtra}</div>}

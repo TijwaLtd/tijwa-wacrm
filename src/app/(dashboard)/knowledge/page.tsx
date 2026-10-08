@@ -63,9 +63,12 @@ interface CreditBalance {
   lastResetAt: string | null;
 }
 
-function truncateContent(content: string | undefined, maxLines: number = PREVIEW_LINES): string {
+function truncateContent(
+  content: string | undefined,
+  maxLines: number = PREVIEW_LINES
+): string {
   if (!content) return '';
-  const lines = content.split('\n').filter(l => l.trim());
+  const lines = content.split('\n').filter((l) => l.trim());
   if (lines.length <= maxLines) return content;
   return lines.slice(0, maxLines).join('\n') + '...';
 }
@@ -75,7 +78,7 @@ function formatDate(dateStr: string): string {
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-  
+
   if (diffDays === 0) return 'Today';
   if (diffDays === 1) return 'Yesterday';
   if (diffDays < 7) return `${diffDays}d ago`;
@@ -228,13 +231,17 @@ export default function KnowledgePage() {
         {
           method: isNew ? 'POST' : 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ title: title.trim(), content: content.trim() }),
-        },
+          body: JSON.stringify({
+            title: title.trim(),
+            content: content.trim(),
+          }),
+        }
       );
       const data = await res.json();
       if (res.ok) {
         if (data.warning) toast.warning(data.warning);
-        else toast.success(isNew ? t('saveSuccessNew') : t('saveSuccessUpdate'));
+        else
+          toast.success(isNew ? t('saveSuccessNew') : t('saveSuccessUpdate'));
         cancelEdit();
         await fetchDocs();
       } else {
@@ -249,7 +256,7 @@ export default function KnowledgePage() {
           content: content.trim(),
           sourceType: 'text',
         });
-        toast.info('Saved locally — will sync when you\'re back online');
+        toast.info("Saved locally — will sync when you're back online");
         cancelEdit();
         // Show the doc in the list immediately
         await fetchDocs();
@@ -267,7 +274,9 @@ export default function KnowledgePage() {
       return;
     }
     if (!hasAiCredits) {
-      toast.error('AI credits are required for file uploads. Upgrade your plan to continue.');
+      toast.error(
+        'AI credits are required for file uploads. Upgrade your plan to continue.'
+      );
       return;
     }
     setSaving(true);
@@ -303,7 +312,7 @@ export default function KnowledgePage() {
           fileName: selectedFile.name,
           fileMime: selectedFile.type,
         });
-        toast.info('File saved locally — will upload when you\'re back online');
+        toast.info("File saved locally — will upload when you're back online");
         cancelEdit();
         await fetchDocs();
       } else {
@@ -337,7 +346,9 @@ export default function KnowledgePage() {
       // Offline: remove locally and note it'll need full re-sync later
       setDocs((d) => d.filter((x) => x.id !== id));
       await removeCachedKnowledgeDocument(id);
-      toast.info('Removed locally — deletion will sync when you\'re back online');
+      toast.info(
+        "Removed locally — deletion will sync when you're back online"
+      );
     }
   };
 
@@ -364,7 +375,9 @@ export default function KnowledgePage() {
       return;
     }
     if (!hasAiCredits) {
-      toast.error('AI credits are required for file uploads. Upgrade your plan to continue.');
+      toast.error(
+        'AI credits are required for file uploads. Upgrade your plan to continue.'
+      );
       return;
     }
     setSelectedFile(file);
@@ -389,7 +402,7 @@ export default function KnowledgePage() {
 
   if (loading || profileLoading) {
     return (
-      <div className="flex items-center justify-center py-16 text-muted-foreground">
+      <div className="text-muted-foreground flex items-center justify-center py-16">
         <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading...
       </div>
     );
@@ -398,23 +411,30 @@ export default function KnowledgePage() {
   // Plan gating: AI knowledge requires Pro or Enterprise
   if (!aiIncluded) {
     return (
-      <div className="mx-auto max-w-2xl px-4 py-6 sm:px-6 sm:py-8">
-        <h1 className="mb-2 text-xl font-semibold text-foreground sm:text-2xl">Knowledge Base</h1>
-        <p className="mb-4 text-xs text-muted-foreground sm:mb-6 sm:text-sm">
-          Add FAQs, policies, or product details. The AI assistant retrieves relevant pieces when drafting and auto-replying.
+      <div className="py-6 sm:py-8">
+        <h1 className="text-foreground mb-2 text-xl font-semibold sm:text-2xl">
+          Knowledge Base
+        </h1>
+        <p className="text-muted-foreground mb-4 text-xs sm:mb-6 sm:text-sm">
+          Add FAQs, policies, or product details. The AI assistant retrieves
+          relevant pieces when drafting and auto-replying.
         </p>
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-10 text-center sm:py-16">
-            <div className="mb-3 rounded-full bg-muted p-2.5 sm:mb-4 sm:p-3">
-              <Lock className="h-5 w-5 text-muted-foreground sm:h-6 sm:w-6" />
+            <div className="bg-muted mb-3 rounded-full p-2.5 sm:mb-4 sm:p-3">
+              <Lock className="text-muted-foreground h-5 w-5 sm:h-6 sm:w-6" />
             </div>
-            <h3 className="mb-1 text-base font-semibold text-foreground sm:text-lg">
+            <h3 className="text-foreground mb-1 text-base font-semibold sm:text-lg">
               Knowledge Base
             </h3>
-            <p className="mb-4 max-w-sm text-xs text-muted-foreground sm:mb-6 sm:text-sm">
-              Upload documents and build a knowledge base for AI-powered replies. Available on Pro and Enterprise plans.
+            <p className="text-muted-foreground mb-4 max-w-sm text-xs sm:mb-6 sm:text-sm">
+              Upload documents and build a knowledge base for AI-powered
+              replies. Available on Pro and Enterprise plans.
             </p>
-            <a href="/billing" className={cn(buttonVariants({ variant: 'default' }))}>
+            <a
+              href="/billing"
+              className={cn(buttonVariants({ variant: 'default' }))}
+            >
               Upgrade plan
               <ArrowUpRight className="ml-1.5 h-4 w-4" />
             </a>
@@ -425,12 +445,15 @@ export default function KnowledgePage() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6 sm:py-8">
+    <div className="py-6 sm:py-8">
       {/* Header */}
       <div className="mb-4 sm:mb-6">
-        <h1 className="text-xl font-semibold text-foreground sm:text-2xl">Knowledge Base</h1>
-        <p className="mt-1 text-xs text-muted-foreground sm:text-sm">
-          Add FAQs, policies, or product details. The AI assistant retrieves relevant pieces when drafting and auto-replying.
+        <h1 className="text-foreground text-xl font-semibold sm:text-2xl">
+          Knowledge Base
+        </h1>
+        <p className="text-muted-foreground mt-1 text-xs sm:text-sm">
+          Add FAQs, policies, or product details. The AI assistant retrieves
+          relevant pieces when drafting and auto-replying.
           {hasEmbeddingsKey
             ? ' Semantic search is on.'
             : ' Using keyword search — add an embeddings key for semantic search.'}
@@ -439,15 +462,18 @@ export default function KnowledgePage() {
 
       {/* Credits status */}
       {!creditsLoading && (
-        <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground sm:mb-4 sm:gap-4 sm:text-sm">
+        <div className="text-muted-foreground mb-3 flex flex-wrap items-center gap-2 text-xs sm:mb-4 sm:gap-4 sm:text-sm">
           <span className="flex items-center gap-1.5">
             <Coins className="h-3.5 w-3.5" />
-            AI Credits: {credits?.creditsRemaining?.toFixed(2) ?? '0.00'} remaining
+            AI Credits: {credits?.creditsRemaining?.toFixed(2) ?? '0.00'}{' '}
+            remaining
           </span>
           {!hasAiCredits && (
             <span className="text-destructive">
               No credits left — file uploads disabled.{' '}
-              <a href="/billing" className="underline">Upgrade plan</a>
+              <a href="/billing" className="underline">
+                Upgrade plan
+              </a>
             </span>
           )}
         </div>
@@ -480,7 +506,7 @@ export default function KnowledgePage() {
       )}
 
       {loading ? (
-        <div className="flex items-center py-4 text-xs text-muted-foreground sm:text-sm">
+        <div className="text-muted-foreground flex items-center py-4 text-xs sm:text-sm">
           <Loader2 className="mr-2 h-4 w-4 animate-spin" /> {t('loading')}
         </div>
       ) : (
@@ -489,10 +515,17 @@ export default function KnowledgePage() {
           {docs.length === 0 && editing === null && (
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-8 text-center sm:py-12">
-                <BookOpen className="mb-3 h-6 w-6 text-muted-foreground sm:h-8 sm:w-8" />
-                <p className="text-xs text-muted-foreground sm:text-sm">{t('noDocs')}</p>
+                <BookOpen className="text-muted-foreground mb-3 h-6 w-6 sm:h-8 sm:w-8" />
+                <p className="text-muted-foreground text-xs sm:text-sm">
+                  {t('noDocs')}
+                </p>
                 {canEdit && (
-                  <Button variant="outline" size="sm" className="mt-3 sm:mt-4" onClick={openNew}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-3 sm:mt-4"
+                    onClick={openNew}
+                  >
                     <Plus className="mr-2 h-4 w-4" /> {t('addDoc')}
                   </Button>
                 )}
@@ -506,47 +539,47 @@ export default function KnowledgePage() {
               {docs.map((doc) => {
                 const preview = truncateContent(doc.content);
                 const hasPreview = Boolean(preview);
-                
+
                 return (
                   <Card
                     key={doc.id}
                     className={cn(
-                      "group transition-colors hover:bg-accent/50",
-                      editing === doc.id && "border-primary"
+                      'group hover:bg-accent/50 transition-colors',
+                      editing === doc.id && 'border-primary'
                     )}
                   >
                     <CardContent className="p-3 sm:p-4">
                       {/* Title row */}
                       <div className="flex items-start justify-between gap-2 sm:gap-3">
                         <div className="flex min-w-0 flex-1 items-start gap-2 sm:gap-2.5">
-                          <div className="mt-0.5 rounded-md bg-muted p-1 sm:p-1.5">
+                          <div className="bg-muted mt-0.5 rounded-md p-1 sm:p-1.5">
                             {doc.source_type === 'file' ? (
-                              <File className="h-3.5 w-3.5 text-muted-foreground sm:h-4 sm:w-4" />
+                              <File className="text-muted-foreground h-3.5 w-3.5 sm:h-4 sm:w-4" />
                             ) : (
-                              <FileText className="h-3.5 w-3.5 text-muted-foreground sm:h-4 sm:w-4" />
+                              <FileText className="text-muted-foreground h-3.5 w-3.5 sm:h-4 sm:w-4" />
                             )}
                           </div>
                           <div className="min-w-0 flex-1">
-                            <h3 className="text-xs font-medium text-foreground truncate sm:text-sm">
+                            <h3 className="text-foreground truncate text-xs font-medium sm:text-sm">
                               {doc.title}
                             </h3>
-                            <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-muted-foreground sm:gap-2 sm:text-xs">
+                            <div className="text-muted-foreground mt-0.5 flex items-center gap-1.5 text-[10px] sm:gap-2 sm:text-xs">
                               <span className="flex items-center gap-1">
                                 <Clock className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
                                 {formatDate(doc.updated_at)}
                               </span>
                               {doc.source_type === 'file' && (
-                                <span className="rounded bg-muted px-1 py-0.5 text-[8px] font-medium uppercase sm:px-1.5 sm:text-[10px]">
+                                <span className="bg-muted rounded px-1 py-0.5 text-[8px] font-medium uppercase sm:px-1.5 sm:text-[10px]">
                                   File
                                 </span>
                               )}
                             </div>
                           </div>
                         </div>
-                        
+
                         {/* Actions — always visible on mobile, hover on desktop */}
                         {canEdit && (
-                          <div className="flex shrink-0 gap-0.5 opacity-100 sm:opacity-0 sm:group-hover:sm:opacity-100 sm:transition-opacity">
+                          <div className="flex shrink-0 gap-0.5 opacity-100 sm:opacity-0 sm:transition-opacity sm:group-hover:sm:opacity-100">
                             <Button
                               variant="ghost"
                               size="sm"
@@ -559,7 +592,7 @@ export default function KnowledgePage() {
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="h-7 w-7 p-0 text-destructive hover:text-destructive sm:h-8 sm:w-8"
+                              className="text-destructive hover:text-destructive h-7 w-7 p-0 sm:h-8 sm:w-8"
                               onClick={() => void remove(doc.id)}
                               title="Delete"
                             >
@@ -572,7 +605,7 @@ export default function KnowledgePage() {
                       {/* Content preview */}
                       {hasPreview && (
                         <div className="mt-2 ml-7 sm:mt-3 sm:ml-9">
-                          <p className="text-[10px] text-muted-foreground line-clamp-2 whitespace-pre-wrap sm:text-xs sm:line-clamp-3">
+                          <p className="text-muted-foreground line-clamp-2 text-[10px] whitespace-pre-wrap sm:line-clamp-3 sm:text-xs">
                             {preview}
                           </p>
                         </div>
@@ -595,7 +628,7 @@ export default function KnowledgePage() {
               <CardContent className="space-y-3">
                 {/* Mode toggle — only when creating new */}
                 {editing === 'new' && (
-                  <div className="flex gap-1 rounded-md bg-muted p-0.5">
+                  <div className="bg-muted flex gap-1 rounded-md p-0.5">
                     <button
                       type="button"
                       className={`flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors ${
@@ -620,16 +653,22 @@ export default function KnowledgePage() {
                       } ${!hasAiCredits ? 'cursor-not-allowed opacity-50' : ''}`}
                       onClick={() => {
                         if (!hasAiCredits) {
-                          toast.error('AI credits are required for file uploads.');
+                          toast.error(
+                            'AI credits are required for file uploads.'
+                          );
                           return;
                         }
                         setInputMode('file');
                         setContent('');
                       }}
-                      title={!hasAiCredits ? 'No AI credits remaining' : undefined}
+                      title={
+                        !hasAiCredits ? 'No AI credits remaining' : undefined
+                      }
                     >
                       {t('modeFile')}
-                      {!hasAiCredits && <Lock className="ml-1 inline h-3 w-3" />}
+                      {!hasAiCredits && (
+                        <Lock className="ml-1 inline h-3 w-3" />
+                      )}
                     </button>
                   </div>
                 )}
@@ -655,7 +694,7 @@ export default function KnowledgePage() {
                       onChange={(e) => setContent(e.target.value)}
                       placeholder={t('editDocContentPlaceholder')}
                       rows={6}
-                      className="min-h-[120px] font-mono text-sm sm:rows-10 sm:min-h-0"
+                      className="sm:rows-10 min-h-30 font-mono text-sm sm:min-h-0"
                       disabled={saving}
                     />
                   </div>
@@ -699,12 +738,12 @@ export default function KnowledgePage() {
                           <span className="text-xs font-medium sm:text-sm">
                             {selectedFile.name}
                           </span>
-                          <span className="text-[10px] text-muted-foreground sm:text-xs">
+                          <span className="text-muted-foreground text-[10px] sm:text-xs">
                             {(selectedFile.size / 1024).toFixed(1)} KB
                           </span>
                           <button
                             type="button"
-                            className="mt-1 text-xs text-destructive hover:underline"
+                            className="text-destructive mt-1 text-xs hover:underline"
                             onClick={(e) => {
                               e.stopPropagation();
                               setSelectedFile(null);
@@ -715,11 +754,11 @@ export default function KnowledgePage() {
                         </div>
                       ) : (
                         <div className="flex flex-col items-center gap-1 text-center">
-                          <Upload className="h-6 w-6 text-muted-foreground sm:h-8 sm:w-8" />
-                          <span className="text-xs text-muted-foreground sm:text-sm">
+                          <Upload className="text-muted-foreground h-6 w-6 sm:h-8 sm:w-8" />
+                          <span className="text-muted-foreground text-xs sm:text-sm">
                             {t('dropOrClick')}
                           </span>
-                          <span className="text-[10px] text-muted-foreground sm:text-xs">
+                          <span className="text-muted-foreground text-[10px] sm:text-xs">
                             {t('acceptedFormats', { max: MAX_FILE_SIZE_MB })}
                           </span>
                         </div>
@@ -729,11 +768,22 @@ export default function KnowledgePage() {
                 )}
 
                 <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
-                  <Button variant="ghost" onClick={cancelEdit} disabled={saving} className="w-full sm:w-auto">
+                  <Button
+                    variant="ghost"
+                    onClick={cancelEdit}
+                    disabled={saving}
+                    className="w-full sm:w-auto"
+                  >
                     {t('cancel')}
                   </Button>
-                  <Button onClick={save} disabled={saving || !canSave} className="w-full sm:w-auto">
-                    {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  <Button
+                    onClick={save}
+                    disabled={saving || !canSave}
+                    className="w-full sm:w-auto"
+                  >
+                    {saving && (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    )}
                     {t('saveDoc')}
                   </Button>
                 </div>

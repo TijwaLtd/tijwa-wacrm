@@ -63,6 +63,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useTranslations } from 'next-intl';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { GatedButton } from '@/components/ui/gated-button';
 import { RequireRole } from '@/components/auth/require-role';
 import { useAuth } from '@/hooks/use-auth';
 import { usePresence } from '@/hooks/use-presence';
@@ -554,141 +556,175 @@ export function MembersTab() {
 
   return (
     <section className="animate-in fade-in-50 space-y-6 duration-200">
-      <ResponsiveDataListing<Member>
-        title={t('title')}
-        description={t('description')}
-        headerExtra={
-          presenceCounts ? (
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pb-1 text-xs text-muted-foreground">
-              <span className="inline-flex items-center gap-1.5">
-                <PresenceDot status="online" />
-                {presenceCounts.online} {t('online')}
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <PresenceDot status="away" />
-                {presenceCounts.away} {t('away')}
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <PresenceDot status="offline" />
-                {presenceCounts.offline} {t('offline')}
-              </span>
-              <span className="text-muted-foreground/70">
-                · {t('memberCount', { count: members.length })}
-              </span>
-            </div>
-          ) : null
-        }
-        items={members}
-        columns={columns}
-        cardMapper={cardMapper}
-        loading={false}
-        primaryAction={{
-          label: t('inviteMember'),
-          icon: Plus,
-          onClick: () => {
+      {/* Page header — sits above the tabs so the invite action stays
+          reachable from either tab. */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
+            {t('title')}
+          </h1>
+          <p className="mt-0.5 max-w-[62ch] text-xs text-muted-foreground sm:text-sm">
+            {t('description')}
+          </p>
+        </div>
+        <GatedButton
+          canAct={canManageMembers}
+          gateReason="invite team members"
+          onClick={() => {
             // Check if at seat limit
             if (seatInfo && seatInfo.current_members >= seatInfo.total_seats) {
               setSeatDialogOpen(true);
             } else {
               setInviteOpen(true);
             }
-          },
-          canAct: canManageMembers,
-          gateReason: 'invite team members',
-        }}
-        emptyState={{
-          icon: UsersRound,
-          title: t('noMembersTitle'),
-        }}
-        rowKey={(member) => member.user_id}
-      />
+          }}
+          className="h-9 gap-2 text-xs shadow-xs sm:text-sm"
+        >
+          <Plus className="h-4 w-4" />
+          {t('inviteMember')}
+        </GatedButton>
+      </div>
 
-      {/* Pending invitations — admin+ only */}
-      <RequireRole min="admin">
-        <div>
-          <div className="mb-2 flex items-center gap-2">
-            <UsersRound className="size-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold text-foreground">
+      <Tabs defaultValue="members">
+        <TabsList>
+          <TabsTrigger value="members" className="gap-1.5">
+            <UsersRound className="h-4 w-4" />
+            {t('title')}
+            <span className="ml-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1.5 text-[10px] font-semibold text-muted-foreground">
+              {members.length}
+            </span>
+          </TabsTrigger>
+          {/* Invites tab is admin-only — matches the old RequireRole
+              gate on the pending section. */}
+          {canManageMembers && (
+            <TabsTrigger value="invites" className="gap-1.5">
+              <Mail className="h-4 w-4" />
               {t('pendingInvitations')}
-            </h3>
-            <Badge className="bg-muted text-muted-foreground border-border">
-              {invitations.length}
-            </Badge>
-          </div>
-          {/* P10 — make the no-resend design explicit. Admins were
-              confused why the pending list shows roles + expiry but
-              no "copy link again" button. Stating the constraint up
-              front (rather than letting the user discover it by
-              looking for a button) keeps it from feeling like a bug. */}
-          {invitations.length > 0 ? (
-            <p className="mb-3 text-xs text-muted-foreground">
-              {t('inviteHint')}
-            </p>
-          ) : null}
-
-          {invitations.length === 0 ? (
-            <Card>
-              <CardContent className="flex flex-col items-center justify-center py-8 text-center">
-                <Mail className="size-6 text-muted-foreground" />
-                <p className="mt-2 text-sm text-muted-foreground">
-                  {t('noPendingTitle')}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {t.rich('noPendingDesc', { bold: (chunks) => <strong>{chunks}</strong> })}
-                </p>
-              </CardContent>
-            </Card>
-          ) : (
-            <Card>
-              <CardContent className="p-0">
-                <ul className="divide-y divide-border">
-                  {invitations.map((inv) => {
-                    const inviteRoleMeta = ROLE_META[inv.role];
-                    const InviteRoleIcon = inviteRoleMeta.icon;
-                    return (
-                    <li
-                      key={inv.id}
-                      className="flex items-center gap-4 px-4 py-3"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium text-foreground">
-                            {inv.label || t('untitledInvite')}
-                          </span>
-                          <span
-                            className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium ${inviteRoleMeta.className}`}
-                          >
-                            <InviteRoleIcon className="size-3" />
-                            {tRoles(inv.role)}
-                          </span>
-                        </div>
-                        <p className="mt-0.5 text-xs text-muted-foreground">
-                          {t('created', { date: fmtDate(inv.created_at) })} · {fmtExpiresIn(inv.expires_at, t)}
-                        </p>
-                      </div>
-
-                      {/* Revoke: red default state, mirrors the
-                          members-tab Remove button. Pre-polish version
-                          read as a neutral secondary button until
-                          hover. */}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleRevoke(inv)}
-                        className="border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20 hover:border-red-500/60 hover:text-red-200"
-                      >
-                        <MailX className="size-4" />
-                        {t('revoke')}
-                      </Button>
-                    </li>
-                    );
-                  })}
-                </ul>
-              </CardContent>
-            </Card>
+              <span className="ml-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1.5 text-[10px] font-semibold text-muted-foreground">
+                {invitations.length}
+              </span>
+            </TabsTrigger>
           )}
-        </div>
-      </RequireRole>
+        </TabsList>
+
+        <TabsContent value="members" className="pt-4 outline-none">
+          <ResponsiveDataListing<Member>
+            headerExtra={
+              presenceCounts ? (
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pb-1 text-xs text-muted-foreground">
+                  <span className="inline-flex items-center gap-1.5">
+                    <PresenceDot status="online" />
+                    {presenceCounts.online} {t('online')}
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <PresenceDot status="away" />
+                    {presenceCounts.away} {t('away')}
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <PresenceDot status="offline" />
+                    {presenceCounts.offline} {t('offline')}
+                  </span>
+                  <span className="text-muted-foreground/70">
+                    · {t('memberCount', { count: members.length })}
+                  </span>
+                </div>
+              ) : null
+            }
+            items={members}
+            columns={columns}
+            cardMapper={cardMapper}
+            loading={false}
+            emptyState={{
+              icon: UsersRound,
+              title: t('noMembersTitle'),
+            }}
+            rowKey={(member) => member.user_id}
+          />
+        </TabsContent>
+
+        {canManageMembers && (
+          <TabsContent value="invites" className="pt-4 outline-none">
+            {/* Pending invitations — tab label + count badge above carry
+                the heading, so it's not repeated here. */}
+            <RequireRole min="admin">
+              <div>
+                {/* P10 — make the no-resend design explicit. Admins were
+                    confused why the pending list shows roles + expiry but
+                    no "copy link again" button. Stating the constraint up
+                    front (rather than letting the user discover it by
+                    looking for a button) keeps it from feeling like a bug. */}
+                {invitations.length > 0 ? (
+                  <p className="mb-3 text-xs text-muted-foreground">
+                    {t('inviteHint')}
+                  </p>
+                ) : null}
+
+                {invitations.length === 0 ? (
+                  <Card>
+                    <CardContent className="flex flex-col items-center justify-center py-8 text-center">
+                      <Mail className="size-6 text-muted-foreground" />
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        {t('noPendingTitle')}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {t.rich('noPendingDesc', { bold: (chunks) => <strong>{chunks}</strong> })}
+                      </p>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <Card>
+                    <CardContent className="p-0">
+                      <ul className="divide-y divide-border">
+                        {invitations.map((inv) => {
+                          const inviteRoleMeta = ROLE_META[inv.role];
+                          const InviteRoleIcon = inviteRoleMeta.icon;
+                          return (
+                          <li
+                            key={inv.id}
+                            className="flex items-center gap-4 px-4 py-3"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium text-foreground">
+                                  {inv.label || t('untitledInvite')}
+                                </span>
+                                <span
+                                  className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium ${inviteRoleMeta.className}`}
+                                >
+                                  <InviteRoleIcon className="size-3" />
+                                  {tRoles(inv.role)}
+                                </span>
+                              </div>
+                              <p className="mt-0.5 text-xs text-muted-foreground">
+                                {t('created', { date: fmtDate(inv.created_at) })} · {fmtExpiresIn(inv.expires_at, t)}
+                              </p>
+                            </div>
+
+                            {/* Revoke: red default state, mirrors the
+                                members-tab Remove button. Pre-polish version
+                                read as a neutral secondary button until
+                                hover. */}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleRevoke(inv)}
+                              className="border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20 hover:border-red-500/60 hover:text-red-200"
+                            >
+                              <MailX className="size-4" />
+                              {t('revoke')}
+                            </Button>
+                          </li>
+                          );
+                        })}
+                      </ul>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            </RequireRole>
+          </TabsContent>
+        )}
+      </Tabs>
 
       <InviteMemberDialog
         open={inviteOpen}
