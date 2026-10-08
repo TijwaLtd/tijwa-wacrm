@@ -232,11 +232,14 @@ export function MessageComposer({
   const cancelledRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Viewers (read-only role) can browse the inbox but never send.
+  // Viewers (read-only role) can browse the inbox but never send a
+  // WhatsApp message. Team threads are the exception: they are internal
+  // collaboration, not customer contact, so every member of the account
+  // can reply regardless of role — a viewer included.
   // For solo users this is always true — single-owner accounts pass
   // every capability — so the disabled branch is a no-op there.
   const canSend = useCan('send-messages');
-  const readOnly = !canSend;
+  const readOnly = !canSend && !isTeam;
   // Media (like free-form text) is only allowed inside the 24h window.
   // WhatsApp must also be the active channel (phone/BSUID identity).
   const whatsappReady = isTeam || whatsappCalled;

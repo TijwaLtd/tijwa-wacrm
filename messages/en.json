@@ -167,6 +167,7 @@
       "unassign": "Unassign",
       "noTeammates": "No teammates available",
       "me": " (me)",
+      "unknownMember": "Team member",
       "noMessagesYet": "No messages yet",
       "sendTemplateHint": "Send a template to start the conversation",
       "sendTeamMessageHint": "Send a message to start the conversation",

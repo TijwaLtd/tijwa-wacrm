@@ -587,6 +587,7 @@ export function MessageThread({
         id: tempId,
         conversation_id: conversation.id,
         sender_type: "agent",
+        sender_id: user?.id,
         content_type: "text",
         content_text: text,
         status: "sending",
@@ -701,7 +702,7 @@ export function MessageThread({
         }
       }
     },
-    [conversation, onNewMessage, onUpdateMessage, isTeam, whatsappCalled]
+    [conversation, user?.id, onNewMessage, onUpdateMessage, isTeam, whatsappCalled]
   );
 
   const handleSendMedia = useCallback(
@@ -1068,15 +1069,32 @@ export function MessageThread({
     [contactDisplayName],
   );
 
+  // Team threads have no contact, so the sender has to be resolved from
+  // the account roster. Falls back to a generic label for members whose
+  // profile row isn't visible to this user.
+  const teamMemberName = useCallback(
+    (senderId?: string): string => {
+      if (!senderId) return t("unknownMember");
+      if (senderId === user?.id) return t("me");
+      return (
+        profiles.find((p) => p.user_id === senderId)?.full_name ??
+        t("unknownMember")
+      );
+    },
+    [profiles, user?.id, t],
+  );
+
   const handleStartReply = useCallback(
     (msg: Message) => {
       setReplyTo({
         id: msg.id,
-        authorLabel: authorLabelFor(msg),
+        authorLabel: isTeam
+          ? teamMemberName(msg.sender_id)
+          : authorLabelFor(msg),
         preview: buildReplyPreview(msg, tQuote),
       });
     },
-    [authorLabelFor, tQuote],
+    [authorLabelFor, teamMemberName, isTeam, tQuote],
   );
 
   // Single reaction-set primitive. emoji === "" removes; otherwise adds/swaps.
@@ -1421,15 +1439,27 @@ export function MessageThread({
                 </div>
                 {/* Messages */}
                 <div className="space-y-2">
-                  {group.messages.map((msg) => {
+                  {group.messages.map((msg, msgIdx) => {
+                    // WhatsApp shows a sender's name only when the author
+                    // changes — repeat it for every message and the thread
+                    // turns into a wall of labels.
+                    const prevMsg = msgIdx > 0 ? group.messages[msgIdx - 1] : null;
+                    const showSenderLabel =
+                      isTeam &&
+                      msg.sender_id !== user?.id &&
+                      prevMsg?.sender_id !== msg.sender_id;
+                    const senderLabel = showSenderLabel
+                      ? teamMemberName(msg.sender_id)
+                      : null;
                     const parent = msg.reply_to_message_id
                       ? messagesById.get(msg.reply_to_message_id)
                       : null;
                     const reply = parent
                       ? {
-                          authorLabel:
-                            parent.sender_type === "agent" || parent.sender_type === "bot"
-                              ? t("me") 
+                          authorLabel: isTeam
+                            ? teamMemberName(parent.sender_id)
+                            : parent.sender_type === "agent" || parent.sender_type === "bot"
+                              ? t("me")
                               : displayContactName(contact?.name, contact?.phone, "Unknown"),
                           preview: buildReplyPreview(parent, tQuote),
                         }
@@ -1460,12 +1490,16 @@ export function MessageThread({
                         }}
                         onMobileLongPress={(msgId) => setMobileSelectedMsg(msgId)}
                         hideReact={isTeam}
+                        isTeam={isTeam}
+                        currentUserId={user?.id}
                       >
                         <MessageBubble
                           message={msg}
                           reply={reply}
                           reactions={msgReactions}
                           currentUserId={user?.id}
+                          isTeam={isTeam}
+                          senderLabel={senderLabel}
                           onToggleReaction={handlePillToggle}
                           onOpenMedia={handleMediaChange}
                         />

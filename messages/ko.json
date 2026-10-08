@@ -926,6 +926,7 @@
       "unassign": "담당자 해제",
       "noTeammates": "지정 가능한 팀원이 없습니다",
       "me": " (나)",
+      "unknownMember": "팀 멤버",
       "noMessagesYet": "아직 메시지가 없습니다",
       "sendTemplateHint": "템플릿을 보내 대화를 시작하세요",
       "sendTeamMessageHint": "메시지를 보내 대화를 시작하세요",

@@ -19,6 +19,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { Message } from "@/types";
+import { isOutboundMessage } from "@/lib/inbox/message-side";
 import { useTranslations } from "next-intl";
 
 const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
@@ -45,6 +46,13 @@ interface MessageActionsProps {
    * internal team messages.
    */
   hideReact?: boolean;
+  /**
+   * Team threads decide left/right by identity (sender_id) rather than
+   * sender_type, which is 'agent' for every participant — see
+   * isOutboundMessage().
+   */
+  isTeam?: boolean;
+  currentUserId?: string;
   children: ReactNode;
 }
 
@@ -67,14 +75,15 @@ export function MessageActions({
   // onAddToNote,
   onMobileLongPress,
   hideReact,
+  isTeam = false,
+  currentUserId,
   children,
 }: MessageActionsProps) {
   const t = useTranslations("Inbox.actions");
 
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
-  const isAgent =
-    message.sender_type === "agent" || message.sender_type === "bot";
+  const isOutbound = isOutboundMessage(message, currentUserId, isTeam);
 
   // ── Swipe-to-reply (mobile) ──────────────────────────────
   const touchStartX = useRef(0);
@@ -94,12 +103,12 @@ export function MessageActions({
       const dy = e.touches[0].clientY - touchStartY.current;
 
       // Only track horizontal swipes (right direction, agent messages)
-      if (Math.abs(dx) > Math.abs(dy) && dx > 10 && isAgent) {
+      if (Math.abs(dx) > Math.abs(dy) && dx > 10 && isOutbound) {
         swiping.current = true;
         setSwipeOffset(Math.min(dx, 120));
       }
     },
-    [isAgent],
+    [isOutbound],
   );
 
   const handleTouchEnd = useCallback(() => {
@@ -185,7 +194,7 @@ export function MessageActions({
     <div
       className={cn(
         "flex w-full",
-        isAgent ? "justify-end" : "justify-start",
+        isOutbound ? "justify-end" : "justify-start",
       )}
       onContextMenu={handleContextMenu}
     >
@@ -214,7 +223,7 @@ export function MessageActions({
         }}
       >
         {/* Swipe reply indicator (visible when swiping agent messages) */}
-        {swipeOffset > 20 && isAgent && (
+        {swipeOffset > 20 && isOutbound && (
           <div className="absolute -left-10 top-1/2 z-20 -translate-y-1/2 text-primary opacity-60">
             <CornerUpLeft className="h-5 w-5" />
           </div>
@@ -230,15 +239,15 @@ export function MessageActions({
               "opacity-0 transition-opacity",
               "bg-muted/80 hover:bg-muted",
               "group-hover/actions:opacity-100 group-focus-within/actions:opacity-100",
-              isAgent ? "left-0 -translate-x-1/2 -translate-y-1/2" : "right-0 translate-x-1/2 -translate-y-1/2",
+              isOutbound ? "left-0 -translate-x-1/2 -translate-y-1/2" : "right-0 translate-x-1/2 -translate-y-1/2",
               "top-0",
             )}
           >
             <MoreVertical className="h-4 w-4 font-bold text-foreground" />
           </DropdownMenuTrigger>
           <DropdownMenuContent
-            align={isAgent ? "start" : "end"}
-            side={isAgent ? "right" : "left"}
+            align={isOutbound ? "start" : "end"}
+            side={isOutbound ? "right" : "left"}
             className="w-56"
           >
             <DropdownMenuItem onClick={handleReply}>

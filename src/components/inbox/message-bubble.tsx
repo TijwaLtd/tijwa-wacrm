@@ -25,6 +25,7 @@ import {
 import { InteractivePreview } from "@/components/interactive/interactive-preview";
 import { useTranslations } from "next-intl";
 import { formatWhatsAppText } from "@/lib/whatsapp-format";
+import { isOutboundMessage } from "@/lib/inbox/message-side";
 
 interface MessageBubbleProps {
   message: Message;
@@ -32,6 +33,17 @@ interface MessageBubbleProps {
   reply?: { authorLabel: string; preview: string } | null;
   reactions?: MessageReaction[];
   currentUserId?: string;
+  /**
+   * Team threads align by identity (sender_id), not sender_type — see
+   * isOutboundMessage().
+   */
+  isTeam?: boolean;
+  /**
+   * Renders above the bubble. Only supplied for team threads on messages
+   * the current user did NOT send, because every team row shares
+   * sender_type='agent' and the author would otherwise be invisible.
+   */
+  senderLabel?: string | null;
   onToggleReaction?: (emoji: string) => void;
   /**
    * Opens the thread's media viewer on this message. Only images and videos
@@ -198,12 +210,14 @@ export function MessageBubble({
   reply,
   reactions,
   currentUserId,
+  isTeam = false,
+  senderLabel,
   onToggleReaction,
   onOpenMedia,
 }: MessageBubbleProps) {
   const t = useTranslations("Inbox.bubble");
 
-  const isAgent = message.sender_type === "agent" || message.sender_type === "bot";
+  const isOutbound = isOutboundMessage(message, currentUserId, isTeam);
   const time = format(new Date(message.created_at), "HH:mm");
 
   // Row alignment + width cap are owned by <MessageActions> so its hover
@@ -212,13 +226,18 @@ export function MessageBubble({
     <div
       className={cn(
         "flex flex-col",
-        isAgent ? "items-end" : "items-start",
+        isOutbound ? "items-end" : "items-start",
       )}
     >
+      {senderLabel && (
+        <span className="mb-0.5 px-1 text-[11px] font-medium text-muted-foreground">
+          {senderLabel}
+        </span>
+      )}
       <div
         className={cn(
           "relative rounded-2xl px-3 py-2",
-          isAgent
+          isOutbound
             ? "rounded-br-md bg-primary text-primary-foreground"
             : "rounded-bl-md bg-muted text-foreground",
         )}
@@ -227,14 +246,14 @@ export function MessageBubble({
           <ReplyQuote
             authorLabel={reply.authorLabel}
             preview={reply.preview}
-            onPrimary={isAgent}
+            onPrimary={isOutbound}
           />
         )}
         <MessageContent message={message} t={t} onOpenMedia={onOpenMedia} />
         <div
           className={cn(
             "mt-1 flex items-center gap-1",
-            isAgent ? "justify-end" : "justify-start",
+            isOutbound ? "justify-end" : "justify-start",
           )}
         >
           {/* AI badge — only on replies the auto-reply bot generated
@@ -257,12 +276,12 @@ export function MessageBubble({
               // timestamp must read against that (not the neutral
               // foreground) — otherwise it goes low-contrast in light
               // mode. Inbound bubbles use the muted surface.
-              isAgent ? "text-primary-foreground/70" : "text-muted-foreground",
+              isOutbound ? "text-primary-foreground/70" : "text-muted-foreground",
             )}
           >
             {time}
           </span>
-          {isAgent && <StatusIcon status={message.status} />}
+          {isOutbound && <StatusIcon status={message.status} />}
         </div>
       </div>
       {reactions && reactions.length > 0 && onToggleReaction && (
