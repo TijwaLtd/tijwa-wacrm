@@ -90,10 +90,20 @@ async function sendDefaultMessage(
 // ============================================================
 // Customer consent + profile (public data-rights feature)
 //
-// Consent: Accept/Decline offered once after the first AI reply
-// (silence = NOT accepted, never blocks chat) and re-required at
-// checkout (order / booking confirm). Profile (name + email) is
-// required at checkout only, with a rate-limited nudge.
+// Consent rules (one ask, three states — see enforceConsentGate):
+//
+//   SENT + IGNORED  = ACCEPTED. The moment the short consent message
+//                     goes out we record the version with
+//                     consent_tos_assumed_at set, so silence is
+//                     unambiguously agreement. Nothing is re-asked.
+//   ACCEPT (tap)    = their own action: accepted_at set, the
+//                     assumed marker cleared.
+//   DECLINE (tap)   = communication STOPS. Every later inbound gets
+//                     the "you have to agree" reply instead of AI /
+//                     flows / automations, until they tap Accept.
+//
+// The message carries ONE link — the policy page. Profile
+// (name + email) is required at checkout only, rate-limited nudge.
 // ============================================================
 
 const PROFILE_NUDGE_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000
@@ -117,10 +127,18 @@ async function loadPublicContext(
 }
 
 /**
- * Send the Accept/Decline consent message (Terms + Privacy URLs,
- * AI disclosure) and record that we asked (consent_asked_at).
- * Ask-once semantics — the general hook never re-asks; only the
- * checkout gate sends this again when consent is still missing.
+ * Send the Accept/Decline consent message and record the decision.
+ *
+ * Short on purpose: ONE link (the policy page — sidebar layout, both
+ * documents) and nothing else. Records consent_asked_at AND, because
+ * silence counts as agreement, the assumption itself
+ * (version + accepted_at + consent_tos_assumed_at) as soon as Meta
+ * accepts the send — so an ignored ask is already "agreed" rather than
+ * a state we have to come back and resolve later. An explicit Accept
+ * or Decline tap overwrites this in handleConsentTap.
+ *
+ * Ask-once semantics — the general hook never re-asks; the checkout
+ * gate only re-sends if the first send never went out.
  */
 async function sendConsentMessage(
   db: ReturnType<typeof supabaseAdmin>,
@@ -134,10 +152,12 @@ async function sendConsentMessage(
   if (!ctx) return false
   const urls = legalUrls(ctx.slug)
 
+  // ONE link: the policy page. WhatsApp auto-links it, and it is the
+  // only place the customer has to go — Terms and Privacy live there.
   const body = clampBody(
     opts.checkout
-      ? `One quick step before I confirm this: please accept our Terms of Service (${urls.terms}) and Privacy Policy (${urls.privacy}). Our AI assists replies here — a human can take over anytime. Tap Accept to continue, or Decline to go back.`
-      : `Before we continue, please review our Terms of Service (${urls.terms}) and Privacy Policy (${urls.privacy}). Our AI assists replies here — a human can take over anytime. Tap Accept to agree, or Decline to keep browsing (we'll ask again if you place an order).`,
+      ? `Before I can confirm, please accept our Terms of Service: ${urls.terms}`
+      : `Please review and accept our Terms of Service: ${urls.terms}`,
   )
 
   try {
@@ -152,9 +172,18 @@ async function sendConsentMessage(
         { id: 'consent_decline', title: 'Decline' },
       ],
     })
+    const sentAt = new Date().toISOString()
     await db
       .from('contacts')
-      .update({ consent_asked_at: new Date().toISOString() })
+      .update({
+        consent_asked_at: sentAt,
+        // Ignoring the ask = agreeing (see banner). Recorded now so the
+        // state is never ambiguous; Accept/Decline taps overwrite it.
+        consent_tos_version: CONSENT_VERSION,
+        consent_tos_accepted_at: sentAt,
+        consent_tos_assumed_at: sentAt,
+        consent_tos_declined_at: null,
+      })
       .eq('account_id', accountId)
       .eq('id', contactId)
     return true
@@ -220,9 +249,19 @@ async function handleConsentTap(
             consent_tos_version: CONSENT_VERSION,
             consent_tos_accepted_at: now,
             consent_tos_declined_at: null,
+            // Their own tap now — no longer an assumption.
+            consent_tos_assumed_at: null,
             consent_asked_at: now,
           }
-        : { consent_tos_declined_at: now, consent_asked_at: now },
+        : {
+            // Decline wipes any assumed acceptance and stops the
+            // conversation (enforceConsentGate reads declined_at).
+            consent_tos_version: null,
+            consent_tos_accepted_at: null,
+            consent_tos_assumed_at: null,
+            consent_tos_declined_at: now,
+            consent_asked_at: now,
+          },
     )
     .eq('account_id', accountId)
     .eq('id', contactId)
@@ -240,23 +279,102 @@ async function handleConsentTap(
     console.error('[ai auto-reply] consent audit error:', err)
   }
 
-  const urls = ctx ? legalUrls(ctx.slug) : null
-  const text = accepted
-    ? `Thanks — you've accepted our Terms of Service and Privacy Policy. If you were confirming an order or booking, tap Confirm again and we're set. Anything else I can help with?`
-    : `No problem — nothing has been accepted. You can keep browsing and asking questions; we'll ask again before an order or booking. You can read our Terms (${urls?.terms || 'in this chat'}) and Privacy Policy (${urls?.privacy || 'in this chat'}) anytime.`
-
-  try {
-    await engineSendText({ accountId, userId, conversationId, contactId, text, aiGenerated: false })
-  } catch (err) {
-    console.error('[ai auto-reply] consent tap reply failed:', err)
+  if (accepted) {
+    const text = `Thanks — you've accepted our Terms of Service. If you were confirming an order or booking, tap Confirm again and we're set. Anything else I can help with?`
+    try {
+      await engineSendText({ accountId, userId, conversationId, contactId, text, aiGenerated: false })
+    } catch (err) {
+      console.error('[ai auto-reply] consent tap reply failed:', err)
+    }
+    return
   }
+
+  // Decline: tell them straight away that the conversation is paused
+  // and give them the one link + the Accept button to resume.
+  await sendBlockedMessage(db, accountId, conversationId, contactId, userId)
+}
+
+/**
+ * The single "you have to agree" message: short, ONE link (the policy
+ * page), plus an Accept button so a declined customer can resume in
+ * one tap. Used by the Decline tap and by enforceConsentGate on every
+ * later inbound message while they stay declined.
+ */
+async function sendBlockedMessage(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  userId: string,
+): Promise<void> {
+  const ctx = await loadPublicContext(db, accountId)
+  const url = ctx ? legalUrls(ctx.slug).terms : null
+  const body = clampBody(
+    url
+      ? `To continue, you have to agree to our Terms of Service: ${url}`
+      : `To continue, you have to agree to our Terms of Service.`,
+  )
+  try {
+    await engineSendInteractiveButtons({
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      bodyText: body,
+      buttons: [{ id: 'consent_accept', title: 'Accept' }],
+    })
+  } catch (err) {
+    console.error('[ai auto-reply] consent block message failed:', err)
+    try {
+      await engineSendText({ accountId, userId, conversationId, contactId, text: body, aiGenerated: false })
+    } catch (textErr) {
+      console.error('[ai auto-reply] consent block fallback failed:', textErr)
+    }
+  }
+}
+
+/**
+ * Decline gate — run by the webhook BEFORE flows / AI / automations.
+ *
+ * Returns true when the inbound was swallowed: the contact declined
+ * and has not accepted since, so nothing answers them but the "you
+ * have to agree" message. Consent taps are always passed through so
+ * an Accept unblocks them in the same turn.
+ *
+ * Silence is never blocked here — silence was already recorded as
+ * acceptance when the consent message went out.
+ */
+export async function enforceConsentGate(args: {
+  db: ReturnType<typeof supabaseAdmin>
+  accountId: string
+  conversationId: string
+  contactId: string
+  userId: string
+  interactiveReplyId?: string | null
+}): Promise<boolean> {
+  const { db, accountId, conversationId, contactId, userId, interactiveReplyId } = args
+
+  const { data: contact } = await db
+    .from('contacts')
+    .select('consent_tos_version, consent_tos_declined_at')
+    .eq('account_id', accountId)
+    .eq('id', contactId)
+    .maybeSingle()
+  if (!contact?.consent_tos_declined_at) return false
+  if (contact.consent_tos_version) return false // accepted after declining
+  if (interactiveReplyId === 'consent_accept') return false
+  if (interactiveReplyId === 'consent_decline') return false
+
+  await sendBlockedMessage(db, accountId, conversationId, contactId, userId)
+  return true
 }
 
 type CheckoutGate = 'ok' | 'consent' | 'profile'
 
 /**
  * Gate for order/booking confirm buttons:
- *   1. Terms must be accepted (re-asked here with checkout wording)
+ *   1. Terms must be accepted — a sent-but-ignored ask already counts,
+ *      so this only re-sends if consent was never asked at all
  *   2. Profile needs name + email (points at the public data page)
  * Returns 'ok' when the confirm may proceed.
  */
@@ -310,8 +428,9 @@ async function ensureCheckoutReady(
 
 /**
  * Post-reply hook: offer Terms/Privacy consent once per contact,
- * AFTER the main AI reply (silence = never accepted; never blocks
- * the conversation). `lastUserText` lets "skip" opt out of profile nudges.
+ * AFTER the main AI reply. Never re-asks — once sent, silence has
+ * already been recorded as acceptance (sendConsentMessage), and a
+ * decline blocks the conversation instead of being asked about.
  */
 async function maybeRequestConsent(
   db: ReturnType<typeof supabaseAdmin>,

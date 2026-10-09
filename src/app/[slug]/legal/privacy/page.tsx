@@ -5,7 +5,8 @@
 // ============================================================
 
 import type { Metadata } from 'next'
-import { LegalShell } from '@/components/legal/legal-shell'
+import { CONSENT_VERSION } from '@/lib/public/customer'
+import { LEGAL_EFFECTIVE_DATE, LEGAL_PROSE_CLASS } from '@/components/legal/sections'
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params
@@ -16,7 +17,14 @@ export default async function PrivacyPage({ params }: { params: Promise<{ slug: 
   const { slug } = await params
 
   return (
-    <LegalShell slug={slug} title="Privacy Policy" active="privacy">
+    <>
+      <h1 className="text-2xl font-bold text-foreground sm:text-3xl">Privacy Policy</h1>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Effective {LEGAL_EFFECTIVE_DATE} · Version{' '}
+        <code className="rounded bg-muted px-1">{CONSENT_VERSION}</code>
+      </p>
+
+      <div className={LEGAL_PROSE_CLASS}>
       <p>
         This Privacy Policy explains how {slug} (&quot;we&quot;, &quot;us&quot;) collects, uses and
         protects your personal data when you chat with us on WhatsApp. It applies under Kenya&apos;s
@@ -25,7 +33,7 @@ export default async function PrivacyPage({ params }: { params: Promise<{ slug: 
         instructions.
       </p>
 
-      <h2>1. What we collect</h2>
+      <h2 id="privacy-1-what-we-collect">1. What we collect</h2>
       <ul>
         <li>
           <strong>Identity and contact details</strong> — your name, WhatsApp phone number and, if
@@ -49,7 +57,7 @@ export default async function PrivacyPage({ params }: { params: Promise<{ slug: 
         do not send them — if we receive such data we will delete it where we can.
       </p>
 
-      <h2>2. Why we use it (and our legal basis)</h2>
+      <h2 id="privacy-2-why-we-use-it-and-our-legal-basis">2. Why we use it (and our legal basis)</h2>
       <ul>
         <li>
           <strong>To answer your enquiries and run orders/bookings</strong> — necessary to take steps
@@ -74,7 +82,7 @@ export default async function PrivacyPage({ params }: { params: Promise<{ slug: 
         </li>
       </ul>
 
-      <h2>3. How long we keep it</h2>
+      <h2 id="privacy-3-how-long-we-keep-it">3. How long we keep it</h2>
       <ul>
         <li><strong>Conversations and message history</strong> — kept while your contact exists, then deleted when you delete your data</li>
         <li><strong>Orders and bookings</strong> — kept as required by Kenyan tax and accounting law (typically up to 5 years), stripped of your personal details afterwards</li>
@@ -82,7 +90,7 @@ export default async function PrivacyPage({ params }: { params: Promise<{ slug: 
         <li><strong>Marketing consent</strong> — until you withdraw it</li>
       </ul>
 
-      <h2>4. Who we share it with</h2>
+      <h2 id="privacy-4-who-we-share-it-with">4. Who we share it with</h2>
       <ul>
         <li><strong>WhatsApp / Meta</strong> — to deliver your messages (Meta is an independent controller for WhatsApp&apos;s own processing under its terms)</li>
         <li><strong>Tijwa</strong> — our platform provider, acting as processor</li>
@@ -96,14 +104,14 @@ export default async function PrivacyPage({ params }: { params: Promise<{ slug: 
       </ul>
       <p>We do not sell your personal data to anyone.</p>
 
-      <h2>5. International transfers</h2>
+      <h2 id="privacy-5-international-transfers">5. International transfers</h2>
       <p>
         WhatsApp, our hosting and our AI provider may process data outside Kenya (and outside the
         EU/EEA). Where data leaves Kenya we rely on the safeguards required by the DPA 2019;
         where it leaves the EU/EEA we rely on adequacy decisions or standard contractual clauses.
       </p>
 
-      <h2>6. Your rights</h2>
+      <h2 id="privacy-6-your-rights">6. Your rights</h2>
       <p>Under the DPA and, for EU/EEA residents, the GDPR you can:</p>
       <ul>
         <li>Ask for a <strong>copy</strong> of the data we hold about you (export)</li>
@@ -121,7 +129,7 @@ export default async function PrivacyPage({ params }: { params: Promise<{ slug: 
         message us &quot;download my data&quot; / &quot;delete my data&quot;.
       </p>
 
-      <h2>7. What happens when you delete</h2>
+      <h2 id="privacy-7-what-happens-when-you-delete">7. What happens when you delete</h2>
       <p>
         When you request deletion we check whether we must keep anything for accounting or tax law.
         If nothing must be kept, your profile, conversations and message history are{' '}
@@ -131,31 +139,32 @@ export default async function PrivacyPage({ params }: { params: Promise<{ slug: 
         data stops being linked to you, and the applied outcome is confirmed back to you.
       </p>
 
-      <h2>8. Security</h2>
+      <h2 id="privacy-8-security">8. Security</h2>
       <p>
         Data is stored with access controls, encryption in transit (TLS) and at rest, multi-tenant
         isolation between businesses, and audit logging of staff access. If a breach occurs that
         affects your rights we will notify you and the ODPC as required by the DPA 2019.
       </p>
 
-      <h2>9. Automated decisions</h2>
+      <h2 id="privacy-9-automated-decisions">9. Automated decisions</h2>
       <p>
         No legal or similarly significant decision about you is made by automation alone. AI
         responses in the chat are suggestions for you to confirm; staff can take over at any point.
       </p>
 
-      <h2>10. Children</h2>
+      <h2 id="privacy-10-children">10. Children</h2>
       <p>
         The service is not directed at children under 18, and we do not knowingly collect their
         data. If you believe a child has provided data to us, contact us to have it removed.
       </p>
 
-      <h2>11. Changes and contact</h2>
+      <h2 id="privacy-11-changes-and-contact">11. Changes and contact</h2>
       <p>
         We may update this policy; material changes are sent to you with Accept/Decline buttons
         before they take effect. To reach us about privacy, ask for a human in the chat or contact
         the business directly.
       </p>
-    </LegalShell>
+      </div>
+    </>
   )
 }

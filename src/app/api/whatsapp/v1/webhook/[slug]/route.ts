@@ -15,7 +15,7 @@ import { reopenClosedConversation } from '@/lib/conversations/reopen'
 import { verifyMetaWebhookSignature } from '@/lib/whatsapp/webhook-signature'
 import { runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
-import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
+import { dispatchInboundToAiReply, enforceConsentGate } from '@/lib/ai/auto-reply'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
 import { autoAssignConversation } from '@/lib/assignments/auto-assign'
 import { detectConversationTopic } from '@/lib/assignments/topic-detection'
@@ -908,6 +908,25 @@ async function processMessage(
 
   const inboundText = contentText ?? message.text?.body ?? ''
   const isOrderButton = interactiveReplyId?.startsWith('order_') ?? false
+
+  // ── CONSENT GATE ───────────────────────────────────────────
+  // Placed before everything else: a declined customer gets no flows,
+  // no AI reply and no automations — only the "you have to agree"
+  // message. The inbound row above is already stored, so the agent
+  // still sees what the customer wrote. A tap on Accept passes
+  // through here and unblocks the conversation in the same turn.
+  const consentBlocked = await enforceConsentGate({
+    db: supabaseAdmin(),
+    accountId,
+    conversationId: conversation.id,
+    contactId: contactRecord.id,
+    userId: configOwnerUserId,
+    interactiveReplyId,
+  })
+  if (consentBlocked) {
+    console.log('[processMessage] declined consent — communication stopped for contact:', contactRecord.id)
+    return
+  }
 
   // ── DISPATCH PRIORITY ─────────────────────────────────────
   // First inbound message: AI first → flows → automations
