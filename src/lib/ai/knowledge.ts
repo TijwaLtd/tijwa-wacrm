@@ -95,13 +95,22 @@ export async function retrieveKnowledge(
   if (options?.imageUrl) {
     try {
       const matches = await findMatchingOfferings(accountId, options.imageUrl, 3)
-      if (matches && matches.length > 0) {
-        const matchLines = matches.map((m) => {
+      const ranked = [...(matches || [])].sort((a, b) => (b.similarity || 0) - (a.similarity || 0))
+      if (ranked.length > 0) {
+        // Same contract as text search: the strongest hit is THE match —
+        // send it alone; anything weaker is an alternative only.
+        const matchLines = ranked.map((m, idx) => {
           const priceStr = m.price !== null ? `$${Number(m.price).toFixed(2)}` : 'Price on request'
           const desc = m.short_description || m.description || 'No description available'
-          return `[MATCHED PRODUCT FROM CUSTOMER PHOTO]\nName: ${m.name}\nPrice: ${priceStr}\nType: ${m.type}\nDetails: ${desc}${m.image_url ? `\nImage URL: ${m.image_url}` : ''}\nMatch Confidence: ${Math.round((m.similarity || 0) * 100)}%`
+          const label = idx === 0 ? '[MATCHED PRODUCT FROM CUSTOMER PHOTO]' : '[ALTERNATIVE MATCH FROM CUSTOMER PHOTO]'
+          const guidance = idx === 0
+            ? 'Primary match — send this one by itself with its photo.'
+            : 'Do not send unless the customer rejects the primary match; then open with "Here are the alternatives:"'
+          return `${label}\nName: ${m.name}\nPrice: ${priceStr}\nType: ${m.type}\nDetails: ${desc}${m.image_url ? `\nImage URL: ${m.image_url}` : ''}\nMatch Confidence: ${Math.round((m.similarity || 0) * 100)}%\nHandling: ${guidance}`
         })
         excerpts.push(...matchLines)
+      } else {
+        excerpts.push('[NO MATCH FOR CUSTOMER PHOTO]\nNothing in this catalogue matches the shared image. Say so honestly, never invent a product, then offer the closest alternatives from a normal catalogue search.')
       }
     } catch (err) {
       console.error('[ai knowledge] image matching failed:', err)

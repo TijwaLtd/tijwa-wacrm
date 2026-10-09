@@ -106,6 +106,8 @@ export interface PropertySearchParams {
 }
 
 export interface PropertySearchResult {
+  /** Tool-authored caption: exact match / "here are the alternatives" / empty. */
+  response?: string
   properties: Array<{
     id: string
     name: string
@@ -160,7 +162,7 @@ export async function searchProperties(
   }
 
   // Filter by price, property type, listing type, bedrooms client-side
-  const filtered = (properties || []).filter((p: any) => {
+  let filtered = (properties || []).filter((p: any) => {
     const price = p.price || 0
     if (price < minPrice || price > maxPrice) return false
 
@@ -183,6 +185,35 @@ export async function searchProperties(
 
     return true
   })
+
+  // ── Specific request handling ─────────────────────────────
+  // If the customer named something specific and it exists, send only
+  // that — no page of near-matches. If nothing matched, never answer
+  // with an empty list: fall back to the closest matches so the reply
+  // can open with "here are the alternatives".
+  if (params.query && filtered.length > 0) {
+    const term = params.query.trim().toLowerCase()
+    const exact = filtered.filter((item: { name?: string | null }) => String(item.name || '').trim().toLowerCase() === term)
+    if (exact.length > 0) filtered = exact
+  }
+
+  let alternatives = false
+  if (filtered.length === 0 && params.query) {
+    const tokens = params.query.trim().split(/\s+/).filter(Boolean).slice(0, 4)
+    if (tokens.length > 0) {
+      const { data: altRows } = await db
+        .from('offerings')
+        .select('id, name, slug, short_description, description, price, currency, metadata, media:offering_media(url, alt_text, sort_order, is_primary)')
+        .eq('account_id', accountId)
+        .eq('type', 'property')
+        .eq('status', 'active')
+        .or(tokens.map((token) => `name.ilike.%${token}%`).join(','))
+        .order('price')
+        .limit(limit)
+      filtered = altRows || []
+      alternatives = filtered.length > 0
+    }
+  }
 
   const resultItems = filtered.map((p: any) => {
     const meta = (p.metadata || {}) as Record<string, unknown>
@@ -233,6 +264,14 @@ export async function searchProperties(
         item.location,
       ],
     )),
+  }
+
+  if (alternatives) {
+    result.response = `Here are the alternatives — nothing matched "${params.query}" exactly:`
+  } else if (params.query && resultItems.length === 0) {
+    result.response = `We don't have any listing matching "${params.query}" yet.`
+  } else if (params.query && resultItems.length === 1) {
+    result.response = `Here it is:`
   }
 
   return result
