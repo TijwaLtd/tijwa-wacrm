@@ -15,6 +15,17 @@ import { AiError, type ChatMessage } from './types'
 import { getToolsForBusinessType, executeToolCalls, hasToolCalls, ToolContext } from './tools'
 import { parseOrderButtonId, parseFoodOrderButtonId, parseReservationButtonId, parseBookingButtonId, parsePropertyInquiryButtonId, parseProductOrderButtonId, parseMenuMoreButtonId, parseRoomMoreButtonId, parseProductMoreButtonId, parseServiceMoreButtonId, parsePropertyMoreButtonId, parseNgoProgramMoreButtonId, parseNgoCourseMoreButtonId, parseCartButtonId, parseOfferingMoreButtonId } from './tools'
 import { clampListSection, clampBody, listCtaFor, type ListSection } from './tools/list-format'
+import {
+  NEXT_WEEK_BUTTON_LABEL,
+  attachScheduleContext,
+  buildScheduleListSection,
+  createBooking,
+  isFutureDate,
+  parseContextSlotId,
+  parseStayLengthId,
+  stayLengthSection,
+  type ScheduleContextKind,
+} from '@/lib/business/scheduling'
 import { AuditService } from '@/lib/audit/service'
 import { AuditEventType } from '@/lib/audit/events'
 import { contactFormUrl, legalUrls, CONSENT_VERSION } from '@/lib/public/customer'
@@ -378,7 +389,7 @@ type CheckoutGate = 'ok' | 'consent' | 'profile'
  *   2. Profile needs name + email (points at the public data page)
  * Returns 'ok' when the confirm may proceed.
  */
-async function ensureCheckoutReady(
+export async function ensureCheckoutReady(
   db: ReturnType<typeof supabaseAdmin>,
   accountId: string,
   conversationId: string,
@@ -1831,23 +1842,12 @@ async function handlePropertyInquiryButton(
       .neq('id', pendingId)
 
     if (btnAction === 'viewing') {
-      // Ask for date/time, then AI will handle the rest
-      await engineSendInteractiveButtons({
-        accountId,
-        userId: configOwnerUserId,
-        conversationId,
-        contactId,
-        bodyText:
-          `📅 *Schedule Viewing*\n\n` +
-          `*Property:* ${pending.offering_name}\n\n` +
-          `When would you like to view this property?\n` +
-          `Please reply with the date and time (e.g. "Saturday 3pm" or "2026-09-15 10:00").`,
-        buttons: [
-          { id: `property_inquiry_confirm_${pendingId}`, title: '✅ Confirm' },
-          { id: `property_inquiry_edit_${pendingId}`, title: '✏️ Change Date' },
-          { id: `property_inquiry_cancel_${pendingId}`, title: '❌ Cancel' },
-        ],
-      })
+      // Slot list goes out directly — no AI round-trip; the tap books it.
+      await sendPendingScheduleList(
+        db, accountId, conversationId, contactId, configOwnerUserId,
+        'property', pendingId, 0,
+        `📅 *Schedule Viewing*\n*Property:* ${pending.offering_name}`,
+      )
     } else if (btnAction === 'offer') {
       // Ask for offer amount
       await engineSendInteractiveButtons({
@@ -2568,24 +2568,12 @@ async function handleRoomListSelect(
     return
   }
 
-  // Send preview with confirm/edit/cancel buttons
-  await engineSendInteractiveButtons({
-    accountId,
-    userId: configOwnerUserId,
-    conversationId,
-    contactId,
-    bodyText:
-      `🏨 *Booking Summary*\n\n` +
-      `*Room:* ${roomName}\n` +
-      `*Guests:* ${maxGuests}\n` +
-      `*Price:* KES ${pricePerNight}/night\n\n` +
-      `Please confirm your booking.`,
-    buttons: [
-      { id: `booking_confirm_${pending.id}`, title: '✅ Confirm' },
-      { id: `booking_edit_${pending.id}`, title: '✏️ Edit' },
-      { id: `booking_cancel_${pending.id}`, title: '❌ Cancel' },
-    ],
-  })
+  // Check-in day list goes out directly — no AI round-trip.
+  await sendPendingScheduleList(
+    db, accountId, conversationId, contactId, configOwnerUserId,
+    'room', pending.id, 0,
+    `🏨 *Book your stay*\n*Room:* ${roomName}\n*Guests:* ${maxGuests} · KES ${pricePerNight}/night — pick your check-in day:`,
+  )
 }
 
 // ============================================================
@@ -2664,24 +2652,12 @@ async function handleServiceListSelect(
     return
   }
 
-  // Send preview with confirm/edit/cancel buttons
-  await engineSendInteractiveButtons({
-    accountId,
-    userId: configOwnerUserId,
-    conversationId,
-    contactId,
-    bodyText:
-      `📋 *Service Booking Summary*\n\n` +
-      `*Service:* ${serviceName}\n` +
-      `*Duration:* ${durationMinutes} min\n` +
-      `*Price:* KES ${price}\n\n` +
-      `Please confirm your booking.`,
-    buttons: [
-      { id: `booking_confirm_${pending.id}`, title: '✅ Confirm' },
-      { id: `booking_edit_${pending.id}`, title: '✏️ Edit' },
-      { id: `booking_cancel_${pending.id}`, title: '❌ Cancel' },
-    ],
-  })
+  // Slot list goes out directly — no AI round-trip; the tap books it.
+  await sendPendingScheduleList(
+    db, accountId, conversationId, contactId, configOwnerUserId,
+    'service', pending.id, 0,
+    `📋 *Book your service*\n*Service:* ${serviceName}\n*Duration:* ${durationMinutes} min · KES ${price} — pick a day:`,
+  )
 }
 
 // ============================================================
@@ -3116,6 +3092,317 @@ async function handleCartButton(
   }
 }
 
+// ============================================================
+// Direct schedule flow (no AI round-trip)
+//
+// Tapping "📅 Schedule Viewing" / a room / a service sends the
+// shared slot list straight away; tapping a slot books it right
+// here — the same insert the old Confirm button did.
+// ============================================================
+
+const SCHEDULE_PENDING_TABLE: Record<ScheduleContextKind, string> = {
+  property: 'pending_property_inquiries',
+  room: 'pending_bookings',
+  service: 'pending_service_bookings',
+}
+
+async function sendPendingScheduleList(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  userId: string,
+  kind: ScheduleContextKind,
+  pendingId: string,
+  page: number,
+  intro: string,
+): Promise<void> {
+  const mode = kind === 'room' ? ('dates' as const) : ('times' as const)
+  const built = buildScheduleListSection({ mode, page })
+
+  if (!built.list_section) {
+    await engineSendText({ accountId, userId, conversationId, contactId, text: built.response, aiGenerated: true })
+    return
+  }
+
+  const section = attachScheduleContext(built.list_section, kind, pendingId)
+  await engineSendInteractiveList({
+    accountId,
+    userId,
+    conversationId,
+    contactId,
+    bodyText: `${intro}\n\n${built.response}`.slice(0, 1024),
+    buttonLabel: NEXT_WEEK_BUTTON_LABEL,
+    sections: [section],
+  })
+
+  // Remember which window we sent so "Next week" can keep jumping.
+  try {
+    const { data: row } = await db
+      .from(SCHEDULE_PENDING_TABLE[kind])
+      .select('metadata')
+      .eq('id', pendingId)
+      .maybeSingle()
+    await db
+      .from(SCHEDULE_PENDING_TABLE[kind])
+      .update({ metadata: { ...((row?.metadata as Record<string, unknown>) || {}), schedule_page: page } })
+      .eq('id', pendingId)
+      .eq('account_id', accountId)
+  } catch (err) {
+    console.error('[schedule] failed to persist schedule_page:', err)
+  }
+}
+
+async function handleNextWeekTap(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  userId: string,
+): Promise<boolean> {
+  const since = new Date(Date.now() - 45 * 60 * 1000).toISOString()
+  const candidates: Array<{ kind: ScheduleContextKind; col: string }> = [
+    { kind: 'property', col: 'preferred_date' },
+    { kind: 'room', col: 'check_in_date' },
+    { kind: 'service', col: 'service_date' },
+  ]
+
+  for (const c of candidates) {
+    const { data: row } = await db
+      .from(SCHEDULE_PENDING_TABLE[c.kind])
+      .select('id, metadata')
+      .eq('account_id', accountId)
+      .eq('contact_id', contactId)
+      .is(c.col, null)
+      .gt('created_at', since)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (!row) continue
+
+    const page = ((((row.metadata as Record<string, unknown>) || {})?.schedule_page as number) || 0) + 1
+    await sendPendingScheduleList(db, accountId, conversationId, contactId, userId, c.kind, row.id, page,
+      'Here are the next openings:')
+    return true
+  }
+  return false
+}
+
+async function handleContextScheduleTap(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  userId: string,
+  tap: { kind: ScheduleContextKind; pendingId: string; date: string; time: string | null },
+): Promise<void> {
+  const { kind, pendingId, date, time } = tap
+  const table = SCHEDULE_PENDING_TABLE[kind]
+  const { data: pending } = await db
+    .from(table)
+    .select('*')
+    .eq('id', pendingId)
+    .eq('account_id', accountId)
+    .maybeSingle()
+
+  if (!pending) {
+    await engineSendText({
+      accountId, userId, conversationId, contactId,
+      text: 'This schedule has expired — tap the item again to start over.',
+      aiGenerated: true,
+    })
+    return
+  }
+
+  // Rooms: check-in day picked → ask how long, then book on the nights tap.
+  if (kind === 'room') {
+    await engineSendInteractiveList({
+      accountId, userId, conversationId, contactId,
+      bodyText:
+        `*How long is your stay?*\n\n` +
+        `*Room:* ${pending.offering_name || pending.room_type}\n` +
+        `*Check-in:* ${date}`,
+      buttonLabel: 'Change day',
+      sections: [stayLengthSection(pendingId, date)],
+    })
+    return
+  }
+
+  if (!isFutureDate(date)) {
+    await sendPendingScheduleList(db, accountId, conversationId, contactId, userId, kind, pendingId, 0,
+      'That date has passed — here are upcoming times:')
+    return
+  }
+
+  const gate = await ensureCheckoutReady(db, accountId, conversationId, contactId, userId)
+  if (gate !== 'ok') return
+
+  if (kind === 'property') {
+    const { ok, bookingNumber, error } = await createBooking({
+      db, accountId, contactId,
+      start: time ? `${date}T${time}` : date,
+      offeringId: pending.offering_id,
+      guests: 1,
+      total: pending.budget || 0,
+      currency: pending.currency || 'KES',
+      notes: pending.notes,
+      fallbackPrefix: 'INQ',
+      metadata: {
+        type: 'property_inquiry',
+        inquiry_type: pending.inquiry_type || 'viewing',
+        property_name: pending.offering_name,
+        offering_name: pending.offering_name,
+        customer_name: pending.customer_name,
+        customer_phone: pending.customer_phone,
+        preferred_date: date,
+        preferred_time: time,
+        budget: pending.budget,
+      },
+    })
+    if (!ok || !bookingNumber) {
+      await engineSendText({ accountId, userId, conversationId, contactId, text: 'Failed to schedule your viewing. Please try again.', aiGenerated: true })
+      console.error('[schedule] property booking failed:', error)
+      return
+    }
+    await db.from(table).delete().eq('id', pendingId).eq('account_id', accountId)
+    await engineSendText({
+      accountId, userId, conversationId, contactId,
+      text:
+        `\u2705 *Viewing scheduled!*\n\n` +
+        `*Property:* ${pending.offering_name}\n` +
+        `*Date:* ${date}` + (time ? ` at ${time}` : '') + `\n` +
+        `*Reference:* ${bookingNumber}\n\n` +
+        `Reply with a new date any time to change it.`,
+      aiGenerated: true,
+    })
+    return
+  }
+
+  // service
+  const { ok, bookingNumber, error } = await createBooking({
+    db, accountId, contactId,
+    start: time ? `${date}T${time}` : date,
+    offeringId: pending.offering_id,
+    guests: 1,
+    total: pending.total_price || 0,
+    currency: pending.currency || 'KES',
+    notes: pending.notes,
+    fallbackPrefix: 'BK',
+    metadata: {
+      type: 'service_booking',
+      service_name: pending.offering_name,
+      offering_name: pending.offering_name,
+      customer_name: pending.customer_name,
+      customer_phone: pending.customer_phone,
+      service_date: date,
+      service_time: time,
+      duration_minutes: pending.duration_minutes,
+    },
+  })
+  if (!ok || !bookingNumber) {
+    await engineSendText({ accountId, userId, conversationId, contactId, text: 'Failed to book. Please try again.', aiGenerated: true })
+    console.error('[schedule] service booking failed:', error)
+    return
+  }
+  await db.from(table).delete().eq('id', pendingId).eq('account_id', accountId)
+  await engineSendText({
+    accountId, userId, conversationId, contactId,
+    text:
+      `\u2705 *Booked!*\n\n` +
+      `*Service:* ${pending.offering_name}\n` +
+      `*Date:* ${date}` + (time ? ` at ${time}` : '') + `\n` +
+      (pending.duration_minutes ? `*Duration:* ${pending.duration_minutes} min\n` : '') +
+      `*Reference:* ${bookingNumber}\n\n` +
+      `Reply with a new date any time to change it.`,
+    aiGenerated: true,
+  })
+}
+
+async function handleStayLengthTap(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  userId: string,
+  tap: { pendingId: string; checkIn: string; nights: number },
+): Promise<void> {
+  const { pendingId, checkIn, nights } = tap
+  const { data: pending } = await db
+    .from('pending_bookings')
+    .select('*')
+    .eq('id', pendingId)
+    .eq('account_id', accountId)
+    .maybeSingle()
+
+  if (!pending) {
+    await engineSendText({
+      accountId, userId, conversationId, contactId,
+      text: 'This schedule has expired — tap the room again to start over.',
+      aiGenerated: true,
+    })
+    return
+  }
+
+  if (!isFutureDate(checkIn) || nights < 1) {
+    await sendPendingScheduleList(db, accountId, conversationId, contactId, userId, 'room', pendingId, 0,
+      'That date has passed — here are upcoming days:')
+    return
+  }
+
+  const gate = await ensureCheckoutReady(db, accountId, conversationId, contactId, userId)
+  if (gate !== 'ok') return
+
+  const perNight = pending.total_price || 0
+  const endDate = new Date(checkIn)
+  endDate.setDate(endDate.getDate() + nights)
+  const checkOut = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`
+  const guests = pending.guests || 1
+
+  const { ok, bookingNumber, error } = await createBooking({
+    db, accountId, contactId,
+    start: checkIn,
+    end: checkOut,
+    offeringId: pending.offering_id,
+    guests,
+    total: perNight * nights,
+    currency: pending.currency || 'KES',
+    notes: pending.notes,
+    fallbackPrefix: 'BK',
+    metadata: {
+      type: 'room_booking',
+      room_name: pending.offering_name || pending.room_type,
+      offering_name: pending.offering_name,
+      guest_name: pending.guest_name,
+      guest_phone: pending.guest_phone,
+      check_in_date: checkIn,
+      check_out_date: checkOut,
+      nights,
+      guests,
+      price_per_night: perNight,
+    },
+  })
+
+  if (!ok || !bookingNumber) {
+    await engineSendText({ accountId, userId, conversationId, contactId, text: 'Failed to book. Please try again.', aiGenerated: true })
+    console.error('[schedule] room booking failed:', error)
+    return
+  }
+  await db.from('pending_bookings').delete().eq('id', pendingId).eq('account_id', accountId)
+  await engineSendText({
+    accountId, userId, conversationId, contactId,
+    text:
+      `\u2705 *Booked!*\n\n` +
+      `*Room:* ${pending.offering_name || pending.room_type}\n` +
+      `*Check-in:* ${checkIn}\n` +
+      `*Check-out:* ${checkOut}\n` +
+      `*Nights:* ${nights}\n` +
+      `*Total:* ${pending.currency || 'KES'} ${perNight * nights}\n` +
+      `*Reference:* ${bookingNumber}\n\n` +
+      `Reply with a new date any time to change it.`,
+    aiGenerated: true,
+  })
+}
+
 /**
  * AI auto-reply for a freshly-arrived inbound message.
  *
@@ -3141,6 +3428,23 @@ export async function dispatchInboundToAiReply(
     if (interactiveReplyId === 'consent_accept' || interactiveReplyId === 'consent_decline') {
       await handleConsentTap(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId)
       return
+    }
+
+    // ── SCHEDULE TAPS (direct — booked without an AI round-trip) ──
+    if (interactiveReplyId) {
+      const stayTap = parseStayLengthId(interactiveReplyId)
+      if (stayTap) {
+        await handleStayLengthTap(db, accountId, conversationId, contactId, configOwnerUserId, stayTap)
+        return
+      }
+      const slotTap = parseContextSlotId(interactiveReplyId)
+      if (slotTap) {
+        await handleContextScheduleTap(db, accountId, conversationId, contactId, configOwnerUserId, slotTap)
+        return
+      }
+      if (interactiveReplyId === NEXT_WEEK_BUTTON_LABEL) {
+        if (await handleNextWeekTap(db, accountId, conversationId, contactId, configOwnerUserId)) return
+      }
     }
 
     const config = await loadAiConfig()

@@ -13,6 +13,8 @@
 // ============================================================
 
 import type { ToolDefinition, ToolHandler, ToolContext } from './types'
+import { createBooking, isFutureDate } from '@/lib/business/scheduling'
+import { slotList, scheduleGateReady } from './scheduling'
 import { buildListRow, formatPriceLabel } from './list-format'
 
 // ============================================================
@@ -350,11 +352,25 @@ const previewBookingHandler: ToolHandler = async (args, ctx) => {
   const guests = (args.guests as number) || 1
   const specialRequests = (args.special_requests as string) || null
 
-  if (!checkInDate || !checkOutDate) {
-    return { success: false, error: 'Check-in and check-out dates are required' }
+  // Dates missing or past → answer with the day list.
+  if (!checkInDate || !checkOutDate || !isFutureDate(checkInDate)) {
+    return {
+      success: true,
+      ...slotList('dates'),
+      response: checkInDate && !isFutureDate(checkInDate)
+        ? 'That date has passed — here are upcoming days:'
+        : 'Which day would you like to check in? Pick a day below, or reply with a date like "15 Oct":',
+    }
   }
 
   const nights = calculateNights(checkInDate, checkOutDate)
+  if (nights <= 0) {
+    return {
+      success: false,
+      ...slotList('dates'),
+      response: 'Check-out needs to be after check-in — which day suits you?',
+    }
+  }
 
   // Look up room details
   const { data: room } = await db
@@ -374,68 +390,67 @@ const previewBookingHandler: ToolHandler = async (args, ctx) => {
   const media = (room.media as any[]) || []
   const roomImageUrl = media.find((m: any) => m.is_primary)?.url || media[0]?.url || null
 
-  // Store in pending_bookings
-  const { data: pending, error } = await db
-    .from('pending_bookings')
-    .insert({
-      account_id: ctx.accountId,
-      contact_id: ctx.contactId,
-      conversation_id: ctx.conversationId,
-      user_id: ctx.userId,
-      offering_id: roomId,
+  if (!(await scheduleGateReady(ctx))) {
+    return {
+      success: false,
+      gated: true,
+      response: 'I just sent you a quick step to complete — reply here once it is done and I will finish this.',
+    }
+  }
+
+  const { ok, bookingNumber, error } = await createBooking({
+    db,
+    accountId: ctx.accountId,
+    contactId: ctx.contactId,
+    start: checkInDate,
+    end: checkOutDate,
+    offeringId: roomId,
+    guests,
+    total: totalPrice,
+    currency: room.currency || 'KES',
+    notes: specialRequests,
+    fallbackPrefix: 'BK',
+    metadata: {
+      type: 'room_booking',
+      room_name: room.name,
       offering_name: room.name,
       guest_name: guestName,
-      guest_phone: ctx.contactPhone || null,
+      guest_phone: ctx.contactPhone,
       check_in_date: checkInDate,
       check_out_date: checkOutDate,
       nights,
       guests,
       price_per_night: pricePerNight,
-      total_price: totalPrice,
-      currency: room.currency || 'KES',
-      special_requests: specialRequests,
-    })
-    .select('id')
-    .single()
+    },
+  })
 
-  if (error || !pending) {
-    console.error('[hotel tool] booking preview error:', error)
-    return { success: false, error: 'Failed to create booking preview' }
+  if (!ok || !bookingNumber) {
+    return { success: false, error: error || 'Failed to create booking' }
   }
 
-  const pendingId = pending.id
-
-  // Format dates nicely
   const checkInObj = new Date(checkInDate)
   const checkOutObj = new Date(checkOutDate)
   const formattedCheckIn = checkInObj.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
   const formattedCheckOut = checkOutObj.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
 
-  const message =
-    `🏨 *Booking Preview*\n\n` +
-    `*Room:* ${room.name}\n` +
-    `*Guest:* ${guestName}\n` +
-    `*Check-in:* ${formattedCheckIn}\n` +
-    `*Check-out:* ${formattedCheckOut}\n` +
-    `*Nights:* ${nights}\n` +
-    `*Guests:* ${guests}\n` +
-    (specialRequests ? `*Special Requests:* ${specialRequests}\n` : '') +
-    `\n*Price:* KES ${pricePerNight}/night × ${nights} nights = *KES ${totalPrice}*\n\n` +
-    `Reply *confirm* to book, or *edit* to make changes.`
-
   return {
     success: true,
-    pending_booking_id: pendingId,
+    booking_number: bookingNumber,
     price: totalPrice,
     currency: room.currency || 'KES',
     nights,
-    response: message,
+    response:
+      `\u2705 *Booked!*\n\n` +
+      `*Room:* ${room.name}\n` +
+      `*Guest:* ${guestName}\n` +
+      `*Check-in:* ${formattedCheckIn}\n` +
+      `*Check-out:* ${formattedCheckOut}\n` +
+      `*Nights:* ${nights}\n` +
+      `*Guests:* ${guests}\n` +
+      `*Total:* ${room.currency || 'KES'} ${totalPrice}\n` +
+      `*Reference:* ${bookingNumber}\n\n` +
+      `Reply with a new date any time to change it.`,
     image_url: roomImageUrl,
-    buttons: [
-      { id: `booking_confirm_${pendingId}`, title: '✅ Confirm' },
-      { id: `booking_edit_${pendingId}`, title: '✏️ Edit' },
-      { id: `booking_cancel_${pendingId}`, title: '❌ Cancel' },
-    ],
   }
 }
 

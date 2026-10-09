@@ -14,6 +14,8 @@
 // ============================================================
 
 import type { ToolDefinition, ToolHandler, ToolContext } from './types'
+import { createBooking, isFutureSlot } from '@/lib/business/scheduling'
+import { slotList, scheduleGateReady } from './scheduling'
 import { buildListRow, formatPriceLabel } from './list-format'
 
 // ============================================================
@@ -456,60 +458,67 @@ const previewReservationHandler: ToolHandler = async (args, ctx) => {
   const duration = (args.duration_minutes as number) || 120
   const specialRequests = (args.special_requests as string) || null
 
-  if (!reservationDate || !reservationTime) {
-    return { success: false, error: 'Date and time are required' }
+  // No date/time yet (or a past slot) → answer with the slot list.
+  if (!reservationDate || !reservationTime || !isFutureSlot(reservationDate, reservationTime)) {
+    return {
+      success: true,
+      ...slotList('times'),
+      response: reservationDate
+        ? 'That time has passed — here are upcoming slots:'
+        : 'What time works for you? Pick a slot below, or reply with a date like "15 Oct":',
+    }
   }
 
-  // Store in pending_reservations
-  const { data: pending, error } = await db
-    .from('pending_reservations')
-    .insert({
-      account_id: ctx.accountId,
-      contact_id: ctx.contactId,
-      conversation_id: ctx.conversationId,
-      user_id: ctx.userId,
+  if (!(await scheduleGateReady(ctx))) {
+    return {
+      success: false,
+      gated: true,
+      response: 'I just sent you a quick step to complete — reply here once it is done and I will finish this.',
+    }
+  }
+
+  const { ok, bookingNumber, error } = await createBooking({
+    db,
+    accountId: ctx.accountId,
+    contactId: ctx.contactId,
+    start: `${reservationDate}T${reservationTime}`,
+    end: `${reservationDate}T${reservationTime}`,
+    guests: partySize,
+    total: 0,
+    currency: 'KES',
+    notes: specialRequests,
+    fallbackPrefix: 'RES',
+    metadata: {
+      type: 'reservation',
       guest_name: guestName,
-      guest_phone: ctx.contactPhone || null,
+      guest_phone: ctx.contactPhone,
       party_size: partySize,
       reservation_date: reservationDate,
       reservation_time: reservationTime,
       duration_minutes: duration,
-      special_requests: specialRequests,
-    })
-    .select('id')
-    .single()
+    },
+  })
 
-  if (error || !pending) {
-    console.error('[restaurant tool] reservation preview error:', error)
-    return { success: false, error: 'Failed to create reservation preview' }
+  if (!ok || !bookingNumber) {
+    return { success: false, error: error || 'Failed to create reservation' }
   }
 
-  const pendingId = pending.id
-
-  // Format date nicely
   const dateObj = new Date(`${reservationDate}T${reservationTime}`)
   const formattedDate = dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
   const formattedTime = dateObj.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
 
-  const message =
-    `📅 *Reservation Preview*\n\n` +
-    `*Name:* ${guestName}\n` +
-    `*Guests:* ${partySize}\n` +
-    `*Date:* ${formattedDate}\n` +
-    `*Time:* ${formattedTime}\n` +
-    `*Duration:* ${duration} minutes\n` +
-    (specialRequests ? `*Special Requests:* ${specialRequests}\n` : '') +
-    `\nReply *confirm* to book, or *edit* to make changes.`
-
   return {
     success: true,
-    pending_reservation_id: pendingId,
-    response: message,
-    buttons: [
-      { id: `reservation_confirm_${pendingId}`, title: '✅ Confirm' },
-      { id: `reservation_edit_${pendingId}`, title: '✏️ Edit' },
-      { id: `reservation_cancel_${pendingId}`, title: '❌ Cancel' },
-    ],
+    booking_number: bookingNumber,
+    response:
+      `\u2705 *Reservation confirmed!*\n\n` +
+      `*Reservation #:* ${bookingNumber}\n` +
+      `*Name:* ${guestName}\n` +
+      `*Guests:* ${partySize}\n` +
+      `*Date:* ${formattedDate}\n` +
+      `*Time:* ${formattedTime}\n` +
+      (specialRequests ? `*Notes:* ${specialRequests}\n` : '') +
+      `\nWe look forward to seeing you! Reply with a new date any time to change it.`,
   }
 }
 

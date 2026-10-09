@@ -16,6 +16,7 @@ import { retailerTools, retailerToolHandlers } from './retailer'
 import { serviceTools, serviceToolHandlers } from './services'
 import { propertyTools, propertyToolHandlers } from './property'
 import { ngoTools, ngoToolHandlers } from './ngo'
+import { schedulingTools, schedulingToolHandlers } from './scheduling'
 
 // ============================================================
 // Tool Registry — capability-first, business-type fallback
@@ -149,6 +150,15 @@ export function getToolsForBusinessType(
     )
   ) {
     addDomain(ngoTools, ngoToolHandlers)
+  }
+
+  // Common scheduling tools (slots list + update) — whenever a
+  // scheduling-capable domain above is active.
+  const SCHEDULE_PREVIEWS = [
+    'preview_property_inquiry', 'preview_reservation', 'preview_booking', 'preview_service_booking',
+  ]
+  if (tools.some((t) => SCHEDULE_PREVIEWS.includes(t.definition.function.name))) {
+    addDomain(schedulingTools, schedulingToolHandlers)
   }
 
   // Always include search_offerings for any business type

@@ -87,6 +87,12 @@ export function clampListSection(section: ListSection | null | undefined): ListS
 /** CTA wording inferred from the row id prefix (product vs property vs menu…). */
 export function listCtaFor(section: ListSection): { buttonLabel: string; fallbackBody: string } {
   const firstId = section.rows[0]?.id || ''
+  if (firstId.startsWith('slot_')) {
+    return {
+      buttonLabel: 'Next week →',
+      fallbackBody: 'Pick a time below, reply with a date like "15 Oct", or tap Next week for later slots:',
+    }
+  }
   if (firstId.startsWith('property_select_')) {
     return { buttonLabel: 'View Properties', fallbackBody: 'Tap a property to see details and book a viewing:' }
   }

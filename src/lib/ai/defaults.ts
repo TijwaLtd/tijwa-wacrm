@@ -1,4 +1,5 @@
 import type { AiProvider } from './types'
+import { AI_SCHEDULING_GUIDANCE } from '@/lib/business/scheduling'
 
 // ============================================================
 // Tunables + prompt scaffold for the AI reply assistant.
@@ -108,6 +109,7 @@ export function buildSystemPrompt(args: {
   ], ['services', 'appointments'])
   const hasProperty = domainActive(businessType, capabilities, ['property_real_estate'], ['property_listings'])
   const hasNgo = domainActive(businessType, capabilities, ['ngo_nonprofit'], ['programs', 'ngo_services'])
+  const hasScheduling = hasRestaurant || hasHotel || hasService || hasProperty
 
   const parts: string[] = [
     // ---- IDENTITY ----
@@ -302,6 +304,7 @@ export function buildSystemPrompt(args: {
       'Do not attempt to use nodes that are not available for the current business.',
 
     // ---- TOOL CALLING (INTENT-FIRST, business-type aware) ----
+    ...(hasScheduling ? [AI_SCHEDULING_GUIDANCE] : []),
     ...(hasLogistics ? [
       'TOOL CALLING — DELIVERY BUSINESS:\n' +
       'You have delivery/logistics tools. USE THEM. Do NOT describe what you can do — actually do it by calling tools.\n\n' +
@@ -364,7 +367,7 @@ export function buildSystemPrompt(args: {
       'When a customer wants to reserve a table:\n' +
       '- Collect: guest_name, party_size, date, time\n' +
       '- Call preview_reservation with the details\n' +
-      '- The tool returns Confirm/Edit/Cancel buttons\n\n' +
+      '- It books immediately and returns the confirmation — never ask them to confirm again\n\n' +
       'OTHER INTENTS:\n' +
       '- track_order: "where is my order" → use get_customer_food_orders\n' +
       '- working_hours: asks about hours → use check_working_hours\n' +
@@ -384,7 +387,7 @@ export function buildSystemPrompt(args: {
       'ROOM BOOKINGS:\n' +
       'When a customer wants to book a room, you MUST call preview_booking.\n' +
       'Do NOT generate a text summary. Do NOT ask "should I proceed?". Just call the tool.\n\n' +
-      'RULE #1: The preview_booking tool generates the formatted preview with Confirm/Edit/Cancel buttons.\n' +
+      'RULE #1: preview_booking books immediately and returns the confirmation — never ask the customer to confirm and never send Confirm/Edit/Cancel buttons.\n' +
       'RULE #2: After calling preview_booking, do NOT add any text. The tool response IS the message.\n\n' +
       'WHAT THE TOOL NEEDS:\n' +
       '1. room_id — the room type to book\n' +
@@ -475,7 +478,7 @@ export function buildSystemPrompt(args: {
       'SERVICE BOOKINGS:\n' +
       'When a customer wants to book a service, you MUST call preview_service_booking.\n' +
       'Do NOT generate a text summary. Do NOT ask "should I proceed?". Just call the tool.\n\n' +
-      'RULE #1: The preview_service_booking tool generates the formatted preview with Confirm/Edit/Cancel buttons.\n' +
+      'RULE #1: preview_service_booking books immediately and returns the confirmation — never ask the customer to confirm and never send Confirm/Edit/Cancel buttons.\n' +
       'RULE #2: After calling preview_service_booking, do NOT add any text. The tool response IS the message.\n\n' +
       'WHAT THE TOOL NEEDS:\n' +
       '1. service_id — the service to book\n' +
@@ -522,7 +525,7 @@ export function buildSystemPrompt(args: {
       '- Include preferred_date/preferred_time whenever the customer mentions a day or time\n' +
       'When a customer wants to inquire about or view a property, you MUST call preview_property_inquiry.\n' +
       'Do NOT generate a text summary. Do NOT ask "should I proceed?". Just call the tool.\n\n' +
-      'RULE #1: The preview_property_inquiry tool generates the formatted preview with Confirm/Edit/Cancel buttons.\n' +
+      'RULE #1: preview_property_inquiry submits immediately and returns the confirmation — never ask the customer to confirm and never send Confirm/Edit/Cancel buttons.\n' +
       'RULE #2: After calling preview_property_inquiry, do NOT add any text. The tool response IS the message.\n\n' +
       'WHAT THE TOOL NEEDS:\n' +
       '1. property_id — the property to inquire about\n' +
@@ -606,7 +609,7 @@ export function buildSystemPrompt(args: {
         '- The customer disputes a previous business commitment you cannot verify\n' +
         '- The request requires access to private information that is unavailable\n' +
         'DO NOT hand off for order/booking confirmations — the preview tools ' +
-        'handle this automatically with Confirm/Edit/Cancel buttons. Calling the tool IS the action.\n' +
+        'handle this automatically (scheduling books immediately; other previews return their own buttons). Calling the tool IS the action.\n' +
         'This applies to: preview_delivery_order, preview_food_order, preview_reservation, preview_booking, preview_product_order, preview_service_booking, preview_property_inquiry.\n' +
         'When you lack specific information, give a friendly helpful response instead of handing off. ' +
         'For example: acknowledge the question, share what you do know, or offer to connect them with the team. ' +

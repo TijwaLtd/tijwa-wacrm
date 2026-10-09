@@ -13,6 +13,8 @@
 // ============================================================
 
 import type { ToolDefinition, ToolHandler, ToolContext } from './types'
+import { createBooking, isFutureDate } from '@/lib/business/scheduling'
+import { slotList, scheduleGateReady } from './scheduling'
 import { buildListRow, formatPriceLabel } from './list-format'
 
 // ============================================================
@@ -304,8 +306,15 @@ const previewServiceBookingHandler: ToolHandler = async (args, ctx) => {
   const serviceTime = (args.service_time as string) || null
   const notes = (args.notes as string) || null
 
-  if (!serviceDate) {
-    return { success: false, error: 'Service date is required' }
+  // Date missing or past → answer with the slot list.
+  if (!serviceDate || !isFutureDate(serviceDate)) {
+    return {
+      success: true,
+      ...slotList(serviceDate ? 'times' : 'times', serviceDate ? { date: serviceDate } : {}),
+      response: serviceDate
+        ? 'That date has passed — here are upcoming slots:'
+        : 'When would you like it? Pick a slot below, or reply with a date like "15 Oct":',
+    }
   }
 
   // Look up service details
@@ -327,62 +336,60 @@ const previewServiceBookingHandler: ToolHandler = async (args, ctx) => {
   const media = (service.media as any[]) || []
   const serviceImageUrl = media.find((m: any) => m.is_primary)?.url || media[0]?.url || null
 
-  // Store in pending_service_bookings
-  const { data: pending, error } = await db
-    .from('pending_service_bookings')
-    .insert({
-      account_id: ctx.accountId,
-      contact_id: ctx.contactId,
-      conversation_id: ctx.conversationId,
-      user_id: ctx.userId,
-      offering_id: serviceId,
+  if (!(await scheduleGateReady(ctx))) {
+    return {
+      success: false,
+      gated: true,
+      response: 'I just sent you a quick step to complete — reply here once it is done and I will finish this.',
+    }
+  }
+
+  const { ok, bookingNumber, error } = await createBooking({
+    db,
+    accountId: ctx.accountId,
+    contactId: ctx.contactId,
+    start: serviceTime ? `${serviceDate}T${serviceTime}` : serviceDate,
+    offeringId: serviceId,
+    guests: 1,
+    total: price,
+    currency: service.currency || 'KES',
+    notes,
+    fallbackPrefix: 'BK',
+    metadata: {
+      type: 'service_booking',
+      service_name: service.name,
       offering_name: service.name,
       customer_name: customerName,
-      customer_phone: ctx.contactPhone || null,
+      customer_phone: ctx.contactPhone,
       service_date: serviceDate,
       service_time: serviceTime,
       duration_minutes: durationMinutes,
-      total_price: price,
-      currency: service.currency || 'KES',
-      notes,
-    })
-    .select('id')
-    .single()
+    },
+  })
 
-  if (error || !pending) {
-    console.error('[services tool] booking preview error:', error)
-    return { success: false, error: 'Failed to create booking preview' }
+  if (!ok || !bookingNumber) {
+    return { success: false, error: error || 'Failed to create booking' }
   }
 
-  const pendingId = pending.id
-
-  // Format date nicely
   const dateObj = new Date(serviceDate)
   const formattedDate = dateObj.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
 
-  const message =
-    `📋 *Service Booking Preview*\n\n` +
-    `*Service:* ${service.name}\n` +
-    `*Customer:* ${customerName}\n` +
-    `*Date:* ${formattedDate}` +
-    (serviceTime ? `\n*Time:* ${serviceTime}` : '') +
-    `\n*Duration:* ${durationMinutes} min\n` +
-    (notes ? `*Notes:* ${notes}\n` : '') +
-    `\n*Price:* ${service.currency || 'KES'} ${price}\n\n` +
-    `Reply *confirm* to book, or *edit* to make changes.`
-
   return {
     success: true,
-    pending_booking_id: pendingId,
+    booking_number: bookingNumber,
     price,
     currency: service.currency || 'KES',
-    response: message,
+    response:
+      `\u2705 *Booked!*\n\n` +
+      `*Service:* ${service.name}\n` +
+      `*Customer:* ${customerName}\n` +
+      `*Date:* ${formattedDate}` +
+      (serviceTime ? ` at ${serviceTime}` : '') +
+      `\n*Duration:* ${durationMinutes} min\n` +
+      `*Price:* ${service.currency || 'KES'} ${price}\n` +
+      `*Reference:* ${bookingNumber}\n\n` +
+      `Reply with a new date any time to change it.`,
     image_url: serviceImageUrl,
-    buttons: [
-      { id: `booking_confirm_${pendingId}`, title: '✅ Confirm' },
-      { id: `booking_edit_${pendingId}`, title: '✏️ Edit' },
-      { id: `booking_cancel_${pendingId}`, title: '❌ Cancel' },
-    ],
   }
 }
 

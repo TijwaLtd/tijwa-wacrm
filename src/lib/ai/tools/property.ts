@@ -13,6 +13,8 @@
 // ============================================================
 
 import type { ToolDefinition, ToolHandler, ToolContext } from './types'
+import { createBooking, isFutureDate } from '@/lib/business/scheduling'
+import { slotList, scheduleGateReady } from './scheduling'
 import { buildListRow, formatPriceLabel } from './list-format'
 
 // ============================================================
@@ -382,6 +384,18 @@ const previewPropertyInquiryHandler: ToolHandler = async (args, ctx) => {
   const budget = (args.budget as number) || null
   const notes = (args.notes as string) || null
 
+  // Viewings need a future date/time — answer with the slot list,
+  // never an open question and never a past date.
+  if (inquiryType === 'viewing' && (!preferredDate || !isFutureDate(preferredDate))) {
+    return {
+      success: true,
+      ...slotList('times'),
+      response: preferredDate
+        ? 'That date has passed — here are upcoming viewing times:'
+        : 'When would you like to view it? Pick a time below, or reply with a date like "15 Oct":',
+    }
+  }
+
   // Look up property details
   const { data: property } = await db
     .from('offerings')
@@ -395,73 +409,64 @@ const previewPropertyInquiryHandler: ToolHandler = async (args, ctx) => {
     return { success: false, error: 'Property not found' }
   }
 
-  const meta = (property.metadata || {}) as Record<string, unknown>
   const media = (property.media as any[]) || []
   const propertyImageUrl = media.find((m: any) => m.is_primary)?.url || media[0]?.url || null
 
-  // Store in pending_property_inquiries
-  const { data: pending, error } = await db
-    .from('pending_property_inquiries')
-    .insert({
-      account_id: ctx.accountId,
-      contact_id: ctx.contactId,
-      conversation_id: ctx.conversationId,
-      user_id: ctx.userId,
-      offering_id: propertyId,
+  if (!(await scheduleGateReady(ctx))) {
+    return {
+      success: false,
+      gated: true,
+      response: 'I just sent you a quick step to complete — reply here once it is done and I will finish this.',
+    }
+  }
+
+  // Book now — the old Confirm button did exactly this insert.
+  const { ok, bookingNumber, error } = await createBooking({
+    db,
+    accountId: ctx.accountId,
+    contactId: ctx.contactId,
+    start: preferredDate,
+    offeringId: propertyId,
+    guests: 1,
+    total: budget || 0,
+    currency: property.currency || 'KES',
+    notes,
+    fallbackPrefix: 'INQ',
+    metadata: {
+      type: 'property_inquiry',
+      inquiry_type: inquiryType,
+      property_name: property.name,
       offering_name: property.name,
       customer_name: customerName,
-      customer_phone: ctx.contactPhone || null,
-      inquiry_type: inquiryType,
+      customer_phone: ctx.contactPhone,
       preferred_date: preferredDate,
       preferred_time: preferredTime,
       budget,
-      currency: property.currency || 'KES',
-      notes,
-    })
-    .select('id')
-    .single()
+    },
+  })
 
-  if (error || !pending) {
-    console.error('[property tool] inquiry preview error:', error)
-    return { success: false, error: 'Failed to create inquiry preview' }
+  if (!ok || !bookingNumber) {
+    return { success: false, error: error || 'Failed to create inquiry' }
   }
 
-  const pendingId = pending.id
-  const listingType = (meta.listing_type as string) || 'sale'
-  const bedrooms = meta.bedrooms || null
-  const bathrooms = meta.bathrooms || null
-  const location = (meta.location as Record<string, unknown>) || {}
-  const area = location.area || location.address || ''
-
-  const typeLabel = inquiryType === 'viewing' ? '🏠 Viewing Request' :
-    inquiryType === 'offer' ? '💰 Offer' : '📋 Property Inquiry'
-
-  const message =
-    `${typeLabel}\n\n` +
-    `*Property:* ${property.name}\n` +
-    (area ? `*Location:* ${area}\n` : '') +
-    (bedrooms ? `*Bedrooms:* ${bedrooms}` : '') +
-    (bathrooms ? ` · *Bathrooms:* ${bathrooms}` : '') +
-    (bedrooms || bathrooms ? '\n' : '') +
-    `*Price:* ${property.currency || 'KES'} ${property.price} (${listingType})\n` +
-    `*Customer:* ${customerName}\n` +
-    (preferredDate ? `*Preferred Date:* ${preferredDate}` : '') +
-    (preferredTime ? ` at ${preferredTime}` : '') +
-    (preferredDate ? '\n' : '') +
-    (budget ? `*Budget:* ${property.currency || 'KES'} ${budget}\n` : '') +
-    (notes ? `*Notes:* ${notes}\n` : '') +
-    `\nReply *confirm* to submit, or *edit* to make changes.`
+  const typeLabel = inquiryType === 'viewing' ? '\u{1F3E1} Viewing scheduled' :
+    inquiryType === 'offer' ? '\u{1F4B0} Offer submitted' : '\u{1F4CB} Inquiry submitted'
 
   return {
     success: true,
-    pending_inquiry_id: pendingId,
-    response: message,
+    booking_number: bookingNumber,
+    response:
+      `${typeLabel}!\n\n` +
+      `*Property:* ${property.name}\n` +
+      `*Reference:* ${bookingNumber}\n` +
+      (preferredDate ? `*Date:* ${preferredDate}` : '') +
+      (preferredTime ? ` at ${preferredTime}` : '') +
+      (preferredDate ? '\n' : '') +
+      (budget && inquiryType === 'offer' ? `*Offer:* ${property.currency || 'KES'} ${budget}\n` : '') +
+      (inquiryType === 'viewing'
+        ? `\nReply with a new date any time to change it.`
+        : `\nOur team will contact you shortly.`),
     image_url: propertyImageUrl,
-    buttons: [
-      { id: `property_inquiry_confirm_${pendingId}`, title: '✅ Confirm' },
-      { id: `property_inquiry_edit_${pendingId}`, title: '✏️ Edit' },
-      { id: `property_inquiry_cancel_${pendingId}`, title: '❌ Cancel' },
-    ],
   }
 }
 
