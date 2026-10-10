@@ -103,23 +103,26 @@ DROP POLICY IF EXISTS support_ticket_replies_select_member ON support_ticket_rep
 DROP POLICY IF EXISTS support_ticket_replies_insert_member ON support_ticket_replies;
 
 -- Any member (viewer included) can read the account's tickets —
--- support must work regardless of role.
+-- support must work regardless of role. The explicit 'viewer'
+-- second arg is required: migration 082 added a 1-arg
+-- is_account_member(UUID) overload that makes the 1-arg call
+-- ambiguous with the 017 function's DEFAULT 'viewer' parameter.
 CREATE POLICY support_tickets_select_member ON support_tickets
-  FOR SELECT USING (is_account_member(account_id));
+  FOR SELECT USING (is_account_member(account_id, 'viewer'));
 
 -- Raising a ticket is open to every member; account_id must be theirs.
 CREATE POLICY support_tickets_insert_member ON support_tickets
-  FOR INSERT WITH CHECK (is_account_member(account_id));
+  FOR INSERT WITH CHECK (is_account_member(account_id, 'viewer'));
 
 -- No UPDATE/DELETE policies: only staff (service role) changes the
 -- lifecycle, and tickets are retained for the audit trail.
 
 CREATE POLICY support_ticket_replies_select_member ON support_ticket_replies
-  FOR SELECT USING (is_account_member(account_id));
+  FOR SELECT USING (is_account_member(account_id, 'viewer'));
 
 -- Members reply to their account's tickets (adds user-voice context).
 CREATE POLICY support_ticket_replies_insert_member ON support_ticket_replies
-  FOR INSERT WITH CHECK (is_account_member(account_id));
+  FOR INSERT WITH CHECK (is_account_member(account_id, 'viewer'));
 
 GRANT SELECT, INSERT ON support_tickets TO authenticated;
 GRANT SELECT, INSERT ON support_ticket_replies TO authenticated;
