@@ -27,6 +27,7 @@ import { ScheduleSettings } from '@/components/settings/schedule-settings';
 import { ApiKeysSettings } from '@/components/settings/api-keys-settings';
 import { WorkspaceSettings } from '@/components/settings/workspace-settings';
 import { BusinessSettings } from '@/components/settings/business-settings';
+import { HelpSettings } from '@/components/settings/help-settings';
 import { PaymentMethodsSettings } from '@/components/settings/payment-methods-settings';
 import { PricingSettings } from '@/components/settings/pricing-settings';
 import {
@@ -116,6 +117,7 @@ function SettingsPageInner() {
     profile: <ProfileForm />,
     security: <SecurityPanel />,
     appearance: <AppearancePanel />,
+    help: <HelpSettings />,
     whatsapp: <WhatsAppConfig />,
     templates: <TemplateManager />,
     // 'quick-replies': <QuickRepliesManager />, — hidden (see settings-sections.ts)

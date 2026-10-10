@@ -86,7 +86,7 @@ export async function proxy(request: NextRequest) {
 
   // Protected pages - redirect to login if not authenticated
   // Note: /login, /signup, /forgot-password are handled above (auth pages)
-  const protectedPaths = ['/dashboard', '/inbox', '/contacts', '/pipelines', '/broadcasts', '/automations', '/settings', '/onboarding', '/plans', '/select-workspace']
+  const protectedPaths = ['/dashboard', '/inbox', '/contacts', '/pipelines', '/broadcasts', '/automations', '/settings', '/onboarding', '/plans', '/select-workspace', '/support']
   if (!user && protectedPaths.some(path => request.nextUrl.pathname.startsWith(path))) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'

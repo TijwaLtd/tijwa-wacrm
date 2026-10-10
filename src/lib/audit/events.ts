@@ -12,6 +12,7 @@ export const AuditCategory = {
   AUTHENTICATION: 'AUTHENTICATION',
   ADMIN: 'ADMIN',
   BUSINESS: 'BUSINESS',
+  SUPPORT: 'SUPPORT',
 } as const;
 
 export type AuditCategoryValue = (typeof AuditCategory)[keyof typeof AuditCategory];
@@ -71,6 +72,11 @@ export const AuditEventType = {
   // WhatsApp settings protection (password-gated tab)
   WHATSAPP_SETTINGS_UNLOCKED: 'WHATSAPP_SETTINGS_UNLOCKED',
   WHATSAPP_CONFIG_RESET: 'WHATSAPP_CONFIG_RESET',
+
+  // Support helpdesk (tickets raised about the product itself)
+  SUPPORT_TICKET_CREATED: 'SUPPORT_TICKET_CREATED',
+  SUPPORT_TICKET_REPLIED: 'SUPPORT_TICKET_REPLIED',
+  SUPPORT_TICKET_STATUS_CHANGED: 'SUPPORT_TICKET_STATUS_CHANGED',
 } as const;
 
 export type AuditEventTypeValue = (typeof AuditEventType)[keyof typeof AuditEventType];
@@ -110,6 +116,9 @@ export const EVENT_CATEGORY_MAP: Record<AuditEventTypeValue, AuditCategoryValue>
   CATALOGUE_BROWSE_PERFORMED: AuditCategory.BUSINESS,
   WHATSAPP_SETTINGS_UNLOCKED: AuditCategory.ACCESS,
   WHATSAPP_CONFIG_RESET: AuditCategory.ADMIN,
+  SUPPORT_TICKET_CREATED: AuditCategory.SUPPORT,
+  SUPPORT_TICKET_REPLIED: AuditCategory.SUPPORT,
+  SUPPORT_TICKET_STATUS_CHANGED: AuditCategory.SUPPORT,
 };
 
 /** Event types that the frontend is allowed to report via POST /api/audit/events. */
