@@ -1,98 +1,56 @@
 "use client";
 
 // ============================================================
-// LegalChrome — the shared frame for every /[slug]/legal/* route.
+// B2bLegalChrome — the shared frame for /legal/* (root, B2B).
 //
 // Desktop (≥lg): three columns —
-//   LEFT sidebar  (doc nav: Terms / Privacy / Platform)
+//   LEFT sidebar  (Tijwa brand, doc nav: Terms / Privacy)
 //   CENTER        (article card)
 //   RIGHT sidebar ("On this page" TOC)
 //
 // Mobile: sticky brand bar + doc tabs, collapsible TOC, content.
-//
-// Lives in the route's layout.tsx, so every legal page gets this
-// chrome without repeating it — the pages themselves only render
-// their heading and body. The layout passes every doc's TOC
-// sections; this client component picks the active doc's list from
-// the pathname.
 // ============================================================
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Scale } from "lucide-react";
 import type { ReactNode } from "react";
 import { LegalToc } from "@/components/legal/legal-toc";
 import type { LegalSection } from "@/lib/legal/docs";
 import { cn } from "@/lib/utils";
 
-export interface LegalAccount {
-  name: string;
-  display_name?: string | null;
-  logo_url?: string | null;
-}
-
 const DOC_LABELS: Record<string, string> = {
   terms: "Terms of Service",
   privacy: "Privacy Policy",
-  platform: "Platform Policy",
 };
 
-const DOC_ORDER = ["terms", "privacy", "platform"] as const;
+const DOC_ORDER = ["terms", "privacy"] as const;
 
 function activeDoc(pathname: string): string {
-  if (pathname.includes("/legal/privacy")) return "privacy";
-  if (pathname.includes("/legal/platform")) return "platform";
-  return "terms";
+  return pathname.includes("/legal/privacy") ? "privacy" : "terms";
 }
 
-export function LegalChrome({
-  account,
+export function B2bLegalChrome({
   sectionsByDoc,
   children,
 }: {
-  account: LegalAccount;
   sectionsByDoc: Record<string, LegalSection[]>;
   children: ReactNode;
 }) {
   const pathname = usePathname();
-  const slug = pathname.split("/")[1] ?? "";
   const active = activeDoc(pathname);
   const sections = sectionsByDoc[active] ?? [];
-  const businessName = account.display_name || account.name;
 
   const brand = (
-    <div className="flex items-center gap-3">
-      {account.logo_url ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={account.logo_url} alt="" className="size-10 rounded-lg object-cover" />
-      ) : (
-        <div className="flex size-10 items-center justify-center rounded-lg bg-primary text-base font-bold text-primary-foreground">
-          {businessName.charAt(0).toUpperCase()}
-        </div>
-      )}
-      <div className="min-w-0">
-        <p className="truncate text-sm font-semibold text-foreground">{businessName}</p>
-        <p className="truncate text-xs text-muted-foreground">via Tijwa WhatsApp Assistant</p>
+    <Link href="/legal/terms" className="flex items-center gap-3">
+      <div className="flex size-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+        <Scale className="size-5" />
       </div>
-    </div>
-  );
-
-  const docNavPills = (
-    <nav className="flex flex-wrap gap-2">
-      {DOC_ORDER.map((doc) => (
-        <Link
-          key={doc}
-          href={`/${slug}/legal/${doc}`}
-          className={cn(
-            "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
-            active === doc
-              ? "bg-primary/10 text-primary"
-              : "text-muted-foreground hover:bg-muted hover:text-foreground",
-          )}
-        >
-          {DOC_LABELS[doc]}
-        </Link>
-      ))}
-    </nav>
+      <div className="min-w-0">
+        <p className="truncate text-sm font-semibold text-foreground">Tijwa</p>
+        <p className="truncate text-xs text-muted-foreground">Legal</p>
+      </div>
+    </Link>
   );
 
   return (
@@ -106,7 +64,7 @@ export function LegalChrome({
               {DOC_ORDER.map((doc) => (
                 <Link
                   key={doc}
-                  href={`/${slug}/legal/${doc}`}
+                  href={`/legal/${doc}`}
                   className={cn(
                     "block rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                     active === doc
@@ -126,7 +84,22 @@ export function LegalChrome({
           {/* Mobile: sticky brand bar + doc tabs */}
           <header className="sticky top-0 z-10 -mx-4 mb-4 border-b border-border bg-background/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6 lg:hidden">
             <div className="mb-3">{brand}</div>
-            {docNavPills}
+            <nav className="flex flex-wrap gap-2">
+              {DOC_ORDER.map((doc) => (
+                <Link
+                  key={doc}
+                  href={`/legal/${doc}`}
+                  className={cn(
+                    "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                    active === doc
+                      ? "bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                  )}
+                >
+                  {DOC_LABELS[doc]}
+                </Link>
+              ))}
+            </nav>
           </header>
 
           {/* Mobile: collapsible TOC */}
@@ -144,7 +117,7 @@ export function LegalChrome({
           </article>
 
           <p className="mt-6 text-center text-xs text-muted-foreground">
-            {businessName} · Powered by Tijwa
+            Tijwa · Legal
           </p>
         </div>
 

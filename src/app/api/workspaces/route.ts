@@ -15,6 +15,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { isValidBusinessType } from "@/lib/business/capabilities";
 import { setAccountBusinessType } from "@/lib/business/set-business-type";
+import { B2B_TERMS_VERSION } from "@/lib/legal/docs";
 
 // Day ids accepted in tenant_settings.operating_hours.days — mirrors the
 // toggles in the onboarding form and the AI tool's expectations.
@@ -132,6 +133,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid business type" }, { status: 400 });
   }
 
+  // B2B terms acceptance is required to create a workspace.
+  if (body?.terms_accepted !== true) {
+    return NextResponse.json(
+      { error: "You must accept the Terms of Service to create a workspace" },
+      { status: 400 },
+    );
+  }
+
   const operatingHours = parseOperatingHours(body?.operating_hours);
 
   // Generate subdomain from name (workspace.tijwa-crm.com pattern)
@@ -228,6 +237,21 @@ export async function POST(request: Request) {
       if (hoursErr) {
         console.error("[workspaces] operating_hours update failed:", hoursErr);
       }
+    }
+
+    // Record B2B terms acceptance on the account. Non-fatal on
+    // failure — the acceptance was already validated in the request
+    // body; the columns are for audit/visibility.
+    const { error: termsErr } = await serviceClient
+      .from("accounts")
+      .update({
+        terms_version: B2B_TERMS_VERSION,
+        terms_accepted_at: new Date().toISOString(),
+        terms_accepted_by: user.id,
+      })
+      .eq("id", accountId);
+    if (termsErr) {
+      console.error("[workspaces] terms acceptance update failed:", termsErr);
     }
   }
 

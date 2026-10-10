@@ -1,8 +1,9 @@
 // ============================================================
-// /<slug>/legal/privacy — Privacy Policy for customers/leads
-// chatting with {business} on WhatsApp via the Tijwa assistant.
-// Kenya DPA 2019 + GDPR (EU/EEA customers). Version ke-eu-v1.
-// Content lives in content/legal/{locale}/privacy.md.
+// /<slug>/legal/platform — Tijwa Platform Policy for customers
+// chatting with {business} on WhatsApp. Covers AI assistant
+// behaviour, data processing at platform level, WhatsApp
+// dependency, and platform acceptable use. Version ke-eu-v1.
+// Content lives in content/legal/{locale}/platform.md.
 // ============================================================
 
 import type { Metadata } from "next";
@@ -17,16 +18,16 @@ export async function generateMetadata({
   params: Promise<{ slug: string }>;
 }): Promise<Metadata> {
   const { slug } = await params;
-  return { title: `Privacy Policy · ${slug}` };
+  return { title: `Platform Policy · ${slug}` };
 }
 
-export default async function PrivacyPage({
+export default async function PlatformPage({
   params,
 }: {
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const loaded = await loadLegalDocForPage(slug, "privacy");
+  const loaded = await loadLegalDocForPage(slug, "platform");
   if (!loaded) notFound();
   const { doc } = loaded;
 

@@ -43,6 +43,7 @@ function SignupPageInner() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const supabase = createClient();
 
   const handleSignup = async (e: React.FormEvent) => {
@@ -222,9 +223,38 @@ function SignupPageInner() {
               />
             </div>
 
+            <label className="flex cursor-pointer items-start gap-2.5">
+              <input
+                type="checkbox"
+                checked={termsAccepted}
+                onChange={(e) => setTermsAccepted(e.target.checked)}
+                className="mt-0.5 size-4 shrink-0 rounded border-border accent-primary"
+              />
+              <span className="text-xs leading-relaxed text-muted-foreground">
+                I agree to the{" "}
+                <Link
+                  href="/legal/terms"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-primary underline underline-offset-2"
+                >
+                  Terms of Service
+                </Link>{" "}
+                and{" "}
+                <Link
+                  href="/legal/privacy"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-primary underline underline-offset-2"
+                >
+                  Privacy Policy
+                </Link>
+              </span>
+            </label>
+
             <Button
               type="submit"
-              disabled={loading || !fullName.trim() || !email.trim() || !password || !confirmPassword}
+              disabled={loading || !fullName.trim() || !email.trim() || !password || !confirmPassword || !termsAccepted}
               className="mt-2 h-10 w-full bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
               {loading ? "Creating account..." : "Create account"}

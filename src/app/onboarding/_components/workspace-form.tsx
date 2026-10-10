@@ -97,6 +97,7 @@ export function WorkspaceForm({ mode, onModeSwitch }: WorkspaceFormProps) {
   // Step 2: Business type
   const [businessType, setBusinessType] = useState<BusinessType | null>(null);
   const [typeSearch, setTypeSearch] = useState('');
+  const [termsAccepted, setTermsAccepted] = useState(false);
 
   // Step 3: Operating Hours. The default timezone is filled in from the
   // browser after mount (see effect below) so SSR and the first client
@@ -225,6 +226,7 @@ export function WorkspaceForm({ mode, onModeSwitch }: WorkspaceFormProps) {
             end: endTime,
             timezone,
           },
+          terms_accepted: termsAccepted,
         }),
       });
 
@@ -618,6 +620,36 @@ export function WorkspaceForm({ mode, onModeSwitch }: WorkspaceFormProps) {
           </div>
 
           <p className="text-xs text-muted-foreground">{t('reviewNote')}</p>
+
+          {/* B2B terms acceptance — required before workspace creation */}
+          <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-border/60 bg-muted/20 p-3">
+            <input
+              type="checkbox"
+              checked={termsAccepted}
+              onChange={(e) => setTermsAccepted(e.target.checked)}
+              className="mt-0.5 size-4 shrink-0 rounded border-border accent-primary"
+            />
+            <span className="text-xs leading-relaxed text-muted-foreground">
+              {t('termsPrefix')}{' '}
+              <a
+                href="/legal/terms"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-primary underline underline-offset-2"
+              >
+                {t('termsLink')}
+              </a>{' '}
+              {t('termsAnd')}{' '}
+              <a
+                href="/legal/privacy"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-primary underline underline-offset-2"
+              >
+                {t('privacyLink')}
+              </a>
+            </span>
+          </label>
         </div>
       )}
 
@@ -633,7 +665,12 @@ export function WorkspaceForm({ mode, onModeSwitch }: WorkspaceFormProps) {
         )}
 
         {step === 'review' ? (
-          <Button type="button" onClick={handleCreate} disabled={loading} className="h-10 text-xs sm:text-sm font-semibold gap-2">
+          <Button
+            type="button"
+            onClick={handleCreate}
+            disabled={loading || !termsAccepted}
+            className="h-10 text-xs sm:text-sm font-semibold gap-2"
+          >
             {loading && <Loader2 className="h-4 w-4 animate-spin" />}
             {t('createButton')}
             <Check className="h-4 w-4" />

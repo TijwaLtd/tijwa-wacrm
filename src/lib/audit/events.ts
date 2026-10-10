@@ -77,6 +77,9 @@ export const AuditEventType = {
   SUPPORT_TICKET_CREATED: 'SUPPORT_TICKET_CREATED',
   SUPPORT_TICKET_REPLIED: 'SUPPORT_TICKET_REPLIED',
   SUPPORT_TICKET_STATUS_CHANGED: 'SUPPORT_TICKET_STATUS_CHANGED',
+
+  // B2B terms acceptance (business owner accepts platform Terms)
+  TERMS_ACCEPTED: 'TERMS_ACCEPTED',
 } as const;
 
 export type AuditEventTypeValue = (typeof AuditEventType)[keyof typeof AuditEventType];
@@ -119,6 +122,7 @@ export const EVENT_CATEGORY_MAP: Record<AuditEventTypeValue, AuditCategoryValue>
   SUPPORT_TICKET_CREATED: AuditCategory.SUPPORT,
   SUPPORT_TICKET_REPLIED: AuditCategory.SUPPORT,
   SUPPORT_TICKET_STATUS_CHANGED: AuditCategory.SUPPORT,
+  TERMS_ACCEPTED: AuditCategory.DATA,
 };
 
 /** Event types that the frontend is allowed to report via POST /api/audit/events. */

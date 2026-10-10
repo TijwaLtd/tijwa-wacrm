@@ -45,6 +45,8 @@ export async function GET(
       subdomain,
       business_type,
       created_at,
+      terms_version,
+      terms_accepted_at,
       tenant_settings!inner(
         display_name,
         logo_url,

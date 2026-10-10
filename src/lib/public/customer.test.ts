@@ -35,6 +35,7 @@ describe('public customer helpers', () => {
     expect(legalUrls('tijwah')).toEqual({
       terms: `${origin}/tijwah/legal/terms`,
       privacy: `${origin}/tijwah/legal/privacy`,
+      platform: `${origin}/tijwah/legal/platform`,
     })
   })
 

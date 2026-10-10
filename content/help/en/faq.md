@@ -66,7 +66,7 @@ The workspace keeps working; growth pauses (new contact sync or broadcasts may w
 
 ### Where is my data stored?
 
-On Supabase infrastructure, isolated per workspace with row-level security. See the [Privacy policy](/legal/privacy) for the full picture, including your data-rights options (export and deletion requests).
+On Supabase infrastructure, isolated per workspace with row-level security. See your workspace's Privacy Policy (Settings → Help & support) for the full picture, including your data-rights options (export and deletion requests).
 
 ### Can customers see my internal notes, quick replies, or team chat?
 

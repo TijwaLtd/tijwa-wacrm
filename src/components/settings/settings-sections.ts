@@ -13,6 +13,7 @@ import {
   PlugZap,
   Shield,
   // Sparkles, — hidden section (AI assistant)
+  Scale,
   Tags,
   User,
   // Zap, — hidden section (quick replies)
@@ -57,6 +58,7 @@ export const SETTINGS_SECTIONS = [
   'payment-methods',
   'pricing',
   'api',
+  'legal',
 ] as const;
 
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
@@ -94,6 +96,7 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   'payment-methods': { id: 'payment-methods', label: 'Payment methods', icon: CreditCard, group: 'workspace', minRole: 'owner' },
   pricing: { id: 'pricing', label: 'Pricing formulas', icon: Calculator, group: 'workspace', minRole: 'owner' },
   api: { id: 'api', label: 'API keys', icon: KeyRound, group: 'workspace', minRole: 'owner' },
+  legal: { id: 'legal', label: 'Legal', icon: Scale, group: 'workspace', minRole: 'owner' },
 };
 
 export const RAIL_GROUPS: { label: string | null; group: SectionMeta['group'] }[] = [

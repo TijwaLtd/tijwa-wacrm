@@ -9,6 +9,7 @@
 // Used by /api/public/[slug]/* and /[slug]/* pages.
 // ============================================================
 
+import { cache } from 'react'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 export const SLUG_RE = /^[a-z0-9-]{2,64}$/
@@ -32,32 +33,38 @@ export interface PublicContact {
   profile_completed_at: string | null
 }
 
-/** Resolve a tenant slug to its account (with branding) or null. */
-export async function resolveAccountBySlug(slug: string): Promise<PublicAccount | null> {
-  if (!SLUG_RE.test(slug)) return null
-  const db = createAdminClient()
-  const { data, error } = await db
-    .from('accounts')
-    .select('id, name, subdomain, owner_user_id')
-    .eq('subdomain', slug)
-    .maybeSingle()
-  if (error || !data) return null
+/**
+ * Resolve a tenant slug to its account (with branding) or null.
+ * Wrapped in React cache() so the legal layout + pages share one
+ * DB round-trip per request.
+ */
+export const resolveAccountBySlug = cache(
+  async (slug: string): Promise<PublicAccount | null> => {
+    if (!SLUG_RE.test(slug)) return null
+    const db = createAdminClient()
+    const { data, error } = await db
+      .from('accounts')
+      .select('id, name, subdomain, owner_user_id')
+      .eq('subdomain', slug)
+      .maybeSingle()
+    if (error || !data) return null
 
-  const { data: settings } = await db
-    .from('tenant_settings')
-    .select('display_name, logo_url')
-    .eq('account_id', data.id)
-    .maybeSingle()
+    const { data: settings } = await db
+      .from('tenant_settings')
+      .select('display_name, logo_url')
+      .eq('account_id', data.id)
+      .maybeSingle()
 
-  return {
-    id: data.id,
-    name: data.name,
-    subdomain: data.subdomain,
-    owner_user_id: data.owner_user_id,
-    logo_url: settings?.logo_url || null,
-    display_name: settings?.display_name || null,
-  }
-}
+    return {
+      id: data.id,
+      name: data.name,
+      subdomain: data.subdomain,
+      owner_user_id: data.owner_user_id,
+      logo_url: settings?.logo_url || null,
+      display_name: settings?.display_name || null,
+    }
+  },
+)
 
 /** Resolve a contact, always scoped to the resolved account. */
 export async function resolveContact(accountId: string, contactId: string): Promise<PublicContact | null> {
@@ -90,6 +97,7 @@ export function contactFormUrl(slug: string, contactId: string): string {
 export interface LegalUrls {
   terms: string
   privacy: string
+  platform: string
 }
 
 /** Versioned legal pages for a tenant. */
@@ -97,6 +105,7 @@ export function legalUrls(slug: string): LegalUrls {
   return {
     terms: `${appOrigin()}/${slug}/legal/terms`,
     privacy: `${appOrigin()}/${slug}/legal/privacy`,
+    platform: `${appOrigin()}/${slug}/legal/platform`,
   }
 }
 

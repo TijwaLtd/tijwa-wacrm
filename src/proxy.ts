@@ -54,6 +54,8 @@ export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname
   const isPublicPath =
     pathname.startsWith('/api/public/') ||
+    pathname === '/legal' ||
+    pathname.startsWith('/legal/') ||
     /^\/[^/]+\/(c|legal)(\/|$)/.test(pathname)
   if (isPublicPath) return supabaseResponse
 

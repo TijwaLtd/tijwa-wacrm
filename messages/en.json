@@ -1334,6 +1334,17 @@
       "staffQueue": "Staff queue",
       "staffQueueDesc": "Handle tickets across all workspaces"
     },
+    "legal": {
+      "introTitle": "Legal documents",
+      "introDesc": "Review the platform Terms of Service and Privacy Policy that govern your use of Tijwa.",
+      "termsTitle": "Terms of Service",
+      "termsDesc": "The agreement between you and Tijwa for using the platform",
+      "privacyTitle": "Privacy Policy",
+      "privacyDesc": "How Tijwa collects, uses, and protects your data",
+      "acceptedTitle": "Accepted terms",
+      "acceptedVersion": "Version",
+      "acceptedDate": "Accepted on"
+    },
     "overview": {
       "notSetup": "Not set up yet",
       "connected": "Connected",
@@ -1708,7 +1719,8 @@
       "schedule": "Working hours",
       "business": "Business",
       "payment-methods": "Payment methods",
-      "pricing": "Pricing formulas"
+      "pricing": "Pricing formulas",
+      "legal": "Legal"
     },
     "groups": {
       "account": "Account",
@@ -2063,6 +2075,10 @@
       "logoLabel": "Workspace logo",
       "logoHint": "PNG, JPG or WebP up to 2MB (optional)",
     "reviewNote": "You can change these settings later in workspace settings.",
+    "termsPrefix": "I agree to the",
+    "termsLink": "Terms of Service",
+    "termsAnd": "and",
+    "privacyLink": "Privacy Policy",
     "back": "Back",
     "next": "Continue",
     "stepOf": "Step {current} of {total}",

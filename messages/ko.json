@@ -1183,6 +1183,10 @@
       "logoLabel": "워크스페이스 로고",
       "logoHint": "PNG, JPG 또는 WebP, 최대 2MB (선택)",
       "reviewNote": "이 설정은 나중에 워크스페이스 설정에서 변경할 수 있습니다.",
+      "termsPrefix": "다음에 동의합니다:",
+      "termsLink": "이용약관",
+      "termsAnd": "및",
+      "privacyLink": "개인정보 처리방침",
       "back": "뒤로",
       "next": "계속",
       "stepOf": "{total}단계 중 {current}단계",
@@ -1433,6 +1437,17 @@
       "newTicketDesc": "문제를 설명하면 추적 ID를 받습니다",
       "staffQueue": "스태프 대기열",
       "staffQueueDesc": "모든 워크스페이스의 티켓을 처리"
+    },
+    "legal": {
+      "introTitle": "법률 문서",
+      "introDesc": "Tijwa 플랫폼 이용에 적용되는 이용약관 및 개인정보 처리방침을 확인하세요.",
+      "termsTitle": "이용약관",
+      "termsDesc": "Tijwa 플랫폼 이용에 관한 사용자와 Tijwa 간의 계약",
+      "privacyTitle": "개인정보 처리방침",
+      "privacyDesc": "Tijwa가 데이터를 수집, 사용, 보호하는 방법",
+      "acceptedTitle": "동의한 약관",
+      "acceptedVersion": "버전",
+      "acceptedDate": "동의 날짜"
     },
     "overview": {
       "notSetup": "아직 설정되지 않음",
@@ -1796,7 +1811,8 @@
       "departments": "부서",
       "skills": "상담원 스킬",
       "schedule": "운영 시간",
-      "business": "비즈니스"
+      "business": "비즈니스",
+      "legal": "법률"
     },
     "groups": {
       "account": "계정",

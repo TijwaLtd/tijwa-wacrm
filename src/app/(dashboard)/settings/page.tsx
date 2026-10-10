@@ -28,6 +28,7 @@ import { ApiKeysSettings } from '@/components/settings/api-keys-settings';
 import { WorkspaceSettings } from '@/components/settings/workspace-settings';
 import { BusinessSettings } from '@/components/settings/business-settings';
 import { HelpSettings } from '@/components/settings/help-settings';
+import { LegalSettings } from '@/components/settings/legal-settings';
 import { PaymentMethodsSettings } from '@/components/settings/payment-methods-settings';
 import { PricingSettings } from '@/components/settings/pricing-settings';
 import {
@@ -133,6 +134,7 @@ function SettingsPageInner() {
     'payment-methods': <PaymentMethodsSettings />,
     pricing: <PricingSettings />,
     api: <ApiKeysSettings />,
+    legal: <LegalSettings />,
   };
 
   return (
