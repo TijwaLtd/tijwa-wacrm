@@ -22,6 +22,7 @@ import { MetricCard } from '@/components/dashboard/metric-card'
 import { SkeletonCard } from '@/components/dashboard/skeleton'
 import { QuickActions } from '@/components/dashboard/quick-actions'
 import { ConversationsChart } from '@/components/dashboard/conversations-chart'
+import { BusinessTrendsChart } from '@/components/dashboard/business-trends-chart'
 import { ReportsCard } from '@/components/dashboard/reports-card'
 
 import { useTranslations } from 'next-intl'
@@ -158,6 +159,11 @@ export default function DashboardPage() {
         range={range}
         onRangeChange={handleRangeChange}
       />
+
+      {/* Business trends — orders / bookings / inquiries / applications
+          per day, sourced from the same report_* RPCs the /reports
+          page uses so the numbers always agree. */}
+      <BusinessTrendsChart />
 
       {/* Reports — audit-log summary (admin+; renders null otherwise).
           Replaces the sidebar's REPORTS section. */}

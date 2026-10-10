@@ -97,7 +97,8 @@
     },
     "quickActions": {
       "newBroadcast": "New Broadcast",
-      "newAutomation": "New Automation"
+      "newAutomation": "New Automation",
+      "viewReport": "Business report"
     },
     "conversationsChart": {
       "title": "Conversations Over Time",
@@ -110,6 +111,20 @@
       "tooltipIncoming": "{count} incoming",
       "tooltipOutgoing": "{count} outgoing",
       "ariaLabel": "Conversations per day"
+    },
+    "businessTrends": {
+      "title": "Business Trends",
+      "description": "Daily activity from your catalogue and operations",
+      "descriptionMetric": "Daily {metric} over time",
+      "days": "{count} days",
+      "noActivity": "No activity in this range",
+      "noActivityHint": "Orders, bookings and inquiries will appear here once customers start converting.",
+      "metricOrders": "orders",
+      "metricBookings": "bookings",
+      "metricInquiries": "inquiries",
+      "metricApplications": "applications",
+      "periodTotal": "{metric} this period: {count}",
+      "ariaLabel": "{metric} per day"
     },
     "reports": {
       "title": "Reports",

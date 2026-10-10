@@ -615,7 +615,8 @@
     },
     "quickActions": {
       "newBroadcast": "새 브로드캐스트",
-      "newAutomation": "새 자동화"
+      "newAutomation": "새 자동화",
+      "viewReport": "비즈니스 리포트"
     },
     "conversationsChart": {
       "title": "기간별 대화 추이",
@@ -628,6 +629,20 @@
       "tooltipIncoming": "수신 {count}건",
       "tooltipOutgoing": "발신 {count}건",
       "ariaLabel": "일별 대화 수"
+    },
+    "businessTrends": {
+      "title": "비즈니스 트렌드",
+      "description": "카탈로그와 운영에서 발생한 일일 활동",
+      "descriptionMetric": "일별 {metric} 추이",
+      "days": "{count}일",
+      "noActivity": "이 기간에는 활동이 없습니다",
+      "noActivityHint": "고객이 주문·예약·문의를 시작하면 이 차트에 표시됩니다.",
+      "metricOrders": "주문",
+      "metricBookings": "예약",
+      "metricInquiries": "문의",
+      "metricApplications": "신청",
+      "periodTotal": "이 기간 {metric}: {count}건",
+      "ariaLabel": "일별 {metric}"
     },
     "reports": {
       "title": "보고서",
