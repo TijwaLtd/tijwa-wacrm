@@ -14,12 +14,12 @@ const PLAN_META = {
     name: 'Business',
     description: 'For businesses actively selling and supporting customers.',
     cta: 'Get Started',
-    recommended: true,
   },
   growth: {
     name: 'Growth',
     description: 'For teams with higher conversation volume.',
     cta: 'Upgrade',
+    recommended: true,
   },
   enterprise: {
     name: 'Enterprise',

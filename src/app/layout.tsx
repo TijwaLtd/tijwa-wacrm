@@ -2,19 +2,13 @@ import type { Metadata, Viewport } from 'next';
 import { NextIntlClientProvider } from 'next-intl';
 import { getLocale, getMessages } from 'next-intl/server';
 import { Inter } from 'next/font/google';
-import Script from 'next/script';
+
 import './globals.css';
 import { ThemeProvider } from '@/hooks/use-theme';
 import { ThemedToaster } from '@/components/themed-toaster';
 import { PwaProvider } from '@/components/pwa/pwa-provider';
-import {
-  DEFAULT_MODE,
-  DEFAULT_THEME,
-  MODE_STORAGE_KEY,
-  MODES,
-  STORAGE_KEY,
-  THEME_IDS,
-} from '@/lib/themes';
+import { DEFAULT_MODE, DEFAULT_THEME } from '@/lib/themes';
+
 
 const inter = Inter({
   variable: '--font-sans',
@@ -22,11 +16,15 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_SITE_URL || 'https://tijwa.com'
+  ),
   title: {
     default: 'Tijwa|CRM',
     template: '%s — tijwa|CRM',
   },
-  description: 'Self-hostable CRM template for WhatsApp.',
+  description:
+    'The WhatsApp CRM for Kenyan businesses — shared inbox, AI replies, broadcasts, and orders.',
   manifest: '/site.webmanifest',
   applicationName: 'Tijwa CRM',
   appleWebApp: {
@@ -58,38 +56,6 @@ export const viewport: Viewport = {
   colorScheme: 'dark light',
 };
 
-// Inline boot script — runs before React hydrates so the user's
-// chosen accent (data-theme) AND mode (data-mode) are on the <html>
-// element before first paint. Without this every page load flashes
-// the server-rendered defaults for a frame before the React tree
-// mounts and applies the picked values.
-//
-// Kept dependency-free (no imports, no JSX) — must be a string the
-// browser can run as a single <script>. Knowledge of valid ids is
-// sourced from the THEME_IDS / MODES constants so adding one doesn't
-// silently break the boot path.
-const THEME_BOOT_SCRIPT = `
-(function(){
-  var d = document.documentElement;
-  try {
-    var THEME_KEY = ${JSON.stringify(STORAGE_KEY)};
-    var THEME_DEFAULT = ${JSON.stringify(DEFAULT_THEME)};
-    var THEMES = ${JSON.stringify(THEME_IDS)};
-    var savedTheme = localStorage.getItem(THEME_KEY);
-    d.dataset.theme = THEMES.indexOf(savedTheme) !== -1 ? savedTheme : THEME_DEFAULT;
-
-    var MODE_KEY = ${JSON.stringify(MODE_STORAGE_KEY)};
-    var MODE_DEFAULT = ${JSON.stringify(DEFAULT_MODE)};
-    var MODES = ${JSON.stringify(MODES)};
-    var savedMode = localStorage.getItem(MODE_KEY);
-    d.dataset.mode = MODES.indexOf(savedMode) !== -1 ? savedMode : MODE_DEFAULT;
-  } catch (_e) {
-    d.dataset.theme = ${JSON.stringify(DEFAULT_THEME)};
-    d.dataset.mode = ${JSON.stringify(DEFAULT_MODE)};
-  }
-})();
-`;
-
 export default async function RootLayout({
   children,
 }: Readonly<{
@@ -114,11 +80,7 @@ export default async function RootLayout({
       suppressHydrationWarning
     >
       <head>
-        <Script
-          id="theme-boot"
-          strategy="beforeInteractive"
-          dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }}
-        />
+        <script defer src="/theme-boot.js" />
       </head>
       <body className="bg-background text-foreground min-h-full font-sans">
         <NextIntlClientProvider messages={messages} locale={locale}>

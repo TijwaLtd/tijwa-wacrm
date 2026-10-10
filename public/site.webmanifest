@@ -1,7 +1,7 @@
 {
   "name": "Tijwa CRM",
   "short_name": "Tijwa",
-  "description": "Self-hostable CRM for WhatsApp — shared inbox, contacts, sales pipelines, broadcasts, and no-code automations.",
+  "description": "The WhatsApp CRM for Kenyan businesses — shared inbox, AI replies, broadcasts, orders & bookings.",
   "id": "/",
   "start_url": "/dashboard",
   "scope": "/",

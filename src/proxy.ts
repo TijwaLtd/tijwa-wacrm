@@ -54,6 +54,7 @@ export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname
   const isPublicPath =
     pathname.startsWith('/api/public/') ||
+    pathname === '/pricing' ||
     pathname === '/legal' ||
     pathname.startsWith('/legal/') ||
     /^\/[^/]+\/(c|legal)(\/|$)/.test(pathname)
@@ -66,6 +67,7 @@ export async function proxy(request: NextRequest) {
   // a forwarded invite link to someone who's already signed in
   // would silently drop them on /inbox.
   if (user && (
+    request.nextUrl.pathname === '/' ||
     request.nextUrl.pathname === '/login' ||
     request.nextUrl.pathname === '/signup' ||
     request.nextUrl.pathname === '/forgot-password'
