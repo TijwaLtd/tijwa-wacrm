@@ -34,7 +34,7 @@ import { searchRooms } from './tools/hotel'
 import { searchProducts, getCart, addToCart, clearCart, formatCartSummary, getCartButtons, resolveCataloguePrices } from './tools/retailer'
 import { searchServices } from './tools/services'
 import { searchProperties } from './tools/property'
-import { searchPrograms, searchCourses } from './tools/ngo'
+import { searchPrograms, searchCourses, enrollContactInCourse } from './tools/ngo'
 import { logisticsToolHandlers } from './tools/logistics'
 import { getEnabledCapabilityKeys } from '@/lib/business/account-capabilities'
 
@@ -2827,7 +2827,7 @@ async function handleNgoProgramListSelect(
   }
 
   const programId = match[1]
-  const { data: program } = await db.from('ngo_programs').select('id, name, description, short_description, category').eq('id', programId).eq('account_id', accountId).maybeSingle()
+  const { data: program } = await db.from('ngo_programs').select('id, name, description, short_description, category').eq('id', programId).eq('account_id', accountId).eq('status', 'active').maybeSingle()
 
   if (!program) {
     await engineSendText({ accountId, userId: configOwnerUserId, conversationId, contactId, text: 'Program not found.', aiGenerated: true })
@@ -2864,7 +2864,7 @@ async function handleNgoCourseListSelect(
   }
 
   const courseId = match[1]
-  const { data: course } = await db.from('training_courses').select('id, name, description, short_description, category, duration_weeks').eq('id', courseId).eq('account_id', accountId).maybeSingle()
+  const { data: course } = await db.from('training_courses').select('id, name, description, short_description, category, duration_weeks').eq('id', courseId).eq('account_id', accountId).eq('is_active', true).maybeSingle()
 
   if (!course) {
     await engineSendText({ accountId, userId: configOwnerUserId, conversationId, contactId, text: 'Course not found.', aiGenerated: true })
@@ -2958,6 +2958,229 @@ async function handleNgoCourseMore(
     accountId, userId: configOwnerUserId, conversationId, contactId,
     bodyText: text,
     buttons: buttons.map((b) => ({ id: b.id, title: b.title })),
+  })
+}
+
+// ============================================================
+// NGO apply / enroll / info / back taps (no AI)
+// ============================================================
+
+async function rememberNgoTapContext(
+  db: ReturnType<typeof supabaseAdmin>,
+  conversationId: string,
+  patch: Record<string, string>,
+): Promise<void> {
+  const { data: conv } = await db
+    .from('conversations')
+    .select('metadata')
+    .eq('id', conversationId)
+    .maybeSingle()
+  await db
+    .from('conversations')
+    .update({ metadata: { ...((conv?.metadata as Record<string, unknown>) || {}), ...patch } })
+    .eq('id', conversationId)
+}
+
+async function handleNgoApplyTap(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  configOwnerUserId: string,
+  programId: string,
+): Promise<void> {
+  const { data: program } = await db
+    .from('ngo_programs')
+    .select('id, name')
+    .eq('id', programId)
+    .eq('account_id', accountId)
+    .eq('status', 'active')
+    .maybeSingle()
+
+  if (!program) {
+    await engineSendText({ accountId, userId: configOwnerUserId, conversationId, contactId, text: 'That program is no longer available.', aiGenerated: true })
+    return
+  }
+
+  // Remember the tap so apply_to_program can resolve the program without an id
+  await rememberNgoTapContext(db, conversationId, {
+    pending_ngo_program_id: program.id,
+    pending_ngo_program_name: program.name,
+  })
+
+  await engineSendText({
+    accountId, userId: configOwnerUserId, conversationId, contactId,
+    text: `Great! To apply for *${program.name}*, what's your full name?`,
+    aiGenerated: true,
+  })
+}
+
+async function handleNgoInfoTap(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  configOwnerUserId: string,
+  programId: string,
+): Promise<void> {
+  const { data: program } = await db
+    .from('ngo_programs')
+    .select('id, name, description, short_description, category, status, current_enrollments, max_enrollments')
+    .eq('id', programId)
+    .eq('account_id', accountId)
+    .eq('status', 'active')
+    .maybeSingle()
+
+  if (!program) {
+    await engineSendText({ accountId, userId: configOwnerUserId, conversationId, contactId, text: 'That program is no longer available.', aiGenerated: true })
+    return
+  }
+
+  // Remember the program so a follow-up "apply" works without a tap
+  await rememberNgoTapContext(db, conversationId, {
+    pending_ngo_program_id: program.id,
+    pending_ngo_program_name: program.name,
+  })
+
+  const spots = program.max_enrollments
+    ? `*Spots:* ${program.current_enrollments}/${program.max_enrollments} taken`
+    : `*Enrolled so far:* ${program.current_enrollments}`
+  await engineSendText({
+    accountId, userId: configOwnerUserId, conversationId, contactId,
+    text:
+      `📋 *${program.name}*\n\n` +
+      `${program.description || program.short_description || 'No description available.'}\n\n` +
+      (program.category ? `*Category:* ${program.category}\n` : '') +
+      `${spots}\n\n` +
+      `Reply *apply* to apply for this program, or tap Apply Now.`,
+    aiGenerated: true,
+  })
+}
+
+async function handleNgoCourseInfoTap(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  configOwnerUserId: string,
+  courseId: string,
+): Promise<void> {
+  const { data: course } = await db
+    .from('training_courses')
+    .select('id, name, description, short_description, category, duration_weeks')
+    .eq('id', courseId)
+    .eq('account_id', accountId)
+    .eq('is_active', true)
+    .maybeSingle()
+
+  if (!course) {
+    await engineSendText({ accountId, userId: configOwnerUserId, conversationId, contactId, text: 'That course is no longer available.', aiGenerated: true })
+    return
+  }
+
+  await rememberNgoTapContext(db, conversationId, {
+    pending_ngo_course_id: course.id,
+    pending_ngo_course_name: course.name,
+  })
+
+  await engineSendText({
+    accountId, userId: configOwnerUserId, conversationId, contactId,
+    text:
+      `🎓 *${course.name}*\n\n` +
+      `${course.description || course.short_description || 'No description available.'}\n\n` +
+      `⏱️ Duration: ${course.duration_weeks} weeks\n` +
+      (course.category ? `📂 Category: ${course.category}\n` : '') +
+      `\nTap Enroll Now to join, or reply *enroll*.`,
+    aiGenerated: true,
+  })
+}
+
+async function handleNgoBackTap(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  configOwnerUserId: string,
+  kind: 'program' | 'course',
+): Promise<void> {
+  const metaKey = kind === 'program' ? 'ngo_program_search_params' : 'ngo_course_search_params'
+  const { data: conv } = await db.from('conversations').select('metadata').eq('id', conversationId).maybeSingle()
+  const searchParams = ((conv?.metadata as Record<string, unknown>)?.[metaKey] as Record<string, unknown>) || undefined
+
+  if (kind === 'program') {
+    const result = await searchPrograms(db, accountId, {
+      query: searchParams?.query as string | undefined,
+      category: searchParams?.category as string | undefined,
+      offset: 0,
+    })
+    if (result.programs.length === 0) {
+      await engineSendText({ accountId, userId: configOwnerUserId, conversationId, contactId, text: 'No programs to show right now.', aiGenerated: true })
+      return
+    }
+    const section = clampListSection(result.list_section)
+    if (!section) {
+      await engineSendText({ accountId, userId: configOwnerUserId, conversationId, contactId, text: 'Here are our programs — ask me about any of them!', aiGenerated: true })
+      return
+    }
+    const cta = listCtaFor(section)
+    await engineSendInteractiveList({
+      accountId, userId: configOwnerUserId, conversationId, contactId,
+      bodyText: 'Browse our programs:',
+      buttonLabel: cta.buttonLabel,
+      sections: [section],
+    })
+    return
+  }
+
+  const result = await searchCourses(db, accountId, {
+    query: searchParams?.query as string | undefined,
+    category: searchParams?.category as string | undefined,
+    offset: 0,
+  })
+  if (result.courses.length === 0) {
+    await engineSendText({ accountId, userId: configOwnerUserId, conversationId, contactId, text: 'No courses to show right now.', aiGenerated: true })
+    return
+  }
+  const section = clampListSection(result.list_section)
+  if (!section) {
+    await engineSendText({ accountId, userId: configOwnerUserId, conversationId, contactId, text: 'Here are our training courses — ask me about any of them!', aiGenerated: true })
+    return
+  }
+  const cta = listCtaFor(section)
+  await engineSendInteractiveList({
+    accountId, userId: configOwnerUserId, conversationId, contactId,
+    bodyText: 'Browse our training courses:',
+    buttonLabel: cta.buttonLabel,
+    sections: [section],
+  })
+}
+
+async function handleNgoEnrollTap(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+  contactId: string,
+  configOwnerUserId: string,
+  courseId: string,
+): Promise<void> {
+  const result = await enrollContactInCourse(db, accountId, contactId, courseId)
+  if (!result.ok) {
+    await engineSendText({ accountId, userId: configOwnerUserId, conversationId, contactId, text: result.error || 'Could not enroll you right now — please try again.', aiGenerated: true })
+    return
+  }
+
+  const lessonLine = result.firstLesson
+    ? `\n\n*First lesson:* ${result.firstLesson.title}\n${result.firstLesson.content || ''}`
+    : ''
+  await engineSendText({
+    accountId, userId: configOwnerUserId, conversationId, contactId,
+    text:
+      `🎓 *Enrolled!*\n\n` +
+      `*Course:* ${result.courseName}\n` +
+      `*Duration:* ${result.durationWeeks} weeks` +
+      `${lessonLine}\n\n` +
+      `Say *start lesson* anytime to continue.`,
+    aiGenerated: true,
   })
 }
 
@@ -3606,6 +3829,37 @@ export async function dispatchInboundToAiReply(
           await handleNgoCourseListSelect(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId)
           return
         }
+        // NGO apply / info / back / enroll taps (no AI)
+        if (interactiveReplyId.startsWith('ngo_apply_')) {
+          console.log(`[dispatchInboundToAiReply] ngo apply tap (no AI config): ${interactiveReplyId}`)
+          await handleNgoApplyTap(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId.slice('ngo_apply_'.length))
+          return
+        }
+        if (interactiveReplyId.startsWith('ngo_info_')) {
+          console.log(`[dispatchInboundToAiReply] ngo info tap (no AI config): ${interactiveReplyId}`)
+          await handleNgoInfoTap(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId.slice('ngo_info_'.length))
+          return
+        }
+        if (interactiveReplyId.startsWith('ngo_back_')) {
+          console.log(`[dispatchInboundToAiReply] ngo back tap (no AI config)`)
+          await handleNgoBackTap(db, accountId, conversationId, contactId, configOwnerUserId, 'program')
+          return
+        }
+        if (interactiveReplyId.startsWith('ngo_enroll_')) {
+          console.log(`[dispatchInboundToAiReply] ngo enroll tap (no AI config): ${interactiveReplyId}`)
+          await handleNgoEnrollTap(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId.slice('ngo_enroll_'.length))
+          return
+        }
+        if (interactiveReplyId.startsWith('ngo_course_info_')) {
+          console.log(`[dispatchInboundToAiReply] ngo course info tap (no AI config): ${interactiveReplyId}`)
+          await handleNgoCourseInfoTap(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId.slice('ngo_course_info_'.length))
+          return
+        }
+        if (interactiveReplyId.startsWith('ngo_course_back_')) {
+          console.log(`[dispatchInboundToAiReply] ngo course back tap (no AI config)`)
+          await handleNgoBackTap(db, accountId, conversationId, contactId, configOwnerUserId, 'course')
+          return
+        }
         // Contact-for-price item enquiry (WhatsApp list reply)
         if (interactiveReplyId.startsWith('price_enquire_')) {
           console.log(`[dispatchInboundToAiReply] price enquire select (no AI config): ${interactiveReplyId}`)
@@ -3756,6 +4010,37 @@ export async function dispatchInboundToAiReply(
       if (interactiveReplyId.startsWith('ngo_course_select_')) {
         console.log(`[dispatchInboundToAiReply] ngo course list select: ${interactiveReplyId}`)
         await handleNgoCourseListSelect(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId)
+        return
+      }
+      // NGO apply / info / back / enroll taps
+      if (interactiveReplyId.startsWith('ngo_apply_')) {
+        console.log(`[dispatchInboundToAiReply] ngo apply tap: ${interactiveReplyId}`)
+        await handleNgoApplyTap(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId.slice('ngo_apply_'.length))
+        return
+      }
+      if (interactiveReplyId.startsWith('ngo_info_')) {
+        console.log(`[dispatchInboundToAiReply] ngo info tap: ${interactiveReplyId}`)
+        await handleNgoInfoTap(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId.slice('ngo_info_'.length))
+        return
+      }
+      if (interactiveReplyId.startsWith('ngo_back_')) {
+        console.log(`[dispatchInboundToAiReply] ngo back tap`)
+        await handleNgoBackTap(db, accountId, conversationId, contactId, configOwnerUserId, 'program')
+        return
+      }
+      if (interactiveReplyId.startsWith('ngo_enroll_')) {
+        console.log(`[dispatchInboundToAiReply] ngo enroll tap: ${interactiveReplyId}`)
+        await handleNgoEnrollTap(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId.slice('ngo_enroll_'.length))
+        return
+      }
+      if (interactiveReplyId.startsWith('ngo_course_info_')) {
+        console.log(`[dispatchInboundToAiReply] ngo course info tap: ${interactiveReplyId}`)
+        await handleNgoCourseInfoTap(db, accountId, conversationId, contactId, configOwnerUserId, interactiveReplyId.slice('ngo_course_info_'.length))
+        return
+      }
+      if (interactiveReplyId.startsWith('ngo_course_back_')) {
+        console.log(`[dispatchInboundToAiReply] ngo course back tap`)
+        await handleNgoBackTap(db, accountId, conversationId, contactId, configOwnerUserId, 'course')
         return
       }
       // Contact-for-price item enquiry (WhatsApp list reply)

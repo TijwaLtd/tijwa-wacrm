@@ -562,17 +562,22 @@ export function buildSystemPrompt(args: {
       '- Call search_programs(query, category) to find matching programs\n' +
       '- Show program name, description, and how to apply\n' +
       '- If they want to apply, call apply_to_program with their info\n' +
+      '- PROGRAM APPLY TAP: When a customer taps "Apply Now" (or says "apply" after viewing a program),\n' +
+      '  ask for their full name and any details the program requires, then call apply_to_program\n' +
+      '  with applicant_name and answers — the program is remembered from their tap, no program_id needed.\n' +
       '- If they ask about their application, call get_application_status\n\n' +
       'TRAINING:\n' +
       'When someone wants to learn or join training:\n' +
-      '- Call search_courses(query) or show available courses\n' +
-      '- If they want to enroll, call enroll_in_training\n' +
+      '- Call search_courses(query) to find matching courses\n' +
+      '- COURSE ENROLL TAP: When a customer taps "Enroll Now" (or says "enroll" after viewing a course),\n' +
+      '  the system enrolls them automatically — just confirm. If enrollment failed, call enroll_in_training.\n' +
       '- If they say "start lesson" or "continue training", call start_lesson\n' +
       '- If they answer a quiz, call submit_quiz_answer\n' +
       '- If they ask about progress, call get_training_progress\n\n' +
       'ADVISORY / EXTENSION (Farming, Health, etc.):\n' +
       'When someone asks a question about farming, health, or best practices:\n' +
-      '- Call ask_advisor(question, crop_type, region) to search knowledge base\n' +
+      '- Call ask_advisor(question, crop_type, region) — it searches our advisory topics AND\n' +
+      '  the organization\'s uploaded knowledge documents; use the returned knowledge excerpts.\n' +
       '- If they ask about prices, call get_market_prices\n' +
       '- If they ask when to plant, call get_planting_calendar\n' +
       '- If they ask how to do something, call get_best_practices\n' +

@@ -16,6 +16,9 @@
 
 import type { ToolDefinition, ToolHandler, ToolContext } from './types'
 import { buildListRow } from './list-format'
+import { retrieveUploadedKnowledge } from '../knowledge'
+import { getEmbeddingsApiKey } from '../config'
+import { buildPaymentMessage } from '../payment'
 
 // ============================================================
 // Tool Definitions
@@ -34,6 +37,22 @@ export const ngoTools: ToolDefinition[] = [
           query: { type: 'string', description: 'Search term (e.g. "farming training", "health checkup", "scholarship")' },
           category: { type: 'string', description: 'Filter by category: health, education, agriculture, livelihoods, emergency' },
           limit: { type: 'number', description: 'Max programs to return (default 10)' },
+          offset: { type: 'number', description: 'Offset for pagination (default 0)' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_courses',
+      description: 'Search available training courses. Returns courses by category and duration.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Search term (e.g. "farming", "financial literacy")' },
+          category: { type: 'string', description: 'Filter by category' },
+          limit: { type: 'number', description: 'Max courses to return (default 10)' },
           offset: { type: 'number', description: 'Offset for pagination (default 0)' },
         },
       },
@@ -509,8 +528,53 @@ const searchProgramsHandler: ToolHandler = async (args, ctx) => {
   return result
 }
 
+const searchCoursesHandler: ToolHandler = async (args, ctx) => {
+  const result = await searchCourses(ctx.db, ctx.accountId, {
+    query: args.query as string | undefined,
+    category: args.category as string | undefined,
+    limit: (args.limit as number) || undefined,
+    offset: (args.offset as number) || undefined,
+  })
+
+  if (ctx.conversationId) {
+    const searchParams = {
+      query: args.query as string | undefined,
+      category: args.category as string | undefined,
+    }
+    const { data: conv } = await ctx.db
+      .from('conversations')
+      .select('metadata')
+      .eq('id', ctx.conversationId)
+      .maybeSingle()
+
+    await ctx.db
+      .from('conversations')
+      .update({
+        metadata: {
+          ...(conv?.metadata || {}),
+          ngo_course_search_params: searchParams,
+        },
+      })
+      .eq('id', ctx.conversationId)
+  }
+
+  return result
+}
+
 const applyToProgramHandler: ToolHandler = async (args, ctx) => {
-  const programId = args.program_id as string
+  // program_id is remembered from the "Apply Now" tap when the model omits it
+  let programId = args.program_id as string | undefined
+  if (!programId && ctx.conversationId) {
+    const { data: conv } = await ctx.db
+      .from('conversations')
+      .select('metadata')
+      .eq('id', ctx.conversationId)
+      .maybeSingle()
+    programId = ((conv?.metadata as Record<string, unknown>)?.pending_ngo_program_id as string) || undefined
+  }
+  if (!programId) {
+    return { success: false, error: 'Which program would you like to apply to? Search for it first.' }
+  }
   const applicantName = (args.applicant_name as string) || ctx.contactName || 'Applicant'
   const answers = args.answers ? JSON.parse(args.answers as string) : {}
   const notes = (args.notes as string) || null
@@ -527,7 +591,7 @@ const applyToProgramHandler: ToolHandler = async (args, ctx) => {
   }
 
   if (program.max_enrollments && program.current_enrollments >= program.max_enrollments) {
-    return { success: false, error: 'This program is full. You have been added to the waiting list.', waitlisted: true }
+    return { success: false, error: `Sorry — ${program.name} is full right now. We'll let you know as soon as a spot opens.` }
   }
 
   const { data: existing } = await ctx.db
@@ -567,6 +631,19 @@ const applyToProgramHandler: ToolHandler = async (args, ctx) => {
     .from('ngo_programs')
     .update({ current_enrollments: program.current_enrollments + 1 })
     .eq('id', programId)
+
+  // Clear the remembered tap context
+  if (ctx.conversationId) {
+    const { data: conv } = await ctx.db
+      .from('conversations')
+      .select('metadata')
+      .eq('id', ctx.conversationId)
+      .maybeSingle()
+    const meta = { ...((conv?.metadata as Record<string, unknown>) || {}) }
+    delete meta.pending_ngo_program_id
+    delete meta.pending_ngo_program_name
+    await ctx.db.from('conversations').update({ metadata: meta }).eq('id', ctx.conversationId)
+  }
 
   return {
     success: true,
@@ -608,39 +685,54 @@ const getApplicationStatusHandler: ToolHandler = async (args, ctx) => {
   }
 }
 
-const enrollInTrainingHandler: ToolHandler = async (args, ctx) => {
-  const courseId = args.course_id as string
-
-  const { data: course } = await ctx.db
+/**
+ * Enroll a contact in an active course. Shared by the enroll_in_training
+ * tool and the no-AI "Enroll Now" button tap.
+ */
+export async function enrollContactInCourse(
+  db: ToolContext['db'],
+  accountId: string,
+  contactId: string,
+  courseId: string,
+): Promise<{
+  ok: boolean
+  error?: string
+  alreadyEnrolled?: boolean
+  enrollmentId?: string
+  courseName?: string
+  durationWeeks?: number
+  firstLesson?: { id: string; title: string; content: string | null; type: string | null } | null
+}> {
+  const { data: course } = await db
     .from('training_courses')
     .select('id, name, description, duration_weeks')
     .eq('id', courseId)
-    .eq('account_id', ctx.accountId)
+    .eq('account_id', accountId)
     .eq('is_active', true)
     .maybeSingle()
 
   if (!course) {
-    return { success: false, error: 'Course not found' }
+    return { ok: false, error: 'Course not found' }
   }
 
-  const { data: existing } = await ctx.db
+  const { data: existing } = await db
     .from('training_enrollments')
     .select('id')
-    .eq('account_id', ctx.accountId)
+    .eq('account_id', accountId)
     .eq('course_id', courseId)
-    .eq('contact_id', ctx.contactId)
+    .eq('contact_id', contactId)
     .maybeSingle()
 
   if (existing) {
-    return { success: false, error: 'You are already enrolled in this course. Say "start lesson" to continue.' }
+    return { ok: false, alreadyEnrolled: true, error: 'You are already enrolled in this course. Say "start lesson" to continue.' }
   }
 
-  const { data: enrollment, error } = await ctx.db
+  const { data: enrollment, error } = await db
     .from('training_enrollments')
     .insert({
-      account_id: ctx.accountId,
+      account_id: accountId,
       course_id: courseId,
-      contact_id: ctx.contactId,
+      contact_id: contactId,
       status: 'active',
     })
     .select('id')
@@ -648,14 +740,14 @@ const enrollInTrainingHandler: ToolHandler = async (args, ctx) => {
 
   if (error || !enrollment) {
     console.error('[ngo tool] enrollment error:', error)
-    return { success: false, error: 'Failed to enroll' }
+    return { ok: false, error: 'Failed to enroll' }
   }
 
-  const { data: lessons } = await ctx.db
+  const { data: lessons } = await db
     .from('training_lessons')
     .select('id, title, content, lesson_type')
     .eq('course_id', courseId)
-    .eq('account_id', ctx.accountId)
+    .eq('account_id', accountId)
     .order('week_number')
     .order('day_number')
     .limit(1)
@@ -663,20 +755,59 @@ const enrollInTrainingHandler: ToolHandler = async (args, ctx) => {
   const firstLesson = lessons?.[0]
 
   return {
+    ok: true,
+    enrollmentId: enrollment.id,
+    courseName: course.name,
+    durationWeeks: course.duration_weeks,
+    firstLesson: firstLesson
+      ? { id: firstLesson.id, title: firstLesson.title, content: firstLesson.content, type: firstLesson.lesson_type }
+      : null,
+  }
+}
+
+const enrollInTrainingHandler: ToolHandler = async (args, ctx) => {
+  // course_id is remembered from the "Enroll Now" tap when the model omits it
+  let courseId = args.course_id as string | undefined
+  if (!courseId && ctx.conversationId) {
+    const { data: conv } = await ctx.db
+      .from('conversations')
+      .select('metadata')
+      .eq('id', ctx.conversationId)
+      .maybeSingle()
+    courseId = ((conv?.metadata as Record<string, unknown>)?.pending_ngo_course_id as string) || undefined
+  }
+  if (!courseId) {
+    return { success: false, error: 'Which course would you like to enroll in? Search for it first.' }
+  }
+
+  const result = await enrollContactInCourse(ctx.db, ctx.accountId, ctx.contactId, courseId)
+  if (!result.ok) {
+    return { success: false, error: result.error }
+  }
+
+  // Clear the remembered tap context
+  if (ctx.conversationId) {
+    const { data: conv } = await ctx.db
+      .from('conversations')
+      .select('metadata')
+      .eq('id', ctx.conversationId)
+      .maybeSingle()
+    const meta = { ...((conv?.metadata as Record<string, unknown>) || {}) }
+    delete meta.pending_ngo_course_id
+    delete meta.pending_ngo_course_name
+    await ctx.db.from('conversations').update({ metadata: meta }).eq('id', ctx.conversationId)
+  }
+
+  return {
     success: true,
-    enrollment_id: enrollment.id,
-    course_name: course.name,
-    duration_weeks: course.duration_weeks,
-    first_lesson: firstLesson ? {
-      id: firstLesson.id,
-      title: firstLesson.title,
-      content: firstLesson.content,
-      type: firstLesson.lesson_type,
-    } : null,
+    enrollment_id: result.enrollmentId,
+    course_name: result.courseName,
+    duration_weeks: result.durationWeeks,
+    first_lesson: result.firstLesson || null,
     response:
       `🎓 *Enrolled!*\n\n` +
-      `*Course:* ${course.name}\n` +
-      `*Duration:* ${course.duration_weeks} weeks\n\n` +
+      `*Course:* ${result.courseName}\n` +
+      `*Duration:* ${result.durationWeeks} weeks\n\n` +
       `Let's get started with your first lesson!`,
   }
 }
@@ -886,6 +1017,21 @@ const getTrainingProgressHandler: ToolHandler = async (args, ctx) => {
   }
 }
 
+const ADVISORY_STOPWORDS = new Set([
+  'the', 'and', 'for', 'with', 'how', 'what', 'when', 'where', 'why', 'who',
+  'should', 'could', 'would', 'about', 'does', 'doing', 'from', 'that',
+  'this', 'have', 'has', 'can', 'you', 'are', 'was', 'were', 'our', 'my',
+  'i', 'a', 'an', 'of', 'in', 'on', 'to', 'is', 'it', 'at', 'be', 'do',
+])
+
+function advisoryKeywords(question: string): string[] {
+  return question
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length > 2 && !ADVISORY_STOPWORDS.has(w))
+    .slice(0, 8)
+}
+
 const askAdvisorHandler: ToolHandler = async (args, ctx) => {
   const question = args.question as string
   const cropType = (args.crop_type as string) || null
@@ -901,30 +1047,66 @@ const askAdvisorHandler: ToolHandler = async (args, ctx) => {
     query = query.or(`crop_type.ilike.%${cropType}%,crop_type.is.null`)
   }
 
-  const { data: topics } = await query.limit(5)
+  if (region) {
+    query = query.or(`region.ilike.%${region}%,region.is.null`)
+  }
 
-  if (!topics || topics.length === 0) {
+  const { data: topics } = await query.limit(20)
+
+  // Rank by how well each topic matches the question (title hits weigh
+  // more than body hits) — never just take the first row.
+  const keywords = advisoryKeywords(question)
+  const scoreTopic = (t: { title?: string | null; content?: string | null; crop_type?: string | null }) => {
+    const title = (t.title || '').toLowerCase()
+    const body = (t.content || '').toLowerCase()
+    let score = 0
+    for (const kw of keywords) {
+      if (title.includes(kw)) score += 2
+      if (body.includes(kw)) score += 1
+    }
+    return score
+  }
+  const ranked = [...(topics || [])].sort((a, b) => scoreTopic(b) - scoreTopic(a))
+  const bestMatch = ranked[0]
+
+  // NGOs lean heavily on their uploaded documents — search those too.
+  let knowledgeExcerpts: string[] = []
+  try {
+    knowledgeExcerpts = await retrieveUploadedKnowledge(
+      ctx.db,
+      ctx.accountId,
+      getEmbeddingsApiKey(),
+      question,
+      3,
+    )
+  } catch (err) {
+    console.error('[ngo tool] uploaded knowledge search failed:', err)
+  }
+
+  if (!bestMatch && knowledgeExcerpts.length === 0) {
     return {
       found: false,
       message: `I don't have specific information about that in our knowledge base. Let me connect you with our team for personalized advice.`,
     }
   }
 
-  const bestMatch = topics[0]
-
   return {
     found: true,
-    topic: {
-      title: bestMatch.title,
-      category: bestMatch.category,
-      content: bestMatch.content,
-      crop: bestMatch.crop_type,
-      media_url: bestMatch.media_url,
-    },
-    other_related: topics.slice(1).map((t: any) => ({
+    topic: bestMatch
+      ? {
+          title: bestMatch.title,
+          category: bestMatch.category,
+          content: bestMatch.content,
+          crop: bestMatch.crop_type,
+          media_url: bestMatch.media_url,
+          match_score: scoreTopic(bestMatch),
+        }
+      : null,
+    other_related: ranked.slice(1, 4).map((t) => ({
       title: t.title,
       category: t.category,
     })),
+    knowledge: knowledgeExcerpts,
   }
 }
 
@@ -1054,6 +1236,14 @@ const submitFieldPhotoHandler: ToolHandler = async (args, ctx) => {
     return { success: false, error: 'Failed to submit report' }
   }
 
+  if (cropType) {
+    await ctx.db
+      .from('ngo_field_reports')
+      .update({ metadata: { crop_type: cropType } })
+      .eq('id', report.id)
+      .eq('account_id', ctx.accountId)
+  }
+
   return {
     success: true,
     report_id: report.id,
@@ -1099,6 +1289,10 @@ const makeDonationHandler: ToolHandler = async (args, ctx) => {
     return { success: false, error: 'Failed to record donation' }
   }
 
+  // Real payment instructions from the account's configured methods
+  const donationRef = `DON-${donation.id.slice(0, 8).toUpperCase()}`
+  const paymentMsg = await buildPaymentMessage(ctx.db, ctx.accountId, currency, amount, donationRef)
+
   return {
     success: true,
     donation_id: donation.id,
@@ -1107,8 +1301,7 @@ const makeDonationHandler: ToolHandler = async (args, ctx) => {
       `*Donor:* ${donorName}\n` +
       `*Amount:* ${currency} ${amount.toLocaleString()}\n` +
       (campaign ? `*Campaign:* ${campaign}\n` : '') +
-      `\nTo complete your donation, please use the payment link that will be sent to you. ` +
-      `Thank you for your generosity!`,
+      `\n${paymentMsg}`,
   }
 }
 
@@ -1119,7 +1312,6 @@ const getImpactReportHandler: ToolHandler = async (args, ctx) => {
     .eq('account_id', ctx.accountId)
     .eq('status', 'confirmed')
     .order('created_at', { ascending: false })
-    .limit(100)
 
   const { count: beneficiaryCount } = await ctx.db
     .from('ngo_applications')
@@ -1223,6 +1415,7 @@ const getMyScheduleHandler: ToolHandler = async (args, ctx) => {
 
 export const ngoToolHandlers: Partial<Record<string, ToolHandler>> = {
   search_programs: searchProgramsHandler,
+  search_courses: searchCoursesHandler,
   apply_to_program: applyToProgramHandler,
   get_application_status: getApplicationStatusHandler,
   enroll_in_training: enrollInTrainingHandler,

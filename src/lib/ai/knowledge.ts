@@ -80,6 +80,74 @@ export async function ingestDocument(
  * Securely accesses DB tables (offerings, image matches, orders, bookings, KB chunks)
  * strictly isolated by `account_id`.
  */
+/**
+ * Retrieve matching chunks from the account's uploaded knowledge base
+ * (ai_knowledge_chunks) — semantic when an embeddings key is present,
+ * topped up with lexical full-text search. Exposed separately so tool
+ * handlers (e.g. the NGO advisory tool) can lean on uploaded documents
+ * without pulling in catalogue/order/photo context.
+ */
+export async function retrieveUploadedKnowledge(
+  db: SupabaseClient,
+  accountId: string,
+  embeddingsApiKey: string | null,
+  queryText: string,
+  k = 5,
+): Promise<string[]> {
+  const query = queryText.trim()
+  const picked = new Map<string, string>() // id → content
+  try {
+    const { count, error } = await db
+      .from('ai_knowledge_chunks')
+      .select('id', { count: 'exact', head: true })
+      .eq('account_id', accountId)
+
+    if (!error && count && count > 0) {
+      // Semantic path
+      if (embeddingsApiKey && query) {
+        try {
+          const [queryEmbedding] = await embedTexts(embeddingsApiKey, [query])
+          if (queryEmbedding) {
+            const { data, error } = await db.rpc('match_ai_knowledge_semantic', {
+              p_account_id: accountId,
+              p_query_embedding: toVectorLiteral(queryEmbedding),
+              p_match_count: k,
+            })
+            if (!error && Array.isArray(data)) {
+              for (const row of data as MatchRow[]) picked.set(row.id, row.content)
+            }
+          }
+        } catch (err) {
+          console.error('[ai knowledge] semantic retrieval failed, falling back to FTS:', err)
+        }
+      }
+
+      // Lexical top-up
+      if (picked.size < k && query) {
+        try {
+          const { data, error } = await db.rpc('match_ai_knowledge_fts', {
+            p_account_id: accountId,
+            p_query: query,
+            p_match_count: k,
+          })
+          if (!error && Array.isArray(data)) {
+            for (const row of data as MatchRow[]) {
+              if (picked.size >= k) break
+              if (!picked.has(row.id)) picked.set(row.id, row.content)
+            }
+          }
+        } catch (err) {
+          console.error('[ai knowledge] lexical retrieval failed:', err)
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[ai knowledge] static chunk retrieval check failed:', err)
+  }
+
+  return Array.from(picked.values()).slice(0, k)
+}
+
 export async function retrieveKnowledge(
   db: SupabaseClient,
   accountId: string,
@@ -182,56 +250,12 @@ export async function retrieveKnowledge(
   }
 
   // 4. Static Knowledge Base Chunks (tenant-isolated with account_id)
-  const picked = new Map<string, string>() // id → content
-  try {
-    const { count, error } = await db
-      .from('ai_knowledge_chunks')
-      .select('id', { count: 'exact', head: true })
-      .eq('account_id', accountId)
-
-    if (!error && count && count > 0) {
-      // Semantic path
-      if (config.embeddingsApiKey && query) {
-        try {
-          const [queryEmbedding] = await embedTexts(config.embeddingsApiKey, [query])
-          if (queryEmbedding) {
-            const { data, error } = await db.rpc('match_ai_knowledge_semantic', {
-              p_account_id: accountId,
-              p_query_embedding: toVectorLiteral(queryEmbedding),
-              p_match_count: k,
-            })
-            if (!error && Array.isArray(data)) {
-              for (const row of data as MatchRow[]) picked.set(row.id, row.content)
-            }
-          }
-        } catch (err) {
-          console.error('[ai knowledge] semantic retrieval failed, falling back to FTS:', err)
-        }
-      }
-
-      // Lexical top-up
-      if (picked.size < k && query) {
-        try {
-          const { data, error } = await db.rpc('match_ai_knowledge_fts', {
-            p_account_id: accountId,
-            p_query: query,
-            p_match_count: k,
-          })
-          if (!error && Array.isArray(data)) {
-            for (const row of data as MatchRow[]) {
-              if (picked.size >= k) break
-              if (!picked.has(row.id)) picked.set(row.id, row.content)
-            }
-          }
-        } catch (err) {
-          console.error('[ai knowledge] lexical retrieval failed:', err)
-        }
-      }
-    }
-  } catch (err) {
-    console.error('[ai knowledge] static chunk retrieval check failed:', err)
-  }
-
-  const staticChunks = Array.from(picked.values()).slice(0, k)
+  const staticChunks = await retrieveUploadedKnowledge(
+    db,
+    accountId,
+    config.embeddingsApiKey,
+    query,
+    k,
+  )
   return [...excerpts, ...staticChunks]
 }
