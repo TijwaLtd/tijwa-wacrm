@@ -17,6 +17,7 @@ import type { ToolDefinition, ToolHandler, ToolContext } from './types'
 import { createBooking, isFutureSlot } from '@/lib/business/scheduling'
 import { slotList, scheduleGateReady } from './scheduling'
 import { buildListRow, formatPriceLabel } from './list-format'
+import { resolveCataloguePrices } from './retailer'
 
 // ============================================================
 // Tool Definitions
@@ -347,16 +348,19 @@ const getMenuItemHandler: ToolHandler = async (args, ctx) => {
 const previewFoodOrderHandler: ToolHandler = async (args, ctx) => {
   const { db } = ctx
 
-  const items = (args.items as Array<{
+  const rawItems = (args.items as Array<{
     name: string
     quantity: number
     unit_price: number
     special_instructions?: string
   }>) || []
 
-  if (items.length === 0) {
+  if (rawItems.length === 0) {
     return { success: false, error: 'No items provided' }
   }
+
+  // The catalogue is the source of truth — overwrite any mis-echoed price
+  const items = await resolveCataloguePrices(db, ctx.accountId, rawItems, ['menu_item', 'product'])
 
   const orderType = (args.order_type as string) || 'takeaway'
   const itemCount = items.reduce((sum, i) => sum + (i.quantity || 1), 0)

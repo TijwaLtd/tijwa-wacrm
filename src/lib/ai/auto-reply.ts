@@ -31,7 +31,7 @@ import { AuditEventType } from '@/lib/audit/events'
 import { contactFormUrl, legalUrls, CONSENT_VERSION } from '@/lib/public/customer'
 import { searchMenuItems } from './tools/restaurant'
 import { searchRooms } from './tools/hotel'
-import { searchProducts, getCart, addToCart, clearCart, formatCartSummary, getCartButtons } from './tools/retailer'
+import { searchProducts, getCart, addToCart, clearCart, formatCartSummary, getCartButtons, resolveCataloguePrices } from './tools/retailer'
 import { searchServices } from './tools/services'
 import { searchProperties } from './tools/property'
 import { searchPrograms, searchCourses } from './tools/ngo'
@@ -886,8 +886,21 @@ async function handleFoodOrderButton(
         return
       }
 
-      // Create real order
-      const items = (pending.items as any[]) || []
+      // Create real order — reprice from the catalogue before writing totals.
+      // The pending row is left untouched; only the real order is repriced.
+      const items = await resolveCataloguePrices(
+        db,
+        accountId,
+        (pending.items as Array<{
+          name: string
+          quantity?: number
+          unit_price?: number
+          product_id?: string | null
+          special_instructions?: string | null
+        }>) || [],
+        ['menu_item', 'product'],
+      )
+      const subtotal = items.reduce((sum, i) => sum + (i.quantity || 1) * (i.unit_price || 0), 0)
       const { data: order, error: orderError } = await db
         .from('orders')
         .insert({
@@ -896,13 +909,13 @@ async function handleFoodOrderButton(
           contact_id: contactId,
           status: 'confirmed',
           currency: pending.currency || 'KES',
-          subtotal: pending.price || 0,
+          subtotal,
           tax_amount: 0,
           discount_amount: 0,
-          total: pending.price || 0,
+          total: subtotal,
           notes: pending.notes || null,
           metadata: {
-            items: items.map((i: any) => ({
+            items: items.map((i) => ({
               name: i.name,
               quantity: i.quantity,
               unit_price: i.unit_price,
@@ -933,9 +946,9 @@ async function handleFoodOrderButton(
 
       // Insert order items
       if (items.length > 0) {
-        const orderItems = items.map((i: any) => ({
+        const orderItems = items.map((i) => ({
           order_id: order.id,
-          offering_id: null,
+          offering_id: i.product_id || null,
           name: i.name,
           quantity: i.quantity || 1,
           unit_price: i.unit_price || 0,
@@ -945,7 +958,7 @@ async function handleFoodOrderButton(
       }
 
       // Send confirmation message
-      const itemList = items.map((i: any) => `• ${i.quantity || 1}x ${i.name}`).join('\n')
+      const itemList = items.map((i) => `• ${i.quantity || 1}x ${i.name}`).join('\n')
       const typeLabel = pending.order_type === 'dine_in' ? `Dine-in (Table ${pending.table_number || '?'})`
         : pending.order_type === 'room_service' ? `Room Service (Room ${pending.room_number || '?'})`
         : 'Takeaway'
@@ -960,14 +973,14 @@ async function handleFoodOrderButton(
           `*Order #:* ${order.order_number}\n` +
           `*Type:* ${typeLabel}\n` +
           `*Items:*\n${itemList}\n\n` +
-          `*Total:* KES ${pending.price}\n\n` +
+          `*Total:* KES ${subtotal}\n\n` +
           `Your order is being prepared. We'll notify you when it's ready!`,
         aiGenerated: true,
       })
 
       // ── PAYMENT DETAILS ────────────────────────────────────
       const paymentMsg = await buildPaymentMessage(
-        db, accountId, pending.currency || 'KES', pending.price || 0, order.order_number,
+        db, accountId, pending.currency || 'KES', subtotal, order.order_number,
       )
       await engineSendText({
         accountId,
@@ -1528,8 +1541,13 @@ async function handleProductOrderButton(
         return
       }
 
-      // Create real order
-      const items = (pending.items as any[]) || []
+      // Create real order — reprice from the catalogue before writing totals
+      const items = await resolveCataloguePrices(
+        db,
+        accountId,
+        (pending.items as Array<{ name: string; quantity?: number; unit_price?: number; product_id?: string | null }>) || [],
+      )
+      const subtotal = items.reduce((sum, i) => sum + (i.quantity || 1) * (i.unit_price || 0), 0)
       const { data: order, error: orderError } = await db
         .from('orders')
         .insert({
@@ -1538,10 +1556,10 @@ async function handleProductOrderButton(
           contact_id: contactId,
           status: 'confirmed',
           currency: pending.currency || 'KES',
-          subtotal: pending.price || 0,
+          subtotal,
           tax_amount: 0,
           discount_amount: 0,
-          total: pending.price || 0,
+          total: subtotal,
           notes: pending.notes || null,
           metadata: {
             type: 'product_order',
@@ -1602,7 +1620,7 @@ async function handleProductOrderButton(
           `*Order #:* ${order.order_number}\n` +
           `*Type:* ${typeLabel}\n` +
           `*Items:*\n${itemList}\n\n` +
-          `*Total:* KES ${pending.price}` +
+          `*Total:* KES ${subtotal}` +
           (pending.delivery_address ? `\n*Delivery Address:* ${pending.delivery_address}` : '') +
           `\n\nYour order has been placed. We'll notify you when it's on the way!`,
         aiGenerated: true,
@@ -1610,7 +1628,7 @@ async function handleProductOrderButton(
 
       // ── PAYMENT DETAILS ────────────────────────────────────
       const paymentMsg = await buildPaymentMessage(
-        db, accountId, pending.currency || 'KES', pending.price || 0, order.order_number,
+        db, accountId, pending.currency || 'KES', subtotal, order.order_number,
       )
       await engineSendText({
         accountId,
@@ -2971,8 +2989,10 @@ async function handleCartButton(
       }
       // Call preview_product_order directly — same pattern as confirm button
       // We need to create the pending order and show confirm/edit/cancel
-      const total = cart.reduce((sum, item) => sum + item.quantity * item.unit_price, 0)
-      const itemCount = cart.reduce((sum, item) => sum + item.quantity, 0)
+      // Reprice from the catalogue before building the pending order
+      const pricedCart = await resolveCataloguePrices(db, accountId, cart)
+      const total = pricedCart.reduce((sum, item) => sum + item.quantity * item.unit_price, 0)
+      const itemCount = pricedCart.reduce((sum, item) => sum + item.quantity, 0)
 
       const { data: pending, error: pendingErr } = await db
         .from('pending_product_orders')
@@ -2981,7 +3001,7 @@ async function handleCartButton(
           contact_id: contactId,
           conversation_id: conversationId,
           user_id: configOwnerUserId,
-          items: cart.map(i => ({
+          items: pricedCart.map(i => ({
             name: i.name,
             quantity: i.quantity,
             unit_price: i.unit_price,
@@ -3044,7 +3064,7 @@ async function handleCartButton(
       }
 
       // Format items list
-      const itemList = cart.map(i => `• ${i.quantity}× ${i.name} — KES ${i.unit_price * i.quantity}`).join('\n')
+      const itemList = pricedCart.map(i => `• ${i.quantity}× ${i.name} — KES ${i.unit_price * i.quantity}`).join('\n')
 
       // Send preview with confirm/edit/cancel buttons
       await engineSendInteractiveButtons({

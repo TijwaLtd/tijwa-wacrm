@@ -12,7 +12,7 @@
 // - get_customer_product_orders: list customer's product orders
 // ============================================================
 
-import type { ToolDefinition, ToolHandler } from './types'
+import type { ToolDefinition, ToolHandler, ToolContext } from './types'
 import { buildListRow, formatPriceLabel } from './list-format'
 
 // ============================================================
@@ -319,6 +319,93 @@ function calculateProductTotal(items: Array<{ quantity?: number; unit_price?: nu
 }
 
 // ============================================================
+// Helper: Server-side price validation
+// The catalogue (offerings) is the source of truth for prices.
+// The model only echoes what it saw in search results — re-fetch
+// by product_id (fallback: exact name) and overwrite, so a
+// mis-echoed price can never reach a pending order or an order.
+// ============================================================
+
+interface PriceItemInput {
+  name?: string | null
+  quantity?: number
+  unit_price?: number
+  product_id?: string | null
+}
+
+interface CatalogueRow {
+  id: string
+  name: string
+  price: number | null
+  type?: string
+}
+
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (c) => `\\${c}`)
+}
+
+export async function resolveCataloguePrices<T extends PriceItemInput>(
+  db: ToolContext['db'],
+  accountId: string,
+  items: T[],
+  types: string[] = ['product'],
+): Promise<T[]> {
+  if (!items || items.length === 0) return items
+
+  const productIds = [...new Set(items.map((i) => i.product_id).filter(Boolean))] as string[]
+  const byId = new Map<string, CatalogueRow>()
+
+  if (productIds.length > 0) {
+    // id lookup: the id itself is authoritative, whatever the offering type
+    const { data, error } = await db
+      .from('offerings')
+      .select('id, name, price')
+      .eq('account_id', accountId)
+      .in('id', productIds)
+    if (!error && Array.isArray(data)) {
+      for (const row of data as CatalogueRow[]) byId.set(row.id, row)
+    }
+  }
+
+  // Exact case-insensitive name match for items without a resolved id
+  const unmatchedNames = [
+    ...new Set(
+      items
+        .filter((i) => !i.product_id || !byId.has(i.product_id))
+        .map((i) => (i.name || '').trim())
+        .filter(Boolean),
+    ),
+  ]
+  const byName = new Map<string, CatalogueRow>()
+  for (const name of unmatchedNames) {
+    const { data, error } = await db
+      .from('offerings')
+      .select('id, name, price')
+      .eq('account_id', accountId)
+      .eq('status', 'active')
+      .in('type', types)
+      .ilike('name', escapeLike(name))
+      .limit(1)
+      .maybeSingle()
+    if (!error && data) byName.set(name.toLowerCase(), data as CatalogueRow)
+  }
+
+  return items.map((item) => {
+    const row =
+      (item.product_id ? byId.get(item.product_id) : undefined) ||
+      byName.get((item.name || '').trim().toLowerCase()) ||
+      null
+    if (!row) return { ...item } // not in catalogue — keep as provided (custom line item)
+    return {
+      ...item,
+      name: row.name,
+      unit_price: row.price ?? item.unit_price ?? 0,
+      product_id: row.id,
+    }
+  })
+}
+
+// ============================================================
 // Tool Handlers
 // ============================================================
 
@@ -403,16 +490,19 @@ const getProductHandler: ToolHandler = async (args, ctx) => {
 
 const previewProductOrderHandler: ToolHandler = async (args, ctx) => {
   const { db } = ctx
-  const items = (args.items as Array<{
+  const rawItems = (args.items as Array<{
     name: string
     quantity: number
     unit_price: number
     product_id?: string
   }>) || []
 
-  if (items.length === 0) {
+  if (rawItems.length === 0) {
     return { success: false, error: 'No items provided' }
   }
+
+  // The catalogue is the source of truth — overwrite any mis-echoed price
+  const items = await resolveCataloguePrices(db, ctx.accountId, rawItems)
 
   const total = calculateProductTotal(items)
   const itemCount = items.reduce((sum, i) => sum + (i.quantity || 1), 0)
@@ -669,11 +759,20 @@ const manageCartHandler: ToolHandler = async (args, ctx) => {
     if (!item?.name) {
       return { success: false, error: 'item.name is required for add' }
     }
+    // Reprice from the catalogue — never trust a price passed through the model
+    const [priced] = await resolveCataloguePrices(ctx.db, ctx.accountId, [
+      {
+        name: item.name,
+        quantity: item.quantity || 1,
+        unit_price: item.unit_price || 0,
+        product_id: item.product_id || null,
+      },
+    ])
     const cart = await addToCart(ctx.db, conversationId, {
-      name: item.name,
-      quantity: item.quantity || 1,
-      unit_price: item.unit_price || 0,
-      product_id: item.product_id || null,
+      name: priced.name || item.name,
+      quantity: priced.quantity || 1,
+      unit_price: priced.unit_price || 0,
+      product_id: priced.product_id || null,
     })
     return { success: true, cart, summary: formatCartSummary(cart) }
   }
