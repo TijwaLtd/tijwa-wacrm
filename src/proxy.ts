@@ -181,8 +181,11 @@ export async function proxy(request: NextRequest) {
     }
   }
 
-  // If user has memberships and tries to access /onboarding directly, redirect to home
-  if (user && request.nextUrl.pathname === '/onboarding') {
+  // If user has memberships and tries to access /onboarding directly,
+  // redirect to home. Exception: ?create=1 — the workspace switcher's
+  // "Create new" action legitimately needs the create-workspace flow
+  // even when the user already belongs to other workspaces.
+  if (user && request.nextUrl.pathname === '/onboarding' && !request.nextUrl.searchParams.has('create')) {
     // Use get_user_accounts RPC to bypass RLS
     const { data: userAccounts } = await supabase.rpc('get_user_accounts', {
       p_user_id: user.id,

@@ -75,7 +75,9 @@ export function MobileWorkspaceSwitcher({ onClose }: MobileWorkspaceSwitcherProp
   const handleCreateNew = () => {
     setShowDialog(false);
     onClose?.();
-    router.push('/onboarding');
+    // ?create=1 bypasses the proxy guard that otherwise sends existing
+    // members away from /onboarding (see src/proxy.ts).
+    router.push('/onboarding?create=1');
   };
 
   const totalUnread = workspacesWithCounts.reduce((acc, w) => acc + (w.unread_notifications || 0), 0);

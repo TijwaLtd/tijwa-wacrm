@@ -13,8 +13,45 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
-import { isValidBusinessType, type BusinessType } from "@/lib/business/capabilities";
+import { isValidBusinessType } from "@/lib/business/capabilities";
 import { setAccountBusinessType } from "@/lib/business/set-business-type";
+
+// Day ids accepted in tenant_settings.operating_hours.days — mirrors the
+// toggles in the onboarding form and the AI tool's expectations.
+const VALID_DAY_IDS = new Set(["mon", "tue", "wed", "thu", "fri", "sat", "sun"]);
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/**
+ * Validate + normalise the onboarding operating-hours payload before it
+ * is written to tenant_settings.operating_hours. Returns null when the
+ * input is absent or unusable (the column keeps its default) and never
+ * throws — a malformed hours object must not block workspace creation.
+ */
+function parseOperatingHours(input: unknown): {
+  days: string[];
+  start: string;
+  end: string;
+  timezone: string;
+} | null {
+  if (!input || typeof input !== "object") return null;
+  const raw = input as Record<string, unknown>;
+
+  const days = Array.isArray(raw.days)
+    ? [...new Set(raw.days.filter((d): d is string => typeof d === "string" && VALID_DAY_IDS.has(d)))]
+    : [];
+  if (days.length === 0) return null;
+  // Keep canonical Mon→Sun order regardless of what the client sent.
+  const orderedDays = [...VALID_DAY_IDS].filter((d) => days.includes(d));
+
+  const start = typeof raw.start === "string" && TIME_RE.test(raw.start) ? raw.start : null;
+  const end = typeof raw.end === "string" && TIME_RE.test(raw.end) ? raw.end : null;
+  if (!start || !end) return null;
+
+  const timezone =
+    typeof raw.timezone === "string" && raw.timezone.length <= 64 ? raw.timezone : "UTC";
+
+  return { days: orderedDays, start, end, timezone };
+}
 
 // GET /api/workspaces - List all workspaces for current user
 // Uses serviceClient to bypass RLS (avoids infinite recursion on account_memberships)
@@ -95,6 +132,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid business type" }, { status: 400 });
   }
 
+  const operatingHours = parseOperatingHours(body?.operating_hours);
+
   // Generate subdomain from name (workspace.tijwa-crm.com pattern)
   let subdomain = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
@@ -174,6 +213,21 @@ export async function POST(request: Request) {
         .upsert(capabilityUpserts, {
           onConflict: "account_id,capability_key",
         });
+    }
+
+    // Persist the operating hours captured during onboarding. The AI
+    // agent's check_operating_hours tool reads this to answer "are you
+    // open?", so dropping it silently left the agent answering as if the
+    // business ran 24/7. Failure here is non-fatal — the workspace is
+    // already usable and hours can be corrected in settings later.
+    if (operatingHours) {
+      const { error: hoursErr } = await serviceClient
+        .from("tenant_settings")
+        .update({ operating_hours: operatingHours })
+        .eq("account_id", accountId);
+      if (hoursErr) {
+        console.error("[workspaces] operating_hours update failed:", hoursErr);
+      }
     }
   }
 

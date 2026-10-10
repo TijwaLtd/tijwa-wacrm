@@ -147,7 +147,9 @@ export function WorkspaceSwitcher() {
             <DropdownMenuSeparator className="bg-border" />
 
             <DropdownMenuItem
-              onClick={() => router.push('/onboarding')}
+              // ?create=1 bypasses the proxy guard that otherwise sends
+              // existing members away from /onboarding (see src/proxy.ts).
+              onClick={() => router.push('/onboarding?create=1')}
               className="text-popover-foreground focus:bg-accent"
             >
               <Plus className="mr-2 h-4 w-4" />
