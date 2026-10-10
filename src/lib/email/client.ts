@@ -54,6 +54,7 @@ export async function sendEmail(
       html: options.html,
       text: options.text,
       replyTo: options.replyTo,
+      attachments: options.attachments,
     });
 
     console.log(`[email] Sent ${options.subject} → ${options.to} (id: ${result.messageId})`);

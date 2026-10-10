@@ -42,6 +42,7 @@ import {
   ChevronsUpDown,
   HelpCircle,
   Eye,
+  BarChart3,
 } from 'lucide-react';
 
 // Per-role chip metadata used in the sidebar's account strip + the
@@ -169,6 +170,7 @@ const CAPABILITY_ICONS: Record<string, typeof LayoutDashboard> = {
   CalendarDays,
   HelpCircle,
   Eye,
+  BarChart3,
 };
 
 interface SidebarProps {

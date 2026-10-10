@@ -15,6 +15,7 @@ import subscriptionExpired from './templates/subscription-expired';
 import subscriptionRenewed from './templates/subscription-renewed';
 import creditPurchaseReceipt from './templates/credit-purchase-receipt';
 import seatLimitExceeded from './templates/seat-limit-exceeded';
+import businessReport from './templates/business-report';
 
 const templates: Record<EmailTemplateName, EmailTemplate> = {
   welcome,
@@ -30,6 +31,7 @@ const templates: Record<EmailTemplateName, EmailTemplate> = {
   'subscription-renewed': subscriptionRenewed,
   'credit-purchase-receipt': creditPurchaseReceipt,
   'seat-limit-exceeded': seatLimitExceeded,
+  'business-report': businessReport,
 };
 
 function isEnabled(): boolean {
@@ -157,4 +159,44 @@ export async function sendSeatLimitExceededEmail(
   data: { adminName: string; attempterName: string; workspaceName: string; plan: string; totalSeats: string; currentMembers: string },
 ): Promise<EmailResult> {
   return renderAndSend('seat-limit-exceeded', to, data);
+}
+
+export async function sendBusinessReportEmail(
+  to: string | string[],
+  data: {
+    businessName: string;
+    periodLabel: string;
+    kpiRowsHtml: string;
+    generatedDate: string;
+    viewUrl?: string;
+  },
+  pdf: { filename: string; content: Buffer },
+): Promise<EmailResult> {
+  if (!isEnabled()) {
+    console.log(`[email] Skipping business-report (EMAIL_DISABLED=true)`);
+    return { id: '', success: true };
+  }
+
+  const template = templates['business-report'];
+  const { html, text } = template.render({
+    businessName: data.businessName,
+    periodLabel: data.periodLabel,
+    kpiRowsHtml: data.kpiRowsHtml,
+    generatedDate: data.generatedDate,
+    viewUrl: data.viewUrl || '',
+  });
+
+  return sendEmail({
+    to,
+    subject: `${data.businessName} — business report (${data.periodLabel})`,
+    html,
+    text,
+    attachments: [
+      {
+        filename: pdf.filename,
+        content: pdf.content,
+        contentType: 'application/pdf',
+      },
+    ],
+  });
 }

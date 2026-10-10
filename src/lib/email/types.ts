@@ -8,12 +8,19 @@ export interface EmailConfig {
   };
 }
 
+export interface EmailAttachment {
+  filename: string;
+  content: Buffer;
+  contentType?: string;
+}
+
 export interface SendEmailOptions {
   to: string | string[];
   subject: string;
   html: string;
   text?: string;
   replyTo?: string;
+  attachments?: EmailAttachment[];
 }
 
 export interface EmailResult {
@@ -41,4 +48,5 @@ export type EmailTemplateName =
   | 'subscription-expired'
   | 'subscription-renewed'
   | 'credit-purchase-receipt'
-  | 'seat-limit-exceeded';
+  | 'seat-limit-exceeded'
+  | 'business-report';

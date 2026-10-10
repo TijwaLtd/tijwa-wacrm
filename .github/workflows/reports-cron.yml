@@ -1,0 +1,25 @@
+name: Scheduled business reports
+
+on:
+  schedule:
+    # Daily 06:00 UTC sweep — the route decides which workspaces are due
+    # (weekly on their configured weekday, monthly on the 1st).
+    - cron: "0 6 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  send-reports:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger report sweep
+        run: |
+          response=$(curl -sS -w "\n%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ vars.SITE_URL || 'https://crm.tijwa.com' }}/api/cron/reports")
+          body=$(echo "$response" | head -n -1)
+          code=$(echo "$response" | tail -n 1)
+          echo "HTTP $code"
+          echo "$body"
+          if [ "$code" != "200" ]; then
+            exit 1
+          fi
