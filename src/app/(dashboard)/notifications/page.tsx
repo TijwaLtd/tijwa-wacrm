@@ -8,6 +8,7 @@ import type { Notification } from "@/types";
 import { Bell, CheckCheck, Loader2, UserPlus } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { Button } from "@/components/ui/button";
+import { BrowserNotificationsCard } from "@/components/notifications/browser-notifications-card";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -15,6 +16,8 @@ import { toast } from "sonner";
 // (conversation_assigned) but this keeps future types a one-line add.
 const TYPE_ICON: Record<Notification["type"], typeof Bell> = {
   conversation_assigned: UserPlus,
+  message_received: Bell,
+  billing_confirmation: Bell,
 };
 
 export default function NotificationsPage() {
@@ -116,7 +119,12 @@ export default function NotificationsPage() {
       if (!n.read_at) markRead(n.id);
       if (n.conversation_id) {
         router.push(`/inbox?c=${n.conversation_id}`);
+        return;
       }
+      // Non-conversation notifications (billing, …) carry a deep-link
+      // in metadata written by the notify() pipeline.
+      const url = n.metadata?.url;
+      if (url) router.push(url);
     },
     [markRead, router],
   );
@@ -163,11 +171,13 @@ export default function NotificationsPage() {
 
   return (
     <div className="space-y-6">
+      <BrowserNotificationsCard />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Notifications</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Conversations other teammates assign to you show up here.
+            Conversation assignments, new messages, and billing events for
+            your workspace.
           </p>
         </div>
         <Button
@@ -194,8 +204,8 @@ export default function NotificationsPage() {
             No notifications yet
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            You&apos;ll see an alert here when someone assigns you a
-            conversation.
+            You&apos;ll see an alert here when a teammate assigns you a
+            conversation, a customer messages, or billing needs attention.
           </p>
         </div>
       ) : (

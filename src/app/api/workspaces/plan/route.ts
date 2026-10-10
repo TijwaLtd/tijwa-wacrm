@@ -9,6 +9,7 @@
 import { NextResponse } from "next/server";
 import { requireRole, toErrorResponse } from "@/lib/auth/account";
 import { sendPlanChangeEmail, sendSubscriptionRenewedEmail } from "@/lib/email/send";
+import { notifyBillingConfirmation } from "@/lib/notifications/triggers";
 
 const VALID_PLANS = ['business', 'growth', 'enterprise'] as const;
 type Plan = typeof VALID_PLANS[number];
@@ -203,6 +204,16 @@ export async function POST(request: Request) {
         : `Subscription started on ${planLabel}`,
       metadata: { old_plan: oldPlan, new_plan: plan },
     });
+
+    // In-app + Web Push confirmation for owner/admins. Same audience
+    // as the emails above — never throws.
+    await notifyBillingConfirmation(serviceClient, {
+      accountId,
+      plan: planLabel,
+      periodEndIso: periodEnd.toISOString(),
+    }).catch((err) =>
+      console.error("[workspaces/plan] billing notification failed:", err),
+    );
 
     return NextResponse.json({
       ok: true,

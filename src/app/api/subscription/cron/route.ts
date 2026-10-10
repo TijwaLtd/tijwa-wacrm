@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { sendSubscriptionReminderEmail } from '@/lib/email/send';
+import { notifySubscriptionRenewalSoon } from '@/lib/notifications/triggers';
 
 /**
  * GET /api/subscription/cron
@@ -102,6 +103,18 @@ export async function GET(request: Request) {
 
         if (result.success) reminded++;
       }
+
+      // Same reminder as a browser/PWA notification for owner/admins.
+      // Tagged per billing period so the daily cron re-runs collapse
+      // into one OS bubble. Never throws.
+      await notifySubscriptionRenewalSoon(serviceClient, {
+        accountId: sub.account_id,
+        plan: sub.plan,
+        daysUntilRenewal,
+        periodEndIso: sub.current_period_end,
+      }).catch((err) =>
+        console.error('[subscription/cron] renewal notification failed:', err),
+      );
     }
 
     return NextResponse.json({

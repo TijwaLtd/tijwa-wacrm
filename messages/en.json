@@ -2174,5 +2174,24 @@
     "retry": "Retry",
     "checking": "Checking…",
     "backOnline": "Back online — syncing…"
+  },
+  "Pwa": {
+    "notifications": {
+      "title": "Never miss a message",
+      "description": "Turn on browser notifications so customers can reach you even when Tijwa isn't open — on desktop and on your phone.",
+      "benefit1": "New WhatsApp messages the moment they arrive",
+      "benefit2": "Billing confirmations and renewal reminders",
+      "benefit3": "Works in the browser and the installed app",
+      "enable": "Enable notifications",
+      "notNow": "Not now"
+    },
+    "install": {
+      "title": "Install Tijwa CRM",
+      "description": "Add the app to your home screen for faster launches, full-screen use, and reliable mobile notifications.",
+      "install": "Install app",
+      "notNow": "Maybe later",
+      "iosHint": "On iPhone or iPad: tap the Share icon in Safari, then choose “Add to Home Screen”.",
+      "genericHint": "Open your browser menu and choose “Install app” or “Add to Home Screen”."
+    }
   }
 }

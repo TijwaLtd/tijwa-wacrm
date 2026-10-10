@@ -214,7 +214,10 @@ export interface Conversation {
 // Notifications (migration 027)
 // ============================================================
 
-export type NotificationType = 'conversation_assigned';
+export type NotificationType =
+  | 'conversation_assigned'
+  | 'message_received'
+  | 'billing_confirmation';
 
 export interface Notification {
   id: string;
@@ -228,6 +231,8 @@ export interface Notification {
   actor_user_id?: string;
   title: string;
   body?: string;
+  /** Deep-link + dedupe tag used by the Web Push service worker. */
+  metadata?: { url?: string; tag?: string } & Record<string, unknown>;
   read_at?: string;
   created_at: string;
 }

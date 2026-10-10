@@ -17,6 +17,7 @@ import { runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { dispatchInboundToAiReply, enforceConsentGate } from '@/lib/ai/auto-reply'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
+import { notifyMessageReceived } from '@/lib/notifications/triggers'
 import { autoAssignConversation } from '@/lib/assignments/auto-assign'
 import { detectConversationTopic } from '@/lib/assignments/topic-detection'
 import {
@@ -1069,6 +1070,20 @@ async function processMessage(
     content_type: contentType,
     text: contentText,
   })
+
+  // In-app + Web Push alert for the assigned agent (or the whole
+  // account when unassigned). Never throws — notification failures
+  // must not affect the webhook's own bookkeeping.
+  await notifyMessageReceived(supabaseAdmin(), {
+    accountId,
+    conversationId: conversation.id,
+    contactId: contactRecord.id,
+    assignedAgentId: conversation.assigned_agent_id ?? null,
+    contactName,
+    preview: contentText?.trim() || `${message.type} message`,
+  }).catch((err) =>
+    console.error('[notifications] message_received failed:', err),
+  )
 }
 
 async function parseMessageContent(

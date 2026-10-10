@@ -10,6 +10,7 @@ import { MobileBottomNav } from "@/components/layout/mobile-bottom-nav";
 import { NetworkStatusBanner } from "@/components/layout/network-status-banner";
 import { AccountAccessAlert } from "@/components/layout/account-access-alert";
 import { PresenceHeartbeat } from "@/components/presence/presence-heartbeat";
+import { OnboardingPrompts } from "@/components/pwa/onboarding-prompts";
 import { SubscriptionGate } from "@/components/subscription-gate";
 import { HeaderProvider, useHideDefaultHeader } from "@/components/layout/header-context";
 
@@ -59,6 +60,9 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
       {/* Reports this tab's online/away presence once we know a user is
           signed in. Headless — renders nothing. */}
       <PresenceHeartbeat />
+      {/* One-time enable-notifications + install-app dialogs for users
+          who just finished onboarding or joined a workspace. */}
+      <OnboardingPrompts />
       <Sidebar open={sidebarOpen} onClose={closeSidebar} />
       <div className="border-border/70 bg-card flex flex-1 flex-col overflow-hidden shadow-sm lg:rounded-2xl lg:border">
         {!headerHidden && <Header onMenuClick={() => setSidebarOpen(true)} />}
