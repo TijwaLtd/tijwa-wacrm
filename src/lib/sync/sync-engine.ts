@@ -146,6 +146,7 @@ async function syncConversations(
       contact_name: (c.contact_name as string) || undefined,
       contact_phone: (c.contact_phone as string) || undefined,
       contact_company: (c.contact_company as string) || undefined,
+      contact_bsuid: (c.contact_bsuid as string) || undefined,
     })
   );
 

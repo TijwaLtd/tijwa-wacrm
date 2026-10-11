@@ -232,6 +232,7 @@ export function ConversationList({
                     account_id: lc.account_id ?? '',
                     name: lc.contact_name,
                     phone: lc.contact_phone || '',
+                    bsuid: lc.contact_bsuid,
                     company: lc.contact_company,
                     created_at: lc.created_at,
                     updated_at: lc.updated_at,
@@ -286,6 +287,7 @@ export function ConversationList({
                   id: c.contact_id as string,
                   name: c.contact_name as string,
                   phone: c.contact_phone as string,
+                  bsuid: (c.contact_bsuid as string) || undefined,
                   company: c.contact_company as string,
                 }
               : undefined,
@@ -328,6 +330,7 @@ export function ConversationList({
             contact_name: c.contact?.name,
             contact_phone: c.contact?.phone,
             contact_company: c.contact?.company,
+            contact_bsuid: c.contact?.bsuid ?? undefined,
           }));
           await putConversations(localConvs);
         } catch {

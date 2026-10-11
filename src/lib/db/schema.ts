@@ -21,6 +21,7 @@ export interface LocalConversation extends Conversation {
   contact_name?: string;
   contact_phone?: string;
   contact_company?: string;
+  contact_bsuid?: string;
 }
 
 export interface LocalMessage extends Message {
