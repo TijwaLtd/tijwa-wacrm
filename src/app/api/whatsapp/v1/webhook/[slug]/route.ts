@@ -100,7 +100,16 @@ interface WhatsAppWebhookEntry {
         id: string
         status: string
         timestamp: string
-        recipient_id: string
+        /** Omitted on BSUID sends — fall back to recipient_user_id. */
+        recipient_id?: string
+        /** BSUID of the recipient (2026 BSUID status payloads). */
+        recipient_user_id?: string
+        errors?: Array<{
+          code: number
+          title: string
+          message?: string
+          error_data?: { details: string }
+        }>
       }>
     }
     field: string
@@ -391,7 +400,12 @@ async function processWebhook(
       if (value.statuses) {
         console.log('[processWebhook] processing', value.statuses.length, 'status updates')
         for (const status of value.statuses) {
-          console.log('[processWebhook] status:', status.status, 'message_id:', status.id, 'recipient_id:', status.recipient_id)
+          console.log('[processWebhook] status:', status.status, 'message_id:', status.id, 'recipient_id:', status.recipient_id, 'recipient_user_id:', status.recipient_user_id)
+          if (status.status === 'failed' && status.errors?.length) {
+            for (const e of status.errors) {
+              console.error('[processWebhook] send failed — code:', e.code, 'title:', e.title, 'message:', e.message ?? '', 'details:', e.error_data?.details ?? '')
+            }
+          }
           await handleStatusUpdate(status)
         }
       }
@@ -480,7 +494,8 @@ async function handleStatusUpdate(
     id: string
     status: string
     timestamp: string
-    recipient_id: string
+    recipient_id?: string
+    recipient_user_id?: string
   },
 ) {
   // 1) Mirror onto messages (legacy behavior).
@@ -496,8 +511,11 @@ async function handleStatusUpdate(
   // 1b) Backfill contact wa_id/bsuid from recipient_id — free second
   // source of Meta identity on every delivery/read receipt, so phone-only
   // contacts get a Meta id even before an inbound message arrives.
+  // BSUID sends omit recipient_id and carry recipient_user_id instead,
+  // so fall back before giving up.
   // Best-effort: never let identity bookkeeping break status updates.
   try {
+    const metaRecipientId = status.recipient_id ?? status.recipient_user_id
     const { data: statusMsg } = await supabaseAdmin()
       .from('messages')
       .select('conversation_id, conversations(account_id, contact_id)')
@@ -508,11 +526,11 @@ async function handleStatusUpdate(
     const statusConv = statusMsg?.conversations as
       | { account_id: string; contact_id: string }
       | null
-    if (statusConv?.contact_id) {
+    if (statusConv?.contact_id && metaRecipientId) {
       await saveContactMetaIdentity(
         supabaseAdmin(),
         statusConv.contact_id,
-        status.recipient_id,
+        metaRecipientId,
         statusConv.account_id,
       )
     }

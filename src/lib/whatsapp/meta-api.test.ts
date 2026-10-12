@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   INTERACTIVE_LIMITS,
+  isBsuidAddress,
   sendInteractiveButtons,
   sendInteractiveList,
   sendTextMessage,
@@ -376,5 +377,97 @@ describe("sendInteractiveList — validation", () => {
         },
       },
     });
+  });
+});
+
+describe("BSUID addressing — `recipient` field (Meta 2026 change)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function captureSend(): { url: string; body: Record<string, unknown> }[] {
+    const captured: { url: string; body: Record<string, unknown> }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init: RequestInit) => {
+        captured.push({ url, body: JSON.parse(String(init.body)) });
+        return new Response(
+          JSON.stringify({ messages: [{ id: "wamid.BSUID" }] }),
+          { status: 200 },
+        );
+      }),
+    );
+    return captured;
+  }
+
+  it("classifies BSUID-shaped targets", () => {
+    expect(isBsuidAddress("KE.1361360709089389")).toBe(true);
+    expect(isBsuidAddress("US.13491208655302741918")).toBe(true);
+    expect(isBsuidAddress("HK.ENT.12345")).toBe(true);
+    expect(isBsuidAddress("254712345678")).toBe(false);
+    expect(isBsuidAddress("+14155550123")).toBe(false);
+    expect(isBsuidAddress("")).toBe(false);
+  });
+
+  it("routes a BSUID through `recipient` and never `to`", async () => {
+    const captured = captureSend();
+
+    await sendTextMessage({
+      phoneNumberId: "pn",
+      accessToken: "tok",
+      to: "KE.1361360709089389",
+      text: "hi",
+    });
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0].body).toMatchObject({
+      recipient: "KE.1361360709089389",
+      type: "text",
+    });
+    expect(captured[0].body.to).toBeUndefined();
+  });
+
+  it("keeps phone targets in `to` (Meta gives `to` precedence over `recipient`)", async () => {
+    const captured = captureSend();
+
+    await sendTextMessage({
+      phoneNumberId: "pn",
+      accessToken: "tok",
+      to: "254712345678",
+      text: "hi",
+    });
+
+    expect(captured[0].body).toMatchObject({ to: "254712345678" });
+    expect(captured[0].body.recipient).toBeUndefined();
+  });
+
+  it("routes interactive sends through `recipient` too", async () => {
+    const captured = captureSend();
+
+    await sendInteractiveButtons({
+      phoneNumberId: "pn",
+      accessToken: "tok",
+      to: "US.13491208655302741918",
+      bodyText: "Pick one",
+      buttons: [{ id: "yes", title: "Yes" }],
+    });
+
+    expect(captured[0].body).toMatchObject({
+      recipient: "US.13491208655302741918",
+    });
+    expect(captured[0].body.to).toBeUndefined();
+  });
+
+  it("targets a Graph API version that supports `recipient`", async () => {
+    const captured = captureSend();
+
+    await sendTextMessage({
+      phoneNumberId: "pn",
+      accessToken: "tok",
+      to: "1234567890",
+      text: "hi",
+    });
+
+    expect(captured[0].url).toContain("graph.facebook.com/v26.0/");
   });
 });

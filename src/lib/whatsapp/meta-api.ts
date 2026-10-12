@@ -9,8 +9,29 @@
  * instead of a runtime rejection from Meta.
  */
 
-const META_API_VERSION = 'v21.0'
+// v26.0 (2026-07-29) is required for BSUID addressing via `recipient`;
+// v21.0 predates Meta's 2026 BSUID rollout and fails those sends.
+// Exported so every Graph call (e.g. templates sync) shares one version.
+export const META_API_VERSION = 'v26.0'
 const META_API_BASE = `https://graph.facebook.com/${META_API_VERSION}`
+
+// Since Meta's Feb 2026 BSUID change a message body addresses the
+// recipient with exactly one of: `to` (phone digits) or `recipient`
+// (BSUID, e.g. "KE.1361360709089389"). A BSUID sent through `to`
+// gets a 200 + wamid and then fails asynchronously. Both fields set =
+// `to` wins, so a BSUID must never ride in `to`. Every send helper
+// routes through `addressFields` so the engine/composer/broadcast
+// paths can't drift.
+// https://developers.facebook.com/documentation/business-messaging/whatsapp/business-scoped-user-ids
+const BSUID_PATTERN = /^[A-Za-z][A-Za-z0-9]{0,9}\.[A-Za-z0-9][A-Za-z0-9.-]*$/
+
+export function isBsuidAddress(value: string): boolean {
+  return BSUID_PATTERN.test(value)
+}
+
+function addressFields(to: string): Record<string, unknown> {
+  return isBsuidAddress(to) ? { recipient: to } : { to }
+}
 
 export interface MetaSendResult {
   messageId: string
@@ -260,7 +281,7 @@ export async function sendTextMessage(
   const body: Record<string, unknown> = {
     messaging_product: 'whatsapp',
     recipient_type: 'individual',
-    to,
+    ...addressFields(to),
     type: 'text',
     text: { body: text },
   }
@@ -326,7 +347,7 @@ export async function sendMediaMessage(
   const body: Record<string, unknown> = {
     messaging_product: 'whatsapp',
     recipient_type: 'individual',
-    to,
+    ...addressFields(to),
     type: kind,
     [kind]: media,
   }
@@ -441,7 +462,7 @@ export async function sendTemplateMessage(
   const body: Record<string, unknown> = {
     messaging_product: 'whatsapp',
     recipient_type: 'individual',
-    to,
+    ...addressFields(to),
     type: 'template',
     template: templatePayload,
   }
@@ -711,7 +732,7 @@ export async function sendReactionMessage(
     body: JSON.stringify({
       messaging_product: 'whatsapp',
       recipient_type: 'individual',
-      to,
+      ...addressFields(to),
       type: 'reaction',
       reaction: { message_id: targetMessageId, emoji },
     }),
@@ -858,7 +879,7 @@ export async function sendInteractiveButtons(
   const body: Record<string, unknown> = {
     messaging_product: 'whatsapp',
     recipient_type: 'individual',
-    to,
+    ...addressFields(to),
     type: 'interactive',
     interactive,
   }
@@ -989,7 +1010,7 @@ export async function sendInteractiveList(
   const body: Record<string, unknown> = {
     messaging_product: 'whatsapp',
     recipient_type: 'individual',
-    to,
+    ...addressFields(to),
     type: 'interactive',
     interactive,
   }
@@ -1154,7 +1175,7 @@ export async function sendProductList(
   const body: Record<string, unknown> = {
     messaging_product: 'whatsapp',
     recipient_type: 'individual',
-    to,
+    ...addressFields(to),
     type: 'interactive',
     interactive,
   }
