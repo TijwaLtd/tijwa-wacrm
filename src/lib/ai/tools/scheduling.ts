@@ -81,20 +81,15 @@ export function slotList(
 type ScheduleSection = { title: string; rows: Array<{ id: string; title: string; description?: string }> }
 
 /**
- * Checkout gate the old Confirm button ran (consent + profile
- * completion). Its messages are sent by the gate itself — we
- * only need to know whether to hold the booking. Consent is sent
- * but never holds (silence = accepted); only an incomplete
- * profile (name + email) holds the booking.
+ * Optional checkout asks (terms + profile form) fired right before a
+ * booking is created — never blocks; the booking proceeds either way.
  */
-export async function scheduleGateReady(ctx: ToolContext): Promise<boolean> {
+export async function sendScheduleCheckoutAsks(ctx: ToolContext): Promise<void> {
   try {
-    const { ensureCheckoutReady } = await import('../auto-reply')
-    const gate = await ensureCheckoutReady(ctx.db, ctx.accountId, ctx.conversationId, ctx.contactId, ctx.userId)
-    return gate === 'ok'
+    const { sendCheckoutAsks } = await import('../auto-reply')
+    await sendCheckoutAsks(ctx.db, ctx.accountId, ctx.conversationId, ctx.contactId, ctx.userId)
   } catch (err) {
-    console.error('[scheduling] checkout gate failed:', err)
-    return true
+    console.error('[scheduling] checkout asks failed:', err)
   }
 }
 

@@ -14,7 +14,7 @@
 
 import type { ToolDefinition, ToolHandler, ToolContext } from './types'
 import { createBooking, isFutureDate } from '@/lib/business/scheduling'
-import { slotList, scheduleGateReady } from './scheduling'
+import { slotList, sendScheduleCheckoutAsks } from './scheduling'
 import { buildListRow, formatPriceLabel } from './list-format'
 
 // ============================================================
@@ -412,13 +412,7 @@ const previewPropertyInquiryHandler: ToolHandler = async (args, ctx) => {
   const media = (property.media as any[]) || []
   const propertyImageUrl = media.find((m: any) => m.is_primary)?.url || media[0]?.url || null
 
-  if (!(await scheduleGateReady(ctx))) {
-    return {
-      success: false,
-      gated: true,
-      response: 'I just sent you a quick step to complete — reply here once it is done and I will finish this.',
-    }
-  }
+  await sendScheduleCheckoutAsks(ctx)
 
   // Book now — the old Confirm button did exactly this insert.
   const { ok, bookingNumber, error } = await createBooking({

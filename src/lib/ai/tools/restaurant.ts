@@ -15,7 +15,7 @@
 
 import type { ToolDefinition, ToolHandler, ToolContext } from './types'
 import { createBooking, isFutureSlot } from '@/lib/business/scheduling'
-import { slotList, scheduleGateReady } from './scheduling'
+import { slotList, sendScheduleCheckoutAsks } from './scheduling'
 import { buildListRow, formatPriceLabel } from './list-format'
 import { resolveCataloguePrices } from './retailer'
 
@@ -473,13 +473,7 @@ const previewReservationHandler: ToolHandler = async (args, ctx) => {
     }
   }
 
-  if (!(await scheduleGateReady(ctx))) {
-    return {
-      success: false,
-      gated: true,
-      response: 'I just sent you a quick step to complete — reply here once it is done and I will finish this.',
-    }
-  }
+  await sendScheduleCheckoutAsks(ctx)
 
   const { ok, bookingNumber, error } = await createBooking({
     db,

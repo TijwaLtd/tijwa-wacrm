@@ -114,7 +114,7 @@ async function sendDefaultMessage(
 //                     flows / automations, until they tap Accept.
 //
 // The message carries ONE link — the policy page. Profile
-// (name + email) is required at checkout only, rate-limited nudge.
+// (name + email) is an optional rate-limited nudge, never a block.
 // ============================================================
 
 const PROFILE_NUDGE_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000
@@ -149,7 +149,7 @@ async function loadPublicContext(
  * or Decline tap overwrites this in handleConsentTap.
  *
  * Ask-once semantics — never re-asks once the version is on the
- * contact; the checkout gate only re-sends if the first send never
+ * contact; the checkout ask only re-sends if the first send never
  * went out (version still unset).
  */
 async function sendConsentMessage(
@@ -287,9 +287,8 @@ async function handleConsentTap(
   }
 
   if (accepted) {
-    // No "tap Confirm again" — the checkout gate continues in the same
-    // turn now (see ensureCheckoutReady), so there is never a held
-    // action waiting behind this tap.
+    // No "tap Confirm again" — checkout asks never hold the action
+    // (see sendCheckoutAsks), so there is nothing waiting behind this tap.
     const text = `Thanks — you've accepted our Terms of Service. Anything else I can help with?`
     try {
       await engineSendText({ accountId, userId, conversationId, contactId, text, aiGenerated: false })
@@ -379,69 +378,67 @@ export async function enforceConsentGate(args: {
   return true
 }
 
-type CheckoutGate = 'ok' | 'profile'
-
 /**
- * Gate for order/booking confirm buttons:
- *   1. Terms must be accepted — a sent-but-ignored ask already counts,
- *      so a missing ask is sent HERE and the action continues in the
- *      same turn (terms + handled reply = two messages; the ask never
- *      blocks, see sendConsentMessage)
- *   2. Profile needs name + email (points at the public data page) —
- *      this one still holds the action
- * Returns 'ok' when the confirm may proceed.
+ * Checkout asks for order/booking confirm buttons — both optional,
+ * neither blocks the action:
+ *   1. Terms — sent if never asked (silence = accepted, see
+ *      sendConsentMessage)
+ *   2. Profile form — name + email are optional extras for email
+ *      confirmations; rate-limited like the post-reply nudge
+ * The caller always proceeds to create the order/booking; these
+ * messages ride along ahead of the confirmation.
  */
-export async function ensureCheckoutReady(
+export async function sendCheckoutAsks(
   db: ReturnType<typeof supabaseAdmin>,
   accountId: string,
   conversationId: string,
   contactId: string,
   userId: string,
-): Promise<CheckoutGate> {
+): Promise<void> {
   const { data: contact } = await db
     .from('contacts')
-    .select('name, email, consent_tos_version')
+    .select('name, email, consent_tos_version, last_profile_nudge_at')
     .eq('account_id', accountId)
     .eq('id', contactId)
     .maybeSingle()
-  if (!contact) return 'ok'
+  if (!contact) return
 
-  // Terms: send if never asked, then keep going — silence on the ask
-  // is already recorded as acceptance, so this must not drop the action.
+  // Terms: send if never asked — silence on the ask is already
+  // recorded as acceptance, so this never holds the action.
   const consentSent = !contact.consent_tos_version
   if (consentSent) {
     await sendConsentMessage(db, accountId, conversationId, contactId, userId)
   }
 
-  if (!contact.name || !contact.email) {
-    const ctx = await loadPublicContext(db, accountId)
-    if (ctx) {
-      // Don't stack two extra messages in one turn — consent wins.
-      if (!consentSent) {
-        const link = contactFormUrl(ctx.slug, contactId)
-        try {
-          await sendProfileLinkMessage(
-            accountId,
-            conversationId,
-            contactId,
-            userId,
-            link,
-            `Almost there — to confirm this I just need your name and email for the confirmation. Add them here in one step (then tap Confirm again): ${link} — your details stay with ${ctx.slug} and you can delete them anytime from that page.`,
-          )
-          await db
-            .from('contacts')
-            .update({ last_profile_nudge_at: new Date().toISOString() })
-            .eq('account_id', accountId)
-            .eq('id', contactId)
-        } catch (err) {
-          console.error('[ai auto-reply] checkout profile ask failed:', err)
-        }
-      }
-      return 'profile'
-    }
+  // Profile form: optional, rate-limited. Don't stack two extra
+  // messages in one turn — consent wins; the form rides the next ask.
+  if (contact.name && contact.email) return
+  if (consentSent) return
+  if (contact.last_profile_nudge_at) {
+    const last = Date.parse(contact.last_profile_nudge_at)
+    if (Number.isFinite(last) && Date.now() - last < PROFILE_NUDGE_INTERVAL_MS) return
   }
 
-  return 'ok'
+  const ctx = await loadPublicContext(db, accountId)
+  if (!ctx) return
+  const link = contactFormUrl(ctx.slug, contactId)
+  try {
+    await sendProfileLinkMessage(
+      accountId,
+      conversationId,
+      contactId,
+      userId,
+      link,
+      `Optional: to get confirmations by email, save your name and email here: ${link} — your details stay with ${ctx.slug} and you can delete them anytime from that page.`,
+    )
+    await db
+      .from('contacts')
+      .update({ last_profile_nudge_at: new Date().toISOString() })
+      .eq('account_id', accountId)
+      .eq('id', contactId)
+  } catch (err) {
+    console.error('[ai auto-reply] checkout profile ask failed:', err)
+  }
 }
 
 /**
@@ -596,8 +593,7 @@ async function handleOrderButton(
 
   switch (btnAction) {
     case 'confirm': {
-      const gate = await ensureCheckoutReady(db, accountId, conversationId, contactId, configOwnerUserId)
-      if (gate !== 'ok') return
+      await sendCheckoutAsks(db, accountId, conversationId, contactId, configOwnerUserId)
       // ── CREATE REAL ORDER ──────────────────────────────────
       // Get the offering for the order
       const offeringId = pending.offering_id
@@ -877,8 +873,7 @@ async function handleFoodOrderButton(
 
   switch (btnAction) {
     case 'confirm': {
-      const gate = await ensureCheckoutReady(db, accountId, conversationId, contactId, configOwnerUserId)
-      if (gate !== 'ok') return
+      await sendCheckoutAsks(db, accountId, conversationId, contactId, configOwnerUserId)
       // Generate order number
       const { data: orderNum } = await db.rpc('next_order_number', { p_account_id: accountId })
       if (!orderNum) {
@@ -1080,8 +1075,7 @@ async function handleReservationButton(
 
   switch (btnAction) {
     case 'confirm': {
-      const gate = await ensureCheckoutReady(db, accountId, conversationId, contactId, configOwnerUserId)
-      if (gate !== 'ok') return
+      await sendCheckoutAsks(db, accountId, conversationId, contactId, configOwnerUserId)
       // Generate booking number
       const { data: bookingNum } = await db.rpc('next_booking_number', { p_account_id: accountId })
       const bookingNumber = bookingNum || `RES-${Date.now()}`
@@ -1227,8 +1221,7 @@ async function handleBookingButton(
 
   switch (btnAction) {
     case 'confirm': {
-      const gate = await ensureCheckoutReady(db, accountId, conversationId, contactId, configOwnerUserId)
-      if (gate !== 'ok') return
+      await sendCheckoutAsks(db, accountId, conversationId, contactId, configOwnerUserId)
       // Generate booking number
       const { data: bookingNum } = await db.rpc('next_booking_number', { p_account_id: accountId })
       const bookingNumber = bookingNum || `BK-${Date.now()}`
@@ -1532,8 +1525,7 @@ async function handleProductOrderButton(
 
   switch (btnAction) {
     case 'confirm': {
-      const gate = await ensureCheckoutReady(db, accountId, conversationId, contactId, configOwnerUserId)
-      if (gate !== 'ok') return
+      await sendCheckoutAsks(db, accountId, conversationId, contactId, configOwnerUserId)
       // Generate order number
       const { data: orderNum } = await db.rpc('next_order_number', { p_account_id: accountId })
       if (!orderNum) {
@@ -1954,8 +1946,7 @@ async function handlePropertyInquiryButton(
 
   switch (btnAction) {
     case 'confirm': {
-      const gate = await ensureCheckoutReady(db, accountId, conversationId, contactId, configOwnerUserId)
-      if (gate !== 'ok') return
+      await sendCheckoutAsks(db, accountId, conversationId, contactId, configOwnerUserId)
       const { data: bookingNum } = await db.rpc('next_booking_number', { p_account_id: accountId })
       const bookingNumber = bookingNum || `INQ-${Date.now()}`
 
@@ -3484,8 +3475,7 @@ async function handleContextScheduleTap(
     return
   }
 
-  const gate = await ensureCheckoutReady(db, accountId, conversationId, contactId, userId)
-  if (gate !== 'ok') return
+  await sendCheckoutAsks(db, accountId, conversationId, contactId, userId)
 
   if (kind === 'property') {
     const { ok, bookingNumber, error } = await createBooking({
@@ -3599,8 +3589,7 @@ async function handleStayLengthTap(
     return
   }
 
-  const gate = await ensureCheckoutReady(db, accountId, conversationId, contactId, userId)
-  if (gate !== 'ok') return
+  await sendCheckoutAsks(db, accountId, conversationId, contactId, userId)
 
   const perNight = pending.total_price || 0
   const endDate = new Date(checkIn)
