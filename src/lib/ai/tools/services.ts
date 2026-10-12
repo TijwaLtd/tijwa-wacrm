@@ -14,6 +14,7 @@
 
 import type { ToolDefinition, ToolHandler, ToolContext } from './types'
 import { createBooking, isFutureDate } from '@/lib/business/scheduling'
+import { bookingDetailUrl } from '@/lib/public/customer'
 import { slotList, sendScheduleCheckoutAsks } from './scheduling'
 import { buildListRow, formatPriceLabel } from './list-format'
 
@@ -338,7 +339,7 @@ const previewServiceBookingHandler: ToolHandler = async (args, ctx) => {
 
   await sendScheduleCheckoutAsks(ctx)
 
-  const { ok, bookingNumber, error } = await createBooking({
+  const { ok, bookingId, bookingNumber, error } = await createBooking({
     db,
     accountId: ctx.accountId,
     contactId: ctx.contactId,
@@ -368,6 +369,20 @@ const previewServiceBookingHandler: ToolHandler = async (args, ctx) => {
   const dateObj = new Date(serviceDate)
   const formattedDate = dateObj.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
 
+  // Customer-facing appointment link (opaque booking UUID). Lets them view
+  // the booking on the web — the carve-out keeps management off WhatsApp.
+  let linkLine = ''
+  if (bookingId) {
+    const { data: account } = await ctx.db
+      .from('accounts')
+      .select('subdomain')
+      .eq('id', ctx.accountId)
+      .maybeSingle()
+    if (account?.subdomain) {
+      linkLine = `\nView or manage this appointment: ${bookingDetailUrl(account.subdomain, bookingId)}`
+    }
+  }
+
   return {
     success: true,
     booking_number: bookingNumber,
@@ -381,8 +396,9 @@ const previewServiceBookingHandler: ToolHandler = async (args, ctx) => {
       (serviceTime ? ` at ${serviceTime}` : '') +
       `\n*Duration:* ${durationMinutes} min\n` +
       `*Price:* ${service.currency || 'KES'} ${price}\n` +
-      `*Reference:* ${bookingNumber}\n\n` +
-      `Reply with a new date any time to change it.`,
+      `*Reference:* ${bookingNumber}\n` +
+      linkLine +
+      `\n\nReply with a new date any time to change it.`,
     image_url: serviceImageUrl,
   }
 }

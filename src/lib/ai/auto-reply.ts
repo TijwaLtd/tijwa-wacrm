@@ -29,6 +29,7 @@ import {
 import { AuditService } from '@/lib/audit/service'
 import { AuditEventType } from '@/lib/audit/events'
 import { contactFormUrl, legalUrls, CONSENT_VERSION } from '@/lib/public/customer'
+import { screenOutboundForPhi, secureBookingUrl } from '@/lib/security/phi-filter'
 import { searchMenuItems } from './tools/restaurant'
 import { searchRooms } from './tools/hotel'
 import { searchProducts, getCart, addToCart, clearCart, formatCartSummary, getCartButtons, resolveCataloguePrices } from './tools/retailer'
@@ -4147,10 +4148,20 @@ export async function dispatchInboundToAiReply(
     // Fetch business type for tone adaptation
     const { data: account } = await db
       .from('accounts')
-      .select('business_type')
+      .select('business_type, subdomain')
       .eq('id', accountId)
       .maybeSingle()
     const businessType = account?.business_type || null
+    const accountSlug = account?.subdomain || null
+
+    // HIPAA carve-out flag (tenant_settings) — gates the prompt section and
+    // the outbound PHI filter. Healthcare tenants have it ON by default.
+    const { data: tenantSettings } = await db
+      .from('tenant_settings')
+      .select('hipaa_mode')
+      .eq('account_id', accountId)
+      .maybeSingle()
+    const hipaaMode = tenantSettings?.hipaa_mode === true
 
     // Enabled capabilities — gates toolsets and prompt tool sections
     // (undefined = unknown → business-type fallback inside the helpers)
@@ -4180,6 +4191,7 @@ export async function dispatchInboundToAiReply(
       knowledge,
       businessType,
       capabilities,
+      hipaaMode,
     })
 
     // ── EDIT MODE CONTEXT ────────────────────────────────────
@@ -4434,6 +4446,31 @@ export async function dispatchInboundToAiReply(
         reply = { type: 'handoff' as const }
       } else {
         throw err
+      }
+    }
+
+    // ── OUTBOUND PHI FILTER (HIPAA carve-out) ────────────────
+    // Safety net that runs after the model produced text and before it is
+    // sent. The prompt already forbids clinical detail; this catches slips.
+    // Only active when tenant_settings.hipaa_mode is TRUE.
+    if (hipaaMode && reply.type === 'reply' && reply.text) {
+      const bookingUrl = accountSlug ? secureBookingUrl(accountSlug, contactId) : undefined
+      const screened = screenOutboundForPhi(reply.text, bookingUrl)
+      if (screened.blocked && screened.replacement) {
+        console.warn(`[ai auto-reply] outbound PHI blocked (account ${accountId}) — redirecting to secure booking.`)
+        reply = { type: 'reply' as const, text: screened.replacement }
+        try {
+          await AuditService.record({
+            eventType: AuditEventType.OUTBOUND_PHI_BLOCKED,
+            accountId,
+            actorUserId: configOwnerUserId,
+            contactId,
+            conversationId,
+            metadata: { reason: 'hipaa_mode_phi_filter' },
+          })
+        } catch (err) {
+          console.error('[ai auto-reply] PHI-block audit error:', err)
+        }
       }
     }
 

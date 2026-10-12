@@ -94,6 +94,64 @@ export function contactFormUrl(slug: string, contactId: string): string {
   return `${appOrigin()}/${slug}/c/${contactId}`
 }
 
+export interface PublicBooking {
+  id: string
+  booking_number: string
+  status: string
+  start_date: string | null
+  end_date: string | null
+  total: number | null
+  currency: string | null
+  service_name: string | null
+  contact_name: string | null
+  contact_phone: string | null
+}
+
+/**
+ * Resolve a single booking, always scoped to the account. The id is the
+ * booking's UUID (opaque — never the enumerable BK- number), so a link
+ * can't be guessed or walked.
+ */
+export async function resolveBooking(
+  accountId: string,
+  bookingId: string,
+): Promise<PublicBooking | null> {
+  if (!UUID_RE.test(bookingId)) return null
+  const db = createAdminClient()
+  const { data, error } = await db
+    .from('bookings')
+    .select(
+      'id, booking_number, status, start_date, end_date, total, currency, metadata, contact:contacts(name, phone)',
+    )
+    .eq('account_id', accountId)
+    .eq('id', bookingId)
+    .maybeSingle()
+  if (error || !data) return null
+
+  const meta = (data.metadata || {}) as Record<string, unknown>
+  const contact = data.contact as { name?: string | null; phone?: string | null } | null
+  const phone = contact?.phone || null
+  return {
+    id: data.id,
+    booking_number: data.booking_number,
+    status: data.status,
+    start_date: data.start_date,
+    end_date: data.end_date,
+    total: data.total,
+    currency: data.currency,
+    service_name:
+      (meta.service_name as string) || (meta.offering_name as string) || null,
+    contact_name: contact?.name || null,
+    // Internal bsuid placeholders are never shown.
+    contact_phone: phone && !phone.startsWith('bsuid_') ? phone : null,
+  }
+}
+
+/** Secure appointment-detail page for a booking at a tenant. */
+export function bookingDetailUrl(slug: string, bookingId: string): string {
+  return `${appOrigin()}/${slug}/b/${bookingId}`
+}
+
 export interface LegalUrls {
   terms: string
   privacy: string

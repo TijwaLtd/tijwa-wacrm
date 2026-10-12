@@ -1305,6 +1305,11 @@
   "BusinessSettings": {
     "businessTypeTitle": "Business type",
     "businessTypeDesc": "Sets the shape of this workspace — switching type recommends the capability set for that kind of business. Adjust individual capabilities below.",
+    "hipaaTitle": "HIPAA mode",
+    "hipaaDesc": "For healthcare workspaces. Turns WhatsApp into a scheduling and links channel only: the assistant never discusses symptoms, diagnoses, or treatment, and health notes you collect on the secure web form are encrypted at rest.",
+    "hipaaToggleLabel": "Enable HIPAA mode",
+    "hipaaToggleHint": "WhatsApp becomes scheduling + links only. Clinical detail is refused and redirected to your secure booking page.",
+    "hipaaFootnote": "WhatsApp is operated by Meta and cannot be covered by a BAA. Enabling this reduces what transits it to scheduling metadata and opaque links — it does not make WhatsApp itself HIPAA-compliant.",
     "capabilitiesTitle": "Capabilities",
     "capabilitiesDesc": "Enable only what this workspace needs. Enabled capabilities decide which modules and navigation items appear across the app."
   },

@@ -31,6 +31,8 @@ Responses may occasionally be wrong — always check prices, quantities and book
 
 See the [Platform Policy]({{slug}}/legal/platform) for more on how the AI assistant works and how it handles your data.
 
+**Healthcare businesses — WhatsApp is scheduling and links only.** When the business you are messaging is a healthcare provider, WhatsApp is used only to arrange appointments and share links. The assistant will not discuss symptoms, diagnoses, medications or treatment over WhatsApp, and will redirect you to the business's secure booking page for anything health-related. Please do not send medical details over WhatsApp — share them on the secure page instead, where they are stored encrypted. WhatsApp is operated by Meta and is not covered by the business's healthcare confidentiality obligations; it is not a channel for private health information.
+
 ## 4. Consent status
 
 We ask for your agreement once, with three possible outcomes:

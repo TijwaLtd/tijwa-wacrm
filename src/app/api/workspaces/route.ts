@@ -239,6 +239,19 @@ export async function POST(request: Request) {
       }
     }
 
+    // HIPAA carve-out: healthcare workspaces start with WhatsApp as a
+    // scheduling + links channel only. Toggleable later in Business
+    // Settings. Non-fatal on failure — the flag can be turned on manually.
+    if (bt === "healthcare" || bt === "healthcare_clinic") {
+      const { error: hipaaErr } = await serviceClient
+        .from("tenant_settings")
+        .update({ hipaa_mode: true })
+        .eq("account_id", accountId);
+      if (hipaaErr) {
+        console.error("[workspaces] hipaa_mode auto-enable failed:", hipaaErr);
+      }
+    }
+
     // Record B2B terms acceptance on the account. Non-fatal on
     // failure — the acceptance was already validated in the request
     // body; the columns are for audit/visibility.
@@ -353,6 +366,10 @@ export async function PATCH(request: Request) {
   if (typeof body?.plan === "string" && ["business", "growth", "enterprise"].includes(body.plan)) {
     settingsUpdates.plan = body.plan;
   }
+  // HIPAA carve-out switch — WhatsApp becomes scheduling+links only.
+  if (typeof body?.hipaa_mode === "boolean") {
+    settingsUpdates.hipaa_mode = body.hipaa_mode;
+  }
 
   // Update account if there are changes
   if (Object.keys(updates).length > 0) {
@@ -397,7 +414,8 @@ export async function PATCH(request: Request) {
         logo_url,
         accent_color,
         plan,
-        subscription_status
+        subscription_status,
+        hipaa_mode
       )
     `)
     .eq("id", accountId)

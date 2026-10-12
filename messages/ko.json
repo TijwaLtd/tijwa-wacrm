@@ -1409,6 +1409,11 @@
   "BusinessSettings": {
     "businessTypeTitle": "사업 유형",
     "businessTypeDesc": "워크스페이스의 형태를 결정합니다. 유형을 바꾸면 해당 사업에 맞는 기능 세트가 추천됩니다. 아래에서 개별 기능을 조정할 수 있습니다.",
+    "hipaaTitle": "HIPAA 모드",
+    "hipaaDesc": "의료 워크스페이스용입니다. WhatsApp을 예약과 링크 전용 채널로 전환합니다: 어시스턴트는 증상·진단·치료를 논의하지 않으며, 보안 웹 양식으로 수집한 건강 메모는 저장 시 암호화됩니다.",
+    "hipaaToggleLabel": "HIPAA 모드 사용",
+    "hipaaToggleHint": "WhatsApp이 예약 + 링크 전용이 됩니다. 임상 세부 정보는 거부되고 보안 예약 페이지로 안내됩니다.",
+    "hipaaFootnote": "WhatsApp은 Meta가 운영하며 BAA 대상이 아닙니다. 이 모드를 켜면 WhatsApp을 통해 전달되는 것을 예약 메타데이터와 불투명 링크로 제한합니다 — WhatsApp 자체를 HIPAA 준수로 만들지는 않습니다.",
     "capabilitiesTitle": "기능",
     "capabilitiesDesc": "워크스페이스에 필요한 기능만 켜세요. 사용 중인 기능이 앱 전체의 모듈과 내비게이션을 결정합니다."
   },

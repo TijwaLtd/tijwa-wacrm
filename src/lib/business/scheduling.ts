@@ -243,7 +243,9 @@ export function stayLengthSection(
 export interface BookingDb {
   rpc(fn: string, args: Record<string, unknown>): PromiseLike<{ data: unknown }>
   from(table: string): {
-    insert(values: Record<string, unknown>): PromiseLike<{ error: { message?: string } | null }>
+    insert(values: Record<string, unknown>): {
+      select(cols: string): PromiseLike<{ data: unknown; error: { message?: string } | null }>
+    }
   }
 }
 
@@ -264,7 +266,7 @@ export interface CreateBookingParams {
 
 export async function createBooking(
   params: CreateBookingParams,
-): Promise<{ ok: boolean; bookingNumber?: string; error?: string }> {
+): Promise<{ ok: boolean; bookingId?: string; bookingNumber?: string; error?: string }> {
   const { db, accountId, contactId } = params
   const fallback = `${params.fallbackPrefix || 'BK'}-${Date.now()}`
 
@@ -276,26 +278,32 @@ export async function createBooking(
     // keep fallback
   }
 
-  const { error } = await db.from('bookings').insert({
-    account_id: accountId,
-    booking_number: bookingNumber,
-    contact_id: contactId,
-    offering_id: params.offeringId || null,
-    status: 'confirmed',
-    start_date: params.start || null,
-    end_date: params.end || params.start || null,
-    guests: params.guests || 1,
-    currency: params.currency || 'KES',
-    total: params.total || 0,
-    notes: params.notes || null,
-    metadata: params.metadata,
-  })
+  const { data: inserted, error } = await db
+    .from('bookings')
+    .insert({
+      account_id: accountId,
+      booking_number: bookingNumber,
+      contact_id: contactId,
+      offering_id: params.offeringId || null,
+      status: 'confirmed',
+      start_date: params.start || null,
+      end_date: params.end || params.start || null,
+      guests: params.guests || 1,
+      currency: params.currency || 'KES',
+      total: params.total || 0,
+      notes: params.notes || null,
+      metadata: params.metadata,
+    })
+    .select('id')
 
   if (error) {
     console.error('[scheduling] createBooking error:', error)
     return { ok: false, error: error.message || 'Failed to create booking' }
   }
-  return { ok: true, bookingNumber }
+  // The id powers the customer-facing appointment link. If RLS filters the
+  // RETURNING the booking still exists — we just return no link.
+  const bookingId = Array.isArray(inserted) ? inserted[0]?.id : undefined
+  return { ok: true, bookingId, bookingNumber }
 }
 
 /** bookings.metadata.type → the purpose it was created for. */

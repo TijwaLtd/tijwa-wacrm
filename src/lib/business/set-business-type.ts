@@ -54,5 +54,19 @@ export async function setAccountBusinessType(
     }
   }
 
+  // HIPAA carve-out: becoming a healthcare workspace turns the carve-out on
+  // (WhatsApp becomes scheduling + links only). Leaving healthcare does NOT
+  // auto-off — the owner can toggle it in Business Settings if they still
+  // want the stricter posture. Non-fatal on failure.
+  if (businessType === 'healthcare' || businessType === 'healthcare_clinic') {
+    const { error: hipaaErr } = await db
+      .from('tenant_settings')
+      .update({ hipaa_mode: true })
+      .eq('account_id', accountId);
+    if (hipaaErr) {
+      console.error('[set-account-business-type] hipaa_mode enable failed:', hipaaErr);
+    }
+  }
+
   return { ok: true, businessType };
 }

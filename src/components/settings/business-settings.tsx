@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
-import { Building2, Loader2, Store, Hotel, UtensilsCrossed, GraduationCap, Heart, Home, Calendar, Briefcase, Truck, Package, Navigation, Sparkles, Wrench, Scissors, Dumbbell, Car, Dog, Stethoscope, Settings, Sprout } from 'lucide-react';
+import { Building2, Loader2, Store, Hotel, UtensilsCrossed, GraduationCap, Heart, Home, Calendar, Briefcase, Truck, Package, Navigation, Sparkles, Wrench, Scissors, Dumbbell, Car, Dog, Stethoscope, Settings, Sprout, ShieldCheck } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/use-auth';
@@ -42,6 +42,7 @@ export function BusinessSettings() {
 
   const [businessType, setBusinessType] = useState<BusinessType | null>(null);
   const [capabilities, setCapabilities] = useState<CapabilityWithState[]>([]);
+  const [hipaaMode, setHipaaMode] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -55,6 +56,7 @@ export function BusinessSettings() {
           const data = await res.json();
           setBusinessType(data.business_type);
           setCapabilities(data.capabilities);
+          setHipaaMode(!!data.hipaa_mode);
         }
       } catch (err) {
         console.error('Failed to fetch business settings:', err);
@@ -90,6 +92,33 @@ export function BusinessSettings() {
       toast.success('Business type updated');
       await refreshProfile();
       await refreshCapabilities();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleHipaaToggle = async (enabled: boolean) => {
+    if (!activeWorkspace?.account_id) return;
+
+    setSaving(true);
+    try {
+      const res = await fetch('/api/workspaces', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          account_id: activeWorkspace.account_id,
+          hipaa_mode: enabled,
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error((await res.json()).error || 'Failed to save');
+      }
+
+      setHipaaMode(enabled);
+      toast.success(enabled ? 'HIPAA mode enabled — WhatsApp is now scheduling + links only' : 'HIPAA mode disabled');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to save');
     } finally {
@@ -172,6 +201,45 @@ export function BusinessSettings() {
               );
             })}
           </div>
+        </CardContent>
+      </Card>
+
+      {/* HIPAA Mode — healthcare carve-out */}
+      <Card className="border-border bg-card">
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="h-5 w-5 text-primary" />
+            <CardTitle>{t('hipaaTitle')}</CardTitle>
+          </div>
+          <CardDescription>{t('hipaaDesc')}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between rounded-lg border border-border p-3">
+            <div className="flex-1 pr-4">
+              <p className="text-sm font-medium text-foreground">{t('hipaaToggleLabel')}</p>
+              <p className="text-xs text-muted-foreground">{t('hipaaToggleHint')}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleHipaaToggle(!hipaaMode)}
+              disabled={saving}
+              className={cn(
+                'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors',
+                hipaaMode ? 'bg-primary' : 'bg-muted',
+                saving && 'opacity-50 cursor-not-allowed'
+              )}
+              role="switch"
+              aria-checked={hipaaMode}
+            >
+              <span
+                className={cn(
+                  'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
+                  hipaaMode ? 'translate-x-6' : 'translate-x-1'
+                )}
+              />
+            </button>
+          </div>
+          <p className="mt-3 text-xs text-muted-foreground">{t('hipaaFootnote')}</p>
         </CardContent>
       </Card>
 

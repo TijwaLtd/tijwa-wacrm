@@ -14,6 +14,7 @@ import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { AuditService } from '@/lib/audit/service'
 import { AuditEventType } from '@/lib/audit/events'
+import { encryptPhi } from '@/lib/security/phi'
 import {
   resolveAccountBySlug,
   resolveContact,
@@ -40,6 +41,15 @@ export async function GET(request: Request, { params }: Params) {
   const contact = await resolveContact(account.id, contactId)
   if (!contact) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
+  // HIPAA carve-out — surface the flag so the form can show the optional
+  // (encrypted-at-rest) health-notes field. Never returns the notes value.
+  const db = createAdminClient()
+  const { data: tenantSettings } = await db
+    .from('tenant_settings')
+    .select('hipaa_mode')
+    .eq('account_id', account.id)
+    .maybeSingle()
+
   return NextResponse.json({
     ok: true,
     account: {
@@ -53,6 +63,7 @@ export async function GET(request: Request, { params }: Params) {
       profile_completed: !!contact.profile_completed_at,
       consent_accepted: !!contact.consent_tos_version,
     },
+    hipaa_mode: tenantSettings?.hipaa_mode === true,
   })
 }
 
@@ -88,12 +99,25 @@ export async function PATCH(request: Request, { params }: Params) {
   const profileCompleted = !!(name && email)
   const db = createAdminClient()
 
+  // Optional health notes (HIPAA carve-out) — encrypted at rest with
+  // AES-256-GCM before storage. An empty string clears the field. This
+  // value is never returned to the client and never sent over WhatsApp.
+  const healthNotes =
+    typeof body.health_notes === 'string' ? body.health_notes.trim().slice(0, 2000) : null
+  const phiUpdate: Record<string, unknown> = {}
+  if (healthNotes !== null && healthNotes !== '') {
+    phiUpdate.phi_notes_encrypted = encryptPhi(healthNotes)
+  } else if (body.health_notes === '') {
+    phiUpdate.phi_notes_encrypted = null
+  }
+
   const { error } = await db
     .from('contacts')
     .update({
       name,
       email: email || null,
       phone: phone || null,
+      ...phiUpdate,
       ...(profileCompleted ? { profile_completed_at: new Date().toISOString() } : {}),
     })
     .eq('account_id', account.id)
@@ -110,7 +134,12 @@ export async function PATCH(request: Request, { params }: Params) {
       accountId: account.id,
       actorUserId: account.owner_user_id,
       contactId,
-      metadata: { initiator: 'contact_form', fields: ['name', 'email', 'phone'] },
+      metadata: {
+        initiator: 'contact_form',
+        fields: phiUpdate.phi_notes_encrypted
+          ? ['name', 'email', 'phone', 'health_notes']
+          : ['name', 'email', 'phone'],
+      },
     })
   } catch (auditErr) {
     console.error('[public profile] audit error:', auditErr)

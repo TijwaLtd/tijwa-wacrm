@@ -14,6 +14,7 @@ import {
   isFutureDate,
   parseScheduleSlotId,
 } from '@/lib/business/scheduling'
+import { contactFormUrl } from '@/lib/public/customer'
 
 export { AI_SCHEDULING_GUIDANCE }
 
@@ -40,6 +41,24 @@ export const schedulingTools: ToolDefinition[] = [
           date: {
             type: 'string',
             description: 'YYYY-MM-DD to show one specific day only.',
+          },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'send_booking_link',
+      description:
+        'Send the customer a secure link to our booking page. Use in HIPAA mode whenever health details are discussed (so clinical info stays off WhatsApp), or whenever the customer prefers to complete a booking online.',
+      parameters: {
+        type: 'object',
+        properties: {
+          reason: {
+            type: 'string',
+            description:
+              'Short context for the audit log, e.g. "health_detail_redirect" or "customer_prefers_online".',
           },
         },
       },
@@ -199,9 +218,30 @@ function extractTime(value: unknown): string | null {
   return t.slice(0, 5) || null
 }
 
+const sendBookingLinkHandler: ToolHandler = async (args, ctx) => {
+  const reason = typeof args.reason === 'string' ? args.reason : 'customer_prefers_online'
+  const { data: account } = await ctx.db
+    .from('accounts')
+    .select('subdomain')
+    .eq('id', ctx.accountId)
+    .maybeSingle()
+  const slug = account?.subdomain
+  if (!slug) {
+    return { success: false, error: 'Booking link unavailable (no workspace slug).' }
+  }
+  const url = contactFormUrl(slug, ctx.contactId)
+  return {
+    success: true,
+    response:
+      `Here's our secure booking page — you can pick a time and share any details privately there:\n${url}`,
+    metadata: { reason },
+  }
+}
+
 export const schedulingToolHandlers: Partial<Record<string, ToolHandler>> = {
   get_available_slots: getAvailableSlotsHandler,
   update_schedule: updateScheduleHandler,
+  send_booking_link: sendBookingLinkHandler,
 }
 
 /** Re-export for preview handlers that need a parsed slot id. */

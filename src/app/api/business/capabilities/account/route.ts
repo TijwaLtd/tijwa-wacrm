@@ -48,6 +48,14 @@ export async function GET(request: Request) {
     .eq("id", accountId)
     .single();
 
+  // HIPAA carve-out switch (tenant_settings) — surfaced so the
+  // settings UI can render the toggle without a second fetch.
+  const { data: tenantSettings } = await serviceClient
+    .from("tenant_settings")
+    .select("hipaa_mode")
+    .eq("account_id", accountId)
+    .maybeSingle();
+
   // Get capabilities recommended for this business type + default-enabled ones
   const businessType = account?.business_type ?? 'other';
   const { data: capabilities, error } = await serviceClient
@@ -77,5 +85,6 @@ export async function GET(request: Request) {
     business_type: account?.business_type ?? null,
     capabilities: capabilitiesWithEnabled,
     enabled_keys: enabledKeys ?? [],
+    hipaa_mode: tenantSettings?.hipaa_mode ?? false,
   });
 }

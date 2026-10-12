@@ -94,8 +94,11 @@ export function buildSystemPrompt(args: {
   /** Enabled capability keys — controls which tool-calling sections appear.
    *  undefined = unknown (falls back to businessType heuristics). */
   capabilities?: string[] | null
+  /** HIPAA carve-out: when true, WhatsApp becomes scheduling+links only.
+   *  The model refuses clinical detail and redirects to the secure web form. */
+  hipaaMode?: boolean
 }): string {
-  const { userPrompt, mode, knowledge, businessType, capabilities } = args
+  const { userPrompt, mode, knowledge, businessType, capabilities, hipaaMode } = args
 
   // Domain activation (capability-driven, business-type fallback)
   const hasLogistics = domainActive(businessType, capabilities, ['courier', 'logistics_delivery', 'transportation'], ['delivery'])
@@ -178,6 +181,29 @@ export function buildSystemPrompt(args: {
       '- orders, bookings, payments, or account history\n' +
       '- messages, notes, or internal records\n' +
       'Only use information relevant to the current customer in the current conversation.',
+
+    // ---- HIPAA CARVE-OUT (WhatsApp = scheduling + links only) ----
+    ...(hipaaMode
+      ? [
+          'HIPAA MODE (scheduling + links only):\n' +
+            'This practice operates under a HIPAA carve-out. WhatsApp is NOT an approved channel for clinical ' +
+            'detail, so you must never collect, discuss, or repeat protected health information (PHI) here.\n' +
+            'NEVER:\n' +
+            '- Ask about, discuss, or acknowledge symptoms, diagnoses, conditions, medications, test results, ' +
+            'treatment, or medical history\n' +
+            '- Confirm that someone is a patient, has an appointment for a condition, or is under care for anything\n' +
+            '- Repeat or summarise health details the customer has already typed in this chat\n' +
+            '- Give any clinical, medical, or health advice of any kind\n' +
+            'INSTEAD, for any health-related message, do BOTH of these:\n' +
+            '1. Briefly and warmly decline clinical detail: acknowledge you can\'t discuss health matters on ' +
+            'WhatsApp (1 short sentence, no lecture).\n' +
+            '2. Redirect to the secure booking page using the send_booking_link tool (or the booking URL if the ' +
+            'tool is unavailable), telling them a clinician will handle it privately there.\n' +
+            'You CAN still: list services/appointments in generic terms, check availability, confirm or move an ' +
+            'existing appointment by reference number, share opening hours, and share the booking link.\n' +
+            'When in doubt, treat the message as health-related and redirect. It is always safer to over-redirect.',
+        ]
+      : []),
 
     // ---- ACTION SAFETY ----
     'ACTION SAFETY:\n' +

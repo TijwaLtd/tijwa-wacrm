@@ -43,6 +43,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -63,6 +64,7 @@ interface ProfileResponse {
     profile_completed: boolean;
     consent_accepted: boolean;
   };
+  hipaa_mode?: boolean;
 }
 
 type DeleteMode = 'anonymised' | 'erased';
@@ -83,8 +85,11 @@ export default function CustomerDataPage() {
   const [phone, setPhone] = useState('');
   const [profileDone, setProfileDone] = useState(false);
   const [consentAccepted, setConsentAccepted] = useState(false);
+  // HIPAA carve-out — optional health notes, encrypted at rest server-side.
+  const [hipaaMode, setHipaaMode] = useState(false);
+  const [healthNotes, setHealthNotes] = useState('');
   // Last-saved values — used to enable Save only when something changed.
-  const [saved, setSaved] = useState({ name: '', email: '', phone: '' });
+  const [saved, setSaved] = useState({ name: '', email: '', phone: '', healthNotes: '' });
 
   const [saving, setSaving] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -116,9 +121,11 @@ export default function CustomerDataPage() {
           name: data.contact.name ?? '',
           email: data.contact.email ?? '',
           phone: data.contact.phone ?? '',
+          healthNotes: '',
         });
         setProfileDone(data.contact.profile_completed);
         setConsentAccepted(data.contact.consent_accepted);
+        setHipaaMode(!!data.hipaa_mode);
       } catch {
         if (!cancelled) setNotFound(true);
       } finally {
@@ -132,7 +139,11 @@ export default function CustomerDataPage() {
 
   const trimmedEmail = email.trim();
   const emailInvalid = trimmedEmail !== '' && !EMAIL_RE.test(trimmedEmail);
-  const dirty = name !== saved.name || email !== saved.email || phone !== saved.phone;
+  const dirty =
+    name !== saved.name ||
+    email !== saved.email ||
+    phone !== saved.phone ||
+    healthNotes !== saved.healthNotes;
 
   const save = async () => {
     if (!name.trim() || emailInvalid) return;
@@ -141,7 +152,12 @@ export default function CustomerDataPage() {
       const res = await fetch(base, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email: trimmedEmail, phone }),
+        body: JSON.stringify({
+          name,
+          email: trimmedEmail,
+          phone,
+          ...(hipaaMode ? { health_notes: healthNotes.trim() } : {}),
+        }),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) {
@@ -149,7 +165,7 @@ export default function CustomerDataPage() {
         return;
       }
       setProfileDone(!!data?.profile_completed);
-      setSaved({ name, email: trimmedEmail, phone });
+      setSaved({ name, email: trimmedEmail, phone, healthNotes });
       toast.success('Details saved');
     } catch {
       toast.error('Could not save your details');
@@ -318,6 +334,26 @@ export default function CustomerDataPage() {
                 Prefilled from this conversation — edit only if it&apos;s wrong.
               </p>
             </div>
+            {hipaaMode && (
+              <div className="space-y-2">
+                <Label htmlFor="health-notes">Reason for your visit (optional)</Label>
+                <Textarea
+                  id="health-notes"
+                  value={healthNotes}
+                  onChange={(e) => setHealthNotes(e.target.value)}
+                  placeholder="Briefly, what would you like the clinician to know?"
+                  rows={3}
+                  maxLength={2000}
+                />
+                <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                  <ShieldCheck className="mt-0.5 size-3.5 shrink-0 text-emerald-600" />
+                  <span>
+                    Encrypted and stored securely. Please don&apos;t share medical details over
+                    WhatsApp — this form is the private channel.
+                  </span>
+                </p>
+              </div>
+            )}
             <Button
               onClick={save}
               disabled={saving || !name.trim() || !dirty || emailInvalid}
