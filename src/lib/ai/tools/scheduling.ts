@@ -83,7 +83,9 @@ type ScheduleSection = { title: string; rows: Array<{ id: string; title: string;
 /**
  * Checkout gate the old Confirm button ran (consent + profile
  * completion). Its messages are sent by the gate itself — we
- * only need to know whether to hold the booking.
+ * only need to know whether to hold the booking. Consent is sent
+ * but never holds (silence = accepted); only an incomplete
+ * profile (name + email) holds the booking.
  */
 export async function scheduleGateReady(ctx: ToolContext): Promise<boolean> {
   try {

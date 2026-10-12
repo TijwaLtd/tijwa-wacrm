@@ -148,8 +148,9 @@ async function loadPublicContext(
  * a state we have to come back and resolve later. An explicit Accept
  * or Decline tap overwrites this in handleConsentTap.
  *
- * Ask-once semantics — the general hook never re-asks; the checkout
- * gate only re-sends if the first send never went out.
+ * Ask-once semantics — never re-asks once the version is on the
+ * contact; the checkout gate only re-sends if the first send never
+ * went out (version still unset).
  */
 async function sendConsentMessage(
   db: ReturnType<typeof supabaseAdmin>,
@@ -157,7 +158,6 @@ async function sendConsentMessage(
   conversationId: string,
   contactId: string,
   userId: string,
-  opts: { checkout?: boolean } = {},
 ): Promise<boolean> {
   const ctx = await loadPublicContext(db, accountId)
   if (!ctx) return false
@@ -165,11 +165,7 @@ async function sendConsentMessage(
 
   // ONE link: the policy page. WhatsApp auto-links it, and it is the
   // only place the customer has to go — Terms and Privacy live there.
-  const body = clampBody(
-    opts.checkout
-      ? `Before I can confirm, please accept our Terms of Service: ${urls.terms}`
-      : `Please review and accept our Terms of Service: ${urls.terms}`,
-  )
+  const body = clampBody(`Please review and accept our Terms of Service: ${urls.terms}`)
 
   try {
     await engineSendInteractiveButtons({
@@ -291,7 +287,10 @@ async function handleConsentTap(
   }
 
   if (accepted) {
-    const text = `Thanks — you've accepted our Terms of Service. If you were confirming an order or booking, tap Confirm again and we're set. Anything else I can help with?`
+    // No "tap Confirm again" — the checkout gate continues in the same
+    // turn now (see ensureCheckoutReady), so there is never a held
+    // action waiting behind this tap.
+    const text = `Thanks — you've accepted our Terms of Service. Anything else I can help with?`
     try {
       await engineSendText({ accountId, userId, conversationId, contactId, text, aiGenerated: false })
     } catch (err) {
@@ -380,13 +379,16 @@ export async function enforceConsentGate(args: {
   return true
 }
 
-type CheckoutGate = 'ok' | 'consent' | 'profile'
+type CheckoutGate = 'ok' | 'profile'
 
 /**
  * Gate for order/booking confirm buttons:
  *   1. Terms must be accepted — a sent-but-ignored ask already counts,
- *      so this only re-sends if consent was never asked at all
- *   2. Profile needs name + email (points at the public data page)
+ *      so a missing ask is sent HERE and the action continues in the
+ *      same turn (terms + handled reply = two messages; the ask never
+ *      blocks, see sendConsentMessage)
+ *   2. Profile needs name + email (points at the public data page) —
+ *      this one still holds the action
  * Returns 'ok' when the confirm may proceed.
  */
 export async function ensureCheckoutReady(
@@ -404,31 +406,36 @@ export async function ensureCheckoutReady(
     .maybeSingle()
   if (!contact) return 'ok'
 
-  if (!contact.consent_tos_version) {
-    await sendConsentMessage(db, accountId, conversationId, contactId, userId, { checkout: true })
-    return 'consent'
+  // Terms: send if never asked, then keep going — silence on the ask
+  // is already recorded as acceptance, so this must not drop the action.
+  const consentSent = !contact.consent_tos_version
+  if (consentSent) {
+    await sendConsentMessage(db, accountId, conversationId, contactId, userId)
   }
 
   if (!contact.name || !contact.email) {
     const ctx = await loadPublicContext(db, accountId)
     if (ctx) {
-      const link = contactFormUrl(ctx.slug, contactId)
-      try {
-        await sendProfileLinkMessage(
-          accountId,
-          conversationId,
-          contactId,
-          userId,
-          link,
-          `Almost there — to confirm this I just need your name and email for the confirmation. Add them here in one step (then tap Confirm again): ${link} — your details stay with ${ctx.slug} and you can delete them anytime from that page.`,
-        )
-        await db
-          .from('contacts')
-          .update({ last_profile_nudge_at: new Date().toISOString() })
-          .eq('account_id', accountId)
-          .eq('id', contactId)
-      } catch (err) {
-        console.error('[ai auto-reply] checkout profile ask failed:', err)
+      // Don't stack two extra messages in one turn — consent wins.
+      if (!consentSent) {
+        const link = contactFormUrl(ctx.slug, contactId)
+        try {
+          await sendProfileLinkMessage(
+            accountId,
+            conversationId,
+            contactId,
+            userId,
+            link,
+            `Almost there — to confirm this I just need your name and email for the confirmation. Add them here in one step (then tap Confirm again): ${link} — your details stay with ${ctx.slug} and you can delete them anytime from that page.`,
+          )
+          await db
+            .from('contacts')
+            .update({ last_profile_nudge_at: new Date().toISOString() })
+            .eq('account_id', accountId)
+            .eq('id', contactId)
+        } catch (err) {
+          console.error('[ai auto-reply] checkout profile ask failed:', err)
+        }
       }
       return 'profile'
     }
@@ -4581,8 +4588,8 @@ export async function dispatchInboundToAiReply(
 
     // ── POST-REPLY HOOKS (consent ask + profile nudge) ───────
     // Deliberately AFTER the main reply, never mid-answer and
-    // never blocking — silence on the consent message means NOT
-    // accepted (checkout re-asks when needed).
+    // never blocking — the ask is recorded as accepted on send
+    // (silence counts), so the conversation just continues.
     try {
       const consentSent = await maybeRequestConsent(db, accountId, conversationId, contactId, configOwnerUserId)
       await maybeNudgeProfile(db, accountId, conversationId, contactId, configOwnerUserId, consentSent)
